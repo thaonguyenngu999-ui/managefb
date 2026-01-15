@@ -127,6 +127,37 @@ def init_database():
             )
         """)
 
+        # ============ GROUPS TABLE ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_uuid TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                group_name TEXT,
+                group_url TEXT,
+                member_count INTEGER DEFAULT 0,
+                is_selected INTEGER DEFAULT 0,
+                last_post_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(profile_uuid, group_id)
+            )
+        """)
+
+        # ============ POST HISTORY TABLE ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS post_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_uuid TEXT NOT NULL,
+                group_id TEXT,
+                content_id INTEGER,
+                post_url TEXT,
+                status TEXT DEFAULT 'pending',
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Tạo category mặc định nếu chưa có
         cursor.execute("SELECT COUNT(*) FROM categories")
         if cursor.fetchone()[0] == 0:
@@ -139,6 +170,8 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contents_category ON contents(category_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_profiles_uuid ON profiles(uuid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scripts_type ON scripts(type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_groups_profile ON groups(profile_uuid)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_profile ON post_history(profile_uuid)")
 
 
 def row_to_dict(row) -> Dict:
@@ -310,9 +343,16 @@ def get_profile_by_uuid(uuid: str) -> Optional[Dict]:
 
 def save_profile(data: Dict) -> Dict:
     """Lưu profile"""
+    import json as json_module
+
     with get_connection() as conn:
         cursor = conn.cursor()
         now = datetime.now().isoformat()
+
+        # Convert lists to JSON strings
+        tags = data.get('tags', '')
+        if isinstance(tags, list):
+            tags = json_module.dumps(tags, ensure_ascii=False)
 
         existing = get_profile_by_uuid(data.get('uuid', ''))
 
@@ -332,7 +372,7 @@ def save_profile(data: Dict) -> Dict:
                 data.get('status', 'stopped'),
                 data.get('proxy', ''),
                 data.get('note', ''),
-                data.get('tags', ''),
+                tags,
                 data.get('local_notes', existing.get('local_notes', '')),
                 data.get('fb_uid', existing.get('fb_uid', '')),
                 data.get('fb_name', existing.get('fb_name', '')),
@@ -355,7 +395,7 @@ def save_profile(data: Dict) -> Dict:
                 data.get('status', 'stopped'),
                 data.get('proxy', ''),
                 data.get('note', ''),
-                data.get('tags', ''),
+                tags,
                 data.get('local_notes', ''),
                 data.get('fb_uid', ''),
                 data.get('fb_name', ''),
@@ -645,6 +685,162 @@ def migrate_from_json():
 
             except Exception as e:
                 print(f"Error migrating {name}: {e}")
+
+
+# ==================== GROUPS ====================
+
+def get_groups(profile_uuid: str = None) -> List[Dict]:
+    """Lấy danh sách groups, có thể lọc theo profile"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if profile_uuid:
+            cursor.execute(
+                "SELECT * FROM groups WHERE profile_uuid = ? ORDER BY group_name",
+                (profile_uuid,)
+            )
+        else:
+            cursor.execute("SELECT * FROM groups ORDER BY group_name")
+        return rows_to_list(cursor.fetchall())
+
+
+def get_group_by_id(group_id: int) -> Optional[Dict]:
+    """Lấy group theo ID"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM groups WHERE id = ?", (group_id,))
+        return row_to_dict(cursor.fetchone())
+
+
+def save_group(data: Dict) -> Dict:
+    """Lưu group (tạo mới hoặc cập nhật)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        # Check if group already exists for this profile
+        cursor.execute(
+            "SELECT id FROM groups WHERE profile_uuid = ? AND group_id = ?",
+            (data.get('profile_uuid'), data.get('group_id'))
+        )
+        existing = cursor.fetchone()
+
+        if existing:
+            # Update
+            cursor.execute("""
+                UPDATE groups
+                SET group_name = ?, group_url = ?, member_count = ?,
+                    is_selected = ?, updated_at = ?
+                WHERE id = ?
+            """, (
+                data.get('group_name', ''),
+                data.get('group_url', ''),
+                data.get('member_count', 0),
+                data.get('is_selected', 0),
+                now,
+                existing['id']
+            ))
+            data['id'] = existing['id']
+        else:
+            # Insert
+            cursor.execute("""
+                INSERT INTO groups (profile_uuid, group_id, group_name, group_url,
+                    member_count, is_selected, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get('profile_uuid', ''),
+                data.get('group_id', ''),
+                data.get('group_name', ''),
+                data.get('group_url', ''),
+                data.get('member_count', 0),
+                data.get('is_selected', 0),
+                now, now
+            ))
+            data['id'] = cursor.lastrowid
+
+        return data
+
+
+def delete_group(group_id: int) -> bool:
+    """Xóa group"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+        return cursor.rowcount > 0
+
+
+def update_group_selection(group_id: int, is_selected: int) -> bool:
+    """Cập nhật trạng thái chọn group"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            UPDATE groups SET is_selected = ?, updated_at = ? WHERE id = ?
+        """, (is_selected, now, group_id))
+        return cursor.rowcount > 0
+
+
+def get_selected_groups(profile_uuid: str) -> List[Dict]:
+    """Lấy danh sách groups đã chọn của profile"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM groups WHERE profile_uuid = ? AND is_selected = 1 ORDER BY group_name",
+            (profile_uuid,)
+        )
+        return rows_to_list(cursor.fetchall())
+
+
+def sync_groups(profile_uuid: str, groups_from_scan: List[Dict]):
+    """Đồng bộ groups từ scan vào database"""
+    for group in groups_from_scan:
+        group['profile_uuid'] = profile_uuid
+        save_group(group)
+
+
+def clear_groups(profile_uuid: str) -> bool:
+    """Xóa tất cả groups của profile"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM groups WHERE profile_uuid = ?", (profile_uuid,))
+        return cursor.rowcount > 0
+
+
+# ==================== POST HISTORY ====================
+
+def get_post_history(profile_uuid: str = None, limit: int = 100) -> List[Dict]:
+    """Lấy lịch sử đăng bài"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if profile_uuid:
+            cursor.execute(
+                "SELECT * FROM post_history WHERE profile_uuid = ? ORDER BY created_at DESC LIMIT ?",
+                (profile_uuid, limit)
+            )
+        else:
+            cursor.execute("SELECT * FROM post_history ORDER BY created_at DESC LIMIT ?", (limit,))
+        return rows_to_list(cursor.fetchall())
+
+
+def save_post_history(data: Dict) -> Dict:
+    """Lưu lịch sử đăng bài"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        cursor.execute("""
+            INSERT INTO post_history (profile_uuid, group_id, content_id, post_url, status, error_message, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get('profile_uuid', ''),
+            data.get('group_id', ''),
+            data.get('content_id'),
+            data.get('post_url', ''),
+            data.get('status', 'pending'),
+            data.get('error_message', ''),
+            now
+        ))
+        data['id'] = cursor.lastrowid
+        return data
 
 
 # Khởi tạo database khi import module

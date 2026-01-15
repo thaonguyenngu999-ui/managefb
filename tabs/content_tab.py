@@ -158,8 +158,8 @@ class ContentTab(ctk.CTkFrame):
         new_cat_row = ctk.CTkFrame(right_panel, fg_color="transparent")
         new_cat_row.pack(fill="x", padx=15, pady=10)
 
-        ctk.CTkLabel(new_cat_row, text="Tạo mục chứa tin đăng:", font=ctk.CTkFont(size=12)).pack(side="left")
-        self.new_cat_entry = ModernEntry(new_cat_row, placeholder="Tên mục mới", width=200)
+        ctk.CTkLabel(new_cat_row, text="Tạo mục mới:", font=ctk.CTkFont(size=12)).pack(side="left")
+        self.new_cat_entry = ModernEntry(new_cat_row, placeholder="Nhập tên mục...", width=200)
         self.new_cat_entry.pack(side="left", padx=10)
 
         ctk.CTkButton(
