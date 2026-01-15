@@ -197,17 +197,21 @@ class FBManagerApp(ctk.CTk):
         # Hide all tabs
         for tab in self.tabs.values():
             tab.pack_forget()
-        
+
         # Update nav buttons
         for btn_id, btn in self.nav_buttons.items():
             if btn_id == tab_id:
                 btn.configure(fg_color=COLORS["accent"])
             else:
                 btn.configure(fg_color="transparent")
-        
+
         # Show selected tab
         if tab_id in self.tabs:
             self.tabs[tab_id].pack(fill="both", expand=True, before=self.status_bar)
+
+            # Auto-refresh posts tab when shown (to show new posts from groups tab)
+            if tab_id == "posts" and hasattr(self.tabs[tab_id], '_load_data'):
+                self.tabs[tab_id]._load_data()
     
     def _update_status(self, text: str, status_type: str = "info"):
         """Cập nhật status bar"""

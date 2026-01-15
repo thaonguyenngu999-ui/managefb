@@ -774,7 +774,7 @@ class PostsTab(ctk.CTkFrame):
 
             self.after(0, lambda pn=profile_name, p=remote_port: self._log(f"[{pn}] Đã mở, port: {p}"))
 
-            # Kết nối CDP MAX với retry
+            # Kết nối CDP MAX với retry (ưu tiên ws_url để tránh lỗi 403 Forbidden)
             helper = CDPHelper()
             max_retries = 3
             connected = False
@@ -783,7 +783,8 @@ class PostsTab(ctk.CTkFrame):
                 wait_time = 2 + attempt * 2  # 2s, 4s, 6s
                 time.sleep(wait_time)
 
-                if helper.connect(remote_port):
+                # Ưu tiên ws_url (bypass Chrome origin check)
+                if helper.connect(remote_port=remote_port, ws_url=ws_url):
                     connected = True
                     break
                 else:

@@ -44,6 +44,7 @@ class CDPClientConfig:
     """Configuration for CDP Client MAX"""
     # Session
     remote_port: int = 0
+    ws_url: Optional[str] = None  # Direct WebSocket URL (from browser API)
     connect_timeout_ms: int = 30000
     auto_reconnect: bool = True
 
@@ -105,6 +106,7 @@ class CDPClientMAX:
         # Initialize session config
         session_config = SessionConfig(
             remote_port=self.config.remote_port,
+            ws_url=self.config.ws_url,
             connect_timeout_ms=self.config.connect_timeout_ms,
             auto_reconnect=self.config.auto_reconnect,
             heartbeat_interval_ms=self.config.heartbeat_interval_ms

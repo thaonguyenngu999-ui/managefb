@@ -34,9 +34,10 @@ class CDPHelper:
             helper.close()
     """
 
-    def __init__(self, remote_port: int = None):
+    def __init__(self, remote_port: int = None, ws_url: str = None):
         self._client: Optional[CDPClientMAX] = None
         self._remote_port = remote_port
+        self._ws_url = ws_url
         self._connected = False
 
     @property
@@ -47,16 +48,29 @@ class CDPHelper:
     def is_connected(self) -> bool:
         return self._connected and self._client and self._client.is_connected
 
-    def connect(self, remote_port: int = None) -> bool:
-        """Connect to browser CDP"""
+    def connect(self, remote_port: int = None, ws_url: str = None) -> bool:
+        """
+        Connect to browser CDP
+
+        Args:
+            remote_port: CDP debug port (used if ws_url not provided)
+            ws_url: Direct WebSocket URL from browser API (preferred)
+        """
+        # Prefer ws_url (avoids 403 Forbidden from Chrome origin check)
+        url = ws_url or self._ws_url
         port = remote_port or self._remote_port
-        if not port:
+
+        if not url and not port:
             return False
 
-        self._remote_port = port
+        if port:
+            self._remote_port = port
+        if url:
+            self._ws_url = url
 
         config = CDPClientConfig(
-            remote_port=port,
+            remote_port=port or 0,
+            ws_url=url,
             auto_reconnect=True,
             enable_watchdog=True,
             enable_recovery=True,

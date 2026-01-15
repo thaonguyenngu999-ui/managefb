@@ -803,39 +803,45 @@ class ScriptsTab(ctk.CTkFrame):
         self._log(f"📝 Đang sửa: {schedule.get('name')}")
 
     def _load_groups_for_folder(self):
-        """Load nhóm cho folder đã chọn"""
-        folder_name = self.folder_var.get()
-
+        """Load nhóm từ các profiles đã chọn"""
         # Clear current groups
         for widget in self.group_scroll.winfo_children():
             widget.destroy()
         self.group_vars = {}
 
         try:
-            # Load profiles based on folder selection
-            if folder_name == "-- Tất cả --":
-                profiles = api.get_profiles(limit=500)
-            else:
-                # Find folder_id
-                folder_id = None
-                for f in self.folders:
-                    if f.get('name') == folder_name:
-                        folder_id = f.get('id')
-                        break
-                if folder_id:
-                    profiles = api.get_profiles(folder_id=[folder_id], limit=500)
-                else:
-                    profiles = api.get_profiles(limit=500)
+            # Lấy danh sách profiles đã chọn
+            selected_uuids = [uuid for uuid, var in self.profile_vars.items() if var.get()]
 
-            if profiles and len(profiles) > 0:
-                # Get first profile's UUID to load its groups
-                first_profile = profiles[0]
-                if isinstance(first_profile, dict):
-                    profile_uuid = first_profile.get('uuid', '')
-                    if profile_uuid:
-                        self.groups = get_groups(profile_uuid)
-                        self._render_groups()
-                        return
+            if not selected_uuids:
+                ctk.CTkLabel(
+                    self.group_scroll,
+                    text="⚠️ Vui lòng chọn ít nhất 1 profile trước",
+                    font=ctk.CTkFont(size=11),
+                    text_color=COLORS["warning"] if "warning" in COLORS else COLORS["text_secondary"]
+                ).pack(pady=20)
+                return
+
+            # Load groups từ tất cả profiles đã chọn
+            all_groups = {}  # {group_id: group_info} để loại bỏ trùng lặp
+
+            for profile_uuid in selected_uuids:
+                try:
+                    profile_groups = get_groups(profile_uuid)
+                    for group in profile_groups:
+                        group_id = group.get('group_id', '')
+                        if group_id and group_id not in all_groups:
+                            all_groups[group_id] = group
+                except Exception as e:
+                    print(f"Error loading groups for {profile_uuid[:8]}: {e}")
+
+            self.groups = list(all_groups.values())
+            self._render_groups()
+
+            if self.groups:
+                self._log(f"Đã tải {len(self.groups)} nhóm từ {len(selected_uuids)} profiles")
+            return
+
         except Exception as e:
             print(f"Error loading groups: {e}")
 

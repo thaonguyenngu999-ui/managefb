@@ -42,6 +42,7 @@ class SessionConfig:
     """Session configuration"""
     # Connection
     remote_port: int = 0
+    ws_url: Optional[str] = None  # Direct WebSocket URL (from browser API)
     connect_timeout_ms: int = 30000
     max_connect_retries: int = 3
     connect_retry_delay_ms: int = 1000
@@ -129,9 +130,12 @@ class CDPSession:
     def is_ready(self) -> bool:
         return self.state == SessionState.READY
 
-    def connect(self) -> Tuple[bool, Optional[FailureReason]]:
+    def connect(self, ws_url: str = None) -> Tuple[bool, Optional[FailureReason]]:
         """
         Connect to browser via CDP
+
+        Args:
+            ws_url: Optional WebSocket URL (overrides config.ws_url)
 
         Returns: (success, failure_reason)
         """
@@ -141,40 +145,54 @@ class CDPSession:
         self.state = SessionState.CONNECTING
         self.events.emit(CDPEvent(type=EventType.CDP_RECONNECTING, data={'state': 'connecting'}))
 
+        # Use provided ws_url or config ws_url
+        direct_ws_url = ws_url or self.config.ws_url
+
         for attempt in range(self.config.max_connect_retries):
             try:
-                # Get page list
-                base_url = f"http://127.0.0.1:{self.config.remote_port}"
-                resp = requests.get(f"{base_url}/json", timeout=10)
-                pages = resp.json()
+                if direct_ws_url:
+                    # Use direct WebSocket URL (bypasses /json endpoint and origin issues)
+                    self._ws_url = direct_ws_url
+                    self._target_id = None
+                else:
+                    # Fallback: Get page list from /json endpoint
+                    base_url = f"http://127.0.0.1:{self.config.remote_port}"
+                    resp = requests.get(f"{base_url}/json", timeout=10)
+                    pages = resp.json()
 
-                # Find main page
-                page = None
-                for p in pages:
-                    url = p.get('url', '')
-                    ptype = p.get('type', '')
-                    if ptype == 'page' and not url.startswith('devtools://'):
-                        page = p
-                        break
+                    # Find main page
+                    page = None
+                    for p in pages:
+                        url = p.get('url', '')
+                        ptype = p.get('type', '')
+                        if ptype == 'page' and not url.startswith('devtools://'):
+                            page = p
+                            break
 
-                if not page and pages:
-                    page = pages[0]
+                    if not page and pages:
+                        page = pages[0]
 
-                if not page:
-                    raise Exception("No page found in browser")
+                    if not page:
+                        raise Exception("No page found in browser")
 
-                self._ws_url = page.get('webSocketDebuggerUrl', '')
-                self._target_id = page.get('id')
+                    self._ws_url = page.get('webSocketDebuggerUrl', '')
+                    self._target_id = page.get('id')
 
-                if not self._ws_url:
-                    raise Exception("No WebSocket URL in page info")
+                    if not self._ws_url:
+                        raise Exception("No WebSocket URL in page info")
 
-                # Connect WebSocket
-                self._ws = websocket.create_connection(
-                    self._ws_url,
-                    timeout=self.config.connect_timeout_ms / 1000,
-                    origin=f"http://127.0.0.1:{self.config.remote_port}"
-                )
+                # Connect WebSocket (skip origin header for direct ws_url)
+                if direct_ws_url:
+                    self._ws = websocket.create_connection(
+                        self._ws_url,
+                        timeout=self.config.connect_timeout_ms / 1000
+                    )
+                else:
+                    self._ws = websocket.create_connection(
+                        self._ws_url,
+                        timeout=self.config.connect_timeout_ms / 1000,
+                        origin=f"http://127.0.0.1:{self.config.remote_port}"
+                    )
 
                 self.state = SessionState.CONNECTED
 
