@@ -27,7 +27,8 @@ def load_json(filepath: str) -> List | Dict:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
+        except (json.JSONDecodeError, IOError, OSError):
+            # Return empty list on JSON parse errors or file read errors
             return []
     return []
 
@@ -276,3 +277,94 @@ def set_setting(key: str, value):
     settings = get_settings()
     settings[key] = value
     save_settings(settings)
+
+
+# ============ CONTENT TEMPLATES MANAGEMENT ============
+
+CATEGORIES_FILE = os.path.join(DATA_DIR, "categories.json")
+CONTENTS_FILE = os.path.join(DATA_DIR, "contents.json")
+
+
+def get_categories() -> List[Dict]:
+    """Lấy danh sách categories"""
+    data = load_json(CATEGORIES_FILE)
+    if not data:
+        # Tạo category mặc định
+        default_cat = {"id": 1, "name": "Mặc định", "created_at": datetime.now().isoformat()}
+        save_json(CATEGORIES_FILE, [default_cat])
+        return [default_cat]
+    return data
+
+
+def save_category(category: Dict) -> Dict:
+    """Lưu category mới hoặc cập nhật"""
+    categories = get_categories()
+
+    if category.get('id'):
+        for i, c in enumerate(categories):
+            if c['id'] == category['id']:
+                category['updated_at'] = datetime.now().isoformat()
+                categories[i] = category
+                break
+    else:
+        category['id'] = max([c.get('id', 0) for c in categories], default=0) + 1
+        category['created_at'] = datetime.now().isoformat()
+        categories.append(category)
+
+    save_json(CATEGORIES_FILE, categories)
+    return category
+
+
+def delete_category(category_id: int) -> bool:
+    """Xóa category (không xóa category mặc định id=1)"""
+    if category_id == 1:
+        return False
+    categories = get_categories()
+    categories = [c for c in categories if c.get('id') != category_id]
+    save_json(CATEGORIES_FILE, categories)
+    return True
+
+
+def get_contents(category_id: int = None) -> List[Dict]:
+    """Lấy danh sách nội dung, có thể lọc theo category"""
+    contents = load_json(CONTENTS_FILE)
+    if category_id:
+        return [c for c in contents if c.get('category_id') == category_id]
+    return contents
+
+
+def get_content_by_id(content_id: int) -> Optional[Dict]:
+    """Lấy nội dung theo ID"""
+    contents = get_contents()
+    for c in contents:
+        if c.get('id') == content_id:
+            return c
+    return None
+
+
+def save_content(content: Dict) -> Dict:
+    """Lưu nội dung mới hoặc cập nhật"""
+    contents = load_json(CONTENTS_FILE)
+
+    if content.get('id'):
+        for i, c in enumerate(contents):
+            if c['id'] == content['id']:
+                content['updated_at'] = datetime.now().isoformat()
+                contents[i] = content
+                break
+    else:
+        content['id'] = max([c.get('id', 0) for c in contents], default=0) + 1
+        content['created_at'] = datetime.now().isoformat()
+        content['updated_at'] = datetime.now().isoformat()
+        contents.append(content)
+
+    save_json(CONTENTS_FILE, contents)
+    return content
+
+
+def delete_content(content_id: int) -> bool:
+    """Xóa nội dung"""
+    contents = load_json(CONTENTS_FILE)
+    contents = [c for c in contents if c.get('id') != content_id]
+    save_json(CONTENTS_FILE, contents)
+    return True

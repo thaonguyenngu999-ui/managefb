@@ -52,7 +52,8 @@ class HidemiumAPI:
         try:
             response = requests.get(f"{self.base_url}/v2/tag", timeout=5)
             return response.status_code == 200
-        except:
+        except requests.exceptions.RequestException:
+            # Handle all request-related errors (connection, timeout, etc.)
             return False
     
     # ============ PROFILE MANAGEMENT ============
