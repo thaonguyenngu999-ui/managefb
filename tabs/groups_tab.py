@@ -20,16 +20,12 @@ from db import (
 from api_service import api
 
 # Import for web scraping
+import requests
 try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
     from bs4 import BeautifulSoup
-    SELENIUM_AVAILABLE = True
+    BS4_AVAILABLE = True
 except ImportError:
-    SELENIUM_AVAILABLE = False
+    BS4_AVAILABLE = False
 
 
 class GroupsTab(ctk.CTkFrame):
@@ -729,13 +725,12 @@ class GroupsTab(ctk.CTkFrame):
         threading.Thread(target=do_scan, daemon=True).start()
 
     def _execute_group_scan(self) -> List[Dict]:
-        """Thực hiện quét nhóm từ Facebook"""
-        if not SELENIUM_AVAILABLE:
-            self.after(0, lambda: self._set_status("Cần cài selenium: pip install selenium beautifulsoup4", "error"))
+        """Thực hiện quét nhóm từ Facebook sử dụng CDP"""
+        if not BS4_AVAILABLE:
+            self.after(0, lambda: self._set_status("Cần cài: pip install beautifulsoup4", "error"))
             return []
 
         groups_found = []
-        driver = None
 
         try:
             # Bước 1: Mở browser qua Hidemium API
@@ -743,171 +738,165 @@ class GroupsTab(ctk.CTkFrame):
             self.after(0, lambda: self.scan_progress.set(0.05))
 
             result = api.open_browser(self.current_profile_uuid)
-
-            # DEBUG: In ra response để xem format
             print(f"[DEBUG] open_browser response: {result}")
 
-            # Kiểm tra nhiều format response khác nhau
+            # Kiểm tra response
             status = result.get('status') or result.get('type')
             if status not in ['successfully', 'success', True]:
-                # Nếu browser đã mở sẵn, vẫn có thể tiếp tục
                 if 'already' not in str(result).lower() and 'running' not in str(result).lower():
                     error = result.get('message') or result.get('title') or str(result)
                     self.after(0, lambda e=error: self._set_status(f"Lỗi mở browser: {e}", "error"))
                     return []
 
-            # Lấy debugger address - thử nhiều cách
-            debugger_address = None
+            # Lấy thông tin CDP
             data = result.get('data', {})
+            remote_port = data.get('remote_port')
+            ws_url = data.get('web_socket', '')
 
-            # Cách 1: Từ remote_port (Hidemium format)
-            if data.get('remote_port'):
-                debugger_address = f"127.0.0.1:{data['remote_port']}"
-
-            # Cách 2: Parse từ web_socket URL
-            if not debugger_address and data.get('web_socket'):
-                # ws://127.0.0.1:40000/devtools/browser/xxx -> 127.0.0.1:40000
-                ws_url = data['web_socket']
-                match = re.search(r'ws://([^/]+)', ws_url)
+            if not remote_port:
+                match = re.search(r':(\d+)/', ws_url)
                 if match:
-                    debugger_address = match.group(1)
+                    remote_port = int(match.group(1))
 
-            # Cách 3: result.data.debugger_address
-            if not debugger_address and isinstance(data, dict):
-                debugger_address = data.get('debugger_address')
-
-            # Cách 4: result.debugger_address
-            if not debugger_address:
-                debugger_address = result.get('debugger_address')
-
-            print(f"[DEBUG] debugger_address: {debugger_address}")
-
-            if not debugger_address:
-                self.after(0, lambda r=str(result)[:200]: self._set_status(f"Không có debugger address. Response: {r}", "error"))
+            if not remote_port:
+                self.after(0, lambda: self._set_status("Không lấy được remote_port", "error"))
                 return []
 
-            # ĐỢI BROWSER MỞ HOÀN TOÀN
-            self.after(0, lambda addr=debugger_address: self._set_status(f"Browser: {addr}", "info"))
-            self.after(0, lambda: self.scan_progress.set(0.1))
-            time.sleep(5)  # Đợi 5 giây để browser mở hoàn toàn
+            cdp_base = f"http://127.0.0.1:{remote_port}"
+            print(f"[DEBUG] CDP base: {cdp_base}")
 
-            # Bước 2: Kết nối Selenium đến browser đang chạy
-            self.after(0, lambda: self._set_status("Đang kết nối Selenium...", "info"))
+            # Đợi browser khởi động
+            self.after(0, lambda: self._set_status("Đợi browser khởi động...", "info"))
+            self.after(0, lambda: self.scan_progress.set(0.1))
+            time.sleep(3)
+
+            # Bước 2: Lấy danh sách tabs qua CDP
+            self.after(0, lambda: self._set_status("Đang kết nối CDP...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.15))
 
             try:
-                chrome_options = Options()
-                chrome_options.add_experimental_option("debuggerAddress", debugger_address)
-
-                driver = webdriver.Chrome(options=chrome_options)
-                print(f"[DEBUG] Selenium connected successfully")
-            except Exception as selenium_err:
-                print(f"[DEBUG] Selenium connection error: {selenium_err}")
-                self.after(0, lambda e=str(selenium_err): self._set_status(f"Lỗi kết nối Selenium: {e}", "error"))
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                tabs = resp.json()
+                print(f"[DEBUG] Found {len(tabs)} tabs")
+            except Exception as e:
+                print(f"[DEBUG] CDP connection error: {e}")
+                self.after(0, lambda err=str(e): self._set_status(f"Lỗi kết nối CDP: {err}", "error"))
                 return []
 
-            # Đợi kết nối ổn định
-            time.sleep(2)
+            # Tìm tab page (không phải devtools, extension...)
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    page_ws = tab.get('webSocketDebuggerUrl')
+                    break
 
-            # Bước 3: Mở trang danh sách nhóm đã tham gia
+            if not page_ws:
+                self.after(0, lambda: self._set_status("Không tìm thấy tab page", "error"))
+                return []
+
+            print(f"[DEBUG] Page WebSocket: {page_ws}")
+
+            # Bước 3: Kết nối WebSocket và điều khiển browser
+            import websocket
+            import json as json_module
+
             self.after(0, lambda: self._set_status("Đang mở trang nhóm...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.2))
 
-            groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
-            driver.get(groups_url)
+            ws = websocket.create_connection(page_ws, timeout=30)
 
-            # ĐỢI TRANG LOAD - quan trọng!
+            # Navigate đến trang nhóm
+            groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
+            ws.send(json_module.dumps({
+                "id": 1,
+                "method": "Page.navigate",
+                "params": {"url": groups_url}
+            }))
+            ws.recv()  # Nhận response
+
+            # Đợi trang load
             self.after(0, lambda: self._set_status("Đợi trang load...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.25))
-            time.sleep(5)  # Đợi trang load
+            time.sleep(8)
 
-            # Đợi thêm cho JavaScript render
-            try:
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
-            except:
-                pass
-
-            time.sleep(3)  # Đợi thêm cho Facebook load AJAX
-
-            # Bước 4: Scroll để load thêm nhóm
+            # Bước 4: Scroll để load nhóm
             self.after(0, lambda: self._set_status("Đang scroll load nhóm...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.3))
 
-            last_height = driver.execute_script("return document.body.scrollHeight")
-            scroll_attempts = 0
-            max_scrolls = 15  # Tăng số lần scroll
+            for i in range(10):
+                # Scroll xuống
+                ws.send(json_module.dumps({
+                    "id": 100 + i,
+                    "method": "Runtime.evaluate",
+                    "params": {"expression": "window.scrollTo(0, document.body.scrollHeight);"}
+                }))
+                ws.recv()
+                time.sleep(2)
 
-            while scroll_attempts < max_scrolls:
-                # Scroll xuống cuối trang
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(3)  # Đợi lâu hơn để load
-
-                # Kiểm tra có scroll thêm được không
-                new_height = driver.execute_script("return document.body.scrollHeight")
-                if new_height == last_height:
-                    # Thử scroll thêm 1 lần nữa
-                    time.sleep(2)
-                    new_height = driver.execute_script("return document.body.scrollHeight")
-                    if new_height == last_height:
-                        break
-
-                last_height = new_height
-                scroll_attempts += 1
-
-                progress = 0.3 + (scroll_attempts / max_scrolls) * 0.4
-                self.after(0, lambda p=progress, s=scroll_attempts: self._set_status(f"Scroll lần {s}...", "info"))
+                progress = 0.3 + (i / 10) * 0.4
+                self.after(0, lambda p=progress, s=i+1: self._set_status(f"Scroll lần {s}...", "info"))
                 self.after(0, lambda p=progress: self.scan_progress.set(p))
 
-            # Bước 5: Parse HTML để lấy danh sách nhóm
-            self.after(0, lambda: self._set_status("Đang phân tích danh sách nhóm...", "info"))
+            # Bước 5: Lấy HTML content
+            self.after(0, lambda: self._set_status("Đang lấy nội dung trang...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.75))
 
-            html_content = driver.page_source
-            soup = BeautifulSoup(html_content, 'html.parser')
+            ws.send(json_module.dumps({
+                "id": 200,
+                "method": "Runtime.evaluate",
+                "params": {"expression": "document.documentElement.outerHTML"}
+            }))
+            result = json_module.loads(ws.recv())
+            html_content = result.get('result', {}).get('result', {}).get('value', '')
 
-            # Tìm các link nhóm với aria-label "Xem nhóm"
+            ws.close()
+
+            if not html_content:
+                self.after(0, lambda: self._set_status("Không lấy được HTML", "error"))
+                return []
+
+            print(f"[DEBUG] Got HTML length: {len(html_content)}")
+
+            # Bước 6: Parse HTML
+            self.after(0, lambda: self._set_status("Đang phân tích...", "info"))
+            self.after(0, lambda: self.scan_progress.set(0.85))
+
+            soup = BeautifulSoup(html_content, 'html.parser')
             links = soup.find_all('a', {'aria-label': 'Xem nhóm'})
 
+            print(f"[DEBUG] Found {len(links)} group links")
             self.after(0, lambda n=len(links): self._set_status(f"Tìm thấy {n} link nhóm...", "info"))
 
             for link in links:
                 href = link.get('href', '')
                 if '/groups/' in href:
-                    # Extract group ID từ URL
                     match = re.search(r'/groups/([^/?]+)', href)
                     if match:
                         group_id = match.group(1)
 
-                        # Bỏ qua nếu là "joins" hoặc "feed"
                         if group_id in ['joins', 'feed', 'discover']:
                             continue
 
-                        # Lấy tên nhóm - tìm trong các parent elements
-                        group_name = group_id  # Default là group_id
+                        group_name = group_id
 
-                        # Tìm parent chứa tên nhóm
+                        # Tìm tên nhóm
                         parent = link
-                        for _ in range(10):  # Tìm lên 10 cấp
+                        for _ in range(10):
                             parent = parent.find_parent()
                             if parent is None:
                                 break
-                            # Tìm span hoặc div có text
                             spans = parent.find_all(['span', 'div'], recursive=False)
                             for span in spans:
                                 text = span.get_text(strip=True)
                                 if text and len(text) > 3 and text != "Xem nhóm" and not text.startswith('http'):
-                                    if len(text) < 150:  # Tên nhóm hợp lệ
+                                    if len(text) < 150:
                                         group_name = text
                                         break
                             if group_name != group_id:
                                 break
 
-                        # Tạo full URL
                         group_url = f"https://www.facebook.com/groups/{group_id}/"
 
-                        # Kiểm tra không trùng lặp
                         if not any(g['group_id'] == group_id for g in groups_found):
                             groups_found.append({
                                 'group_id': group_id,
@@ -925,14 +914,6 @@ class GroupsTab(ctk.CTkFrame):
             print(f"Scan error: {error_detail}")
             self.after(0, lambda err=str(e): self._set_status(f"Lỗi: {err}", "error"))
 
-        finally:
-            # Đóng kết nối Selenium nhưng KHÔNG đóng browser
-            if driver:
-                try:
-                    driver.quit()
-                except:
-                    pass
-
         return groups_found
 
     def _on_scan_complete(self, groups: List[Dict]):
@@ -947,8 +928,8 @@ class GroupsTab(ctk.CTkFrame):
             self._set_status(f"Đã quét và lưu {len(groups)} nhóm!", "success")
         else:
             self._load_groups_for_profile()
-            if not SELENIUM_AVAILABLE:
-                self._set_status("Cần cài: pip install selenium beautifulsoup4 webdriver-manager", "warning")
+            if not BS4_AVAILABLE:
+                self._set_status("Cần cài: pip install beautifulsoup4 websocket-client", "warning")
             else:
                 self._set_status("Không tìm thấy nhóm nào hoặc chưa đăng nhập Facebook", "warning")
 
