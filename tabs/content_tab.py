@@ -294,28 +294,28 @@ class ContentTab(ctk.CTkFrame):
             command=self._toggle_image
         ).pack(side="left")
 
-        self.img_path_entry = ModernEntry(img_row, placeholder="Đường dẫn hình ảnh...", width=300)
+        self.img_path_entry = ModernEntry(img_row, placeholder="Thư mục chứa ảnh...", width=300)
         self.img_path_entry.pack(side="left", padx=10)
         self.img_path_entry.configure(state="disabled")
 
         ctk.CTkButton(
             img_row,
-            text="Chọn ảnh",
-            width=80,
+            text="Chọn thư mục",
+            width=100,
             height=28,
             fg_color=COLORS["accent"],
             corner_radius=5,
-            command=self._select_image
+            command=self._select_image_folder
         ).pack(side="left", padx=2)
 
         ctk.CTkButton(
             img_row,
-            text="Xem ảnh",
-            width=70,
+            text="Mở thư mục",
+            width=90,
             height=28,
             fg_color=COLORS["bg_card"],
             corner_radius=5,
-            command=self._preview_image
+            command=self._open_image_folder
         ).pack(side="left", padx=2)
 
         # Sticker attachment
@@ -692,26 +692,41 @@ class ContentTab(ctk.CTkFrame):
         else:
             self.img_path_entry.configure(state="disabled")
 
-    def _select_image(self):
-        """Chọn file hình ảnh"""
+    def _select_image_folder(self):
+        """Chọn thư mục chứa hình ảnh"""
         if not self.img_check_var.get():
             self.img_check_var.set(True)
             self.img_path_entry.configure(state="normal")
 
-        filetypes = [
-            ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
-            ("All files", "*.*")
-        ]
-        path = filedialog.askopenfilename(filetypes=filetypes)
+        path = filedialog.askdirectory(title="Chọn thư mục chứa hình ảnh")
         if path:
             self.img_path_entry.delete(0, "end")
             self.img_path_entry.insert(0, path)
+            # Count images in folder
+            img_count = self._count_images_in_folder(path)
+            self._set_status(f"Đã chọn thư mục với {img_count} ảnh", "success")
 
-    def _preview_image(self):
-        """Xem trước hình ảnh"""
+    def _count_images_in_folder(self, folder_path: str) -> int:
+        """Đếm số ảnh trong thư mục"""
+        if not os.path.isdir(folder_path):
+            return 0
+        img_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
+        count = 0
+        for f in os.listdir(folder_path):
+            if os.path.splitext(f)[1].lower() in img_extensions:
+                count += 1
+        return count
+
+    def _open_image_folder(self):
+        """Mở thư mục chứa ảnh"""
         path = self.img_path_entry.get()
-        if path and os.path.exists(path):
-            os.startfile(path) if os.name == 'nt' else os.system(f'xdg-open "{path}"')
+        if path and os.path.isdir(path):
+            if os.name == 'nt':
+                os.startfile(path)
+            else:
+                os.system(f'xdg-open "{path}"')
+        else:
+            self._set_status("Thư mục không tồn tại!", "warning")
 
     # ==================== IMPORT/EXPORT ====================
 
