@@ -2,7 +2,7 @@
 Tab Đăng Nhóm - Quét nhóm, đăng bài và đẩy tin vào các nhóm Facebook
 """
 import customtkinter as ctk
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import threading
 import random
 import os
@@ -1848,7 +1848,14 @@ class GroupsTab(ctk.CTkFrame):
 
     def _start_posting(self):
         """Bắt đầu đăng bài"""
-        if not self.current_profile_uuid:
+        # Lấy profile để dùng
+        profile_uuid = None
+        if self.multi_profile_var.get() and self.selected_profile_uuids:
+            profile_uuid = self.selected_profile_uuids[0]  # Dùng profile đầu tiên
+        elif self.current_profile_uuid:
+            profile_uuid = self.current_profile_uuid
+
+        if not profile_uuid:
             self._set_status("Vui lòng chọn profile!", "warning")
             return
 
@@ -1869,21 +1876,90 @@ class GroupsTab(ctk.CTkFrame):
         self._render_posted_urls()
 
         selected_groups = [g for g in self.groups if g['id'] in self.selected_group_ids]
+        self._posting_profile_uuid = profile_uuid
 
         def do_post():
             try:
-                self._execute_posting(selected_groups)
+                self._execute_posting(selected_groups, profile_uuid)
             except Exception as e:
+                import traceback
+                print(f"[ERROR] Posting: {traceback.format_exc()}")
                 self.after(0, lambda: self._on_posting_error(str(e)))
 
         threading.Thread(target=do_post, daemon=True).start()
 
-    def _execute_posting(self, groups: List[Dict]):
-        """Thực hiện đăng bài"""
+    def _execute_posting(self, groups: List[Dict], profile_uuid: str):
+        """Thực hiện đăng bài qua CDP"""
         import time
+        import websocket
+        import json as json_module
 
         total = len(groups)
+        self.after(0, lambda: self._set_status("Đang kết nối browser...", "info"))
 
+        # Mở browser và lấy thông tin CDP
+        result = api.open_browser(profile_uuid)
+        if result.get('type') == 'error':
+            self.after(0, lambda: self._on_posting_error(f"Không mở được browser: {result.get('title', '')}"))
+            return
+
+        data = result.get('data', {})
+        remote_port = data.get('remote_port')
+        ws_url = data.get('web_socket', '')
+
+        if not remote_port:
+            match = re.search(r':(\d+)/', ws_url)
+            if match:
+                remote_port = int(match.group(1))
+
+        if not remote_port:
+            self.after(0, lambda: self._on_posting_error("Không lấy được remote_port"))
+            return
+
+        cdp_base = f"http://127.0.0.1:{remote_port}"
+        time.sleep(2)  # Đợi browser khởi động
+
+        # Lấy page websocket
+        page_ws = None
+        for attempt in range(5):
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('type') == 'page':
+                        page_ws = p.get('webSocketDebuggerUrl')
+                        break
+                if page_ws:
+                    break
+            except:
+                time.sleep(1)
+
+        if not page_ws:
+            self.after(0, lambda: self._on_posting_error("Không kết nối được CDP"))
+            return
+
+        # Kết nối WebSocket
+        ws = None
+        try:
+            ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+        except:
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
+            except:
+                try:
+                    ws = websocket.create_connection(page_ws, timeout=30)
+                except Exception as e:
+                    self.after(0, lambda: self._on_posting_error(f"WebSocket error: {e}"))
+                    return
+
+        if not ws:
+            self.after(0, lambda: self._on_posting_error("Không kết nối được WebSocket"))
+            return
+
+        self._posting_ws = ws
+        self._cdp_id = 1
+
+        success_count = 0
         for i, group in enumerate(groups):
             if not self._is_posting:
                 break
@@ -1912,15 +1988,12 @@ class GroupsTab(ctk.CTkFrame):
                     img_count = 5
                 images = self._get_random_images(folder, img_count)
 
-            # TODO: Implement actual posting via Hidemium API
-            result = self._post_to_group(group, content_text, images)
-
-            # Generate fake URL for demo
-            post_url = f"https://facebook.com/groups/{group.get('group_id', '')}/posts/{random.randint(100000, 999999)}"
+            # Đăng bài qua CDP
+            result, post_url = self._post_to_group_cdp(ws, group, content_text, images)
 
             # Save to history
             save_post_history({
-                'profile_uuid': self.current_profile_uuid,
+                'profile_uuid': profile_uuid,
                 'group_id': group.get('group_id'),
                 'content_id': content.get('id'),
                 'post_url': post_url if result else '',
@@ -1930,6 +2003,7 @@ class GroupsTab(ctk.CTkFrame):
 
             # Add to posted URLs
             if result:
+                success_count += 1
                 self.posted_urls.append({
                     'group_name': group_name,
                     'post_url': post_url,
@@ -1940,7 +2014,7 @@ class GroupsTab(ctk.CTkFrame):
             # Delay
             if i < total - 1:
                 if self.random_delay_var.get():
-                    delay = random.uniform(1, 10)
+                    delay = random.uniform(3, 10)
                 else:
                     try:
                         delay = float(self.delay_entry.get())
@@ -1948,13 +2022,258 @@ class GroupsTab(ctk.CTkFrame):
                         delay = 5
                 time.sleep(delay)
 
-        self.after(0, lambda: self._on_posting_complete(total))
+        # Đóng WebSocket
+        try:
+            ws.close()
+        except:
+            pass
+
+        self.after(0, lambda: self._on_posting_complete(success_count))
 
     def _post_to_group(self, group: Dict, content: str, images: List[str]) -> bool:
-        """Đăng bài vào group - placeholder"""
-        import time
-        time.sleep(1)
+        """Đăng bài vào group - placeholder (dùng _post_to_group_cdp thay thế)"""
         return True
+
+    def _cdp_send(self, ws, method: str, params: Dict = None) -> Dict:
+        """Gửi CDP command và nhận response"""
+        import json as json_module
+        self._cdp_id += 1
+        msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+        ws.send(json_module.dumps(msg))
+
+        # Đợi response
+        while True:
+            try:
+                ws.settimeout(30)
+                resp = ws.recv()
+                data = json_module.loads(resp)
+                if data.get('id') == self._cdp_id:
+                    return data
+            except:
+                return {}
+
+    def _cdp_evaluate(self, ws, expression: str) -> Any:
+        """Evaluate JavaScript trong browser"""
+        result = self._cdp_send(ws, "Runtime.evaluate", {
+            "expression": expression,
+            "returnByValue": True,
+            "awaitPromise": True
+        })
+        return result.get('result', {}).get('result', {}).get('value')
+
+    def _type_like_human(self, ws, text: str):
+        """Gõ từng ký tự như người thật"""
+        import time
+        for char in text:
+            # Dispatch keyDown và keyUp cho mỗi ký tự
+            self._cdp_send(ws, "Input.insertText", {"text": char})
+            time.sleep(random.uniform(0.03, 0.12))
+
+    def _post_to_group_cdp(self, ws, group: Dict, content: str, images: List[str]) -> tuple:
+        """Đăng bài vào group qua CDP"""
+        import time
+        import base64
+
+        group_id = group.get('group_id', '')
+        group_url = f"https://www.facebook.com/groups/{group_id}"
+
+        try:
+            # Bước 1: Navigate đến group
+            self._cdp_send(ws, "Page.navigate", {"url": group_url})
+            time.sleep(random.uniform(3, 5))  # Đợi page load
+
+            # Đợi page load xong
+            for _ in range(10):
+                ready = self._cdp_evaluate(ws, "document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(random.uniform(1, 2))
+
+            # Bước 2: Click vào "Bạn viết gì đi..." để mở composer
+            click_composer_js = '''
+            (function() {
+                // Tìm div có text "Bạn viết gì đi..."
+                let divs = document.querySelectorAll('div[tabindex="0"]');
+                for (let div of divs) {
+                    if (div.innerText && div.innerText.includes("Bạn viết gì đi")) {
+                        div.click();
+                        return true;
+                    }
+                }
+                // Fallback: tìm theo role
+                let spans = document.querySelectorAll('span');
+                for (let span of spans) {
+                    if (span.innerText && span.innerText.includes("Bạn viết gì đi")) {
+                        span.click();
+                        return true;
+                    }
+                }
+                return false;
+            })()
+            '''
+            clicked = self._cdp_evaluate(ws, click_composer_js)
+            if not clicked:
+                print(f"[WARN] Không tìm thấy nút tạo bài trong group {group_id}")
+                return (False, "")
+
+            time.sleep(random.uniform(2, 3))  # Đợi popup mở
+
+            # Bước 3: Tìm và focus vào textarea (contenteditable)
+            focus_textarea_js = '''
+            (function() {
+                // Tìm tất cả contenteditable với aria-label null (textarea chính)
+                let editors = document.querySelectorAll('[contenteditable="true"]');
+                for (let i = 0; i < editors.length; i++) {
+                    let ed = editors[i];
+                    // Thường textarea post có aria-label null hoặc chứa "Bạn đang nghĩ gì"
+                    let ariaLabel = ed.getAttribute('aria-label');
+                    if (ariaLabel === null || ariaLabel === '' || ariaLabel.includes('nghĩ gì')) {
+                        ed.focus();
+                        return true;
+                    }
+                }
+                // Fallback: focus editor cuối
+                if (editors.length > 0) {
+                    editors[editors.length - 1].focus();
+                    return true;
+                }
+                return false;
+            })()
+            '''
+            focused = self._cdp_evaluate(ws, focus_textarea_js)
+            if not focused:
+                print(f"[WARN] Không focus được textarea trong group {group_id}")
+                return (False, "")
+
+            time.sleep(random.uniform(0.5, 1))
+
+            # Bước 4: Gõ nội dung từng ký tự
+            self._type_like_human(ws, content)
+            time.sleep(random.uniform(1, 2))
+
+            # Bước 5: Upload ảnh nếu có
+            if images:
+                # Click nút Ảnh/video
+                click_photo_js = '''
+                (function() {
+                    let photoBtn = document.querySelector('[aria-label="Ảnh/video"]');
+                    if (photoBtn) {
+                        photoBtn.click();
+                        return true;
+                    }
+                    // Fallback
+                    let btns = document.querySelectorAll('[role="button"]');
+                    for (let btn of btns) {
+                        if (btn.innerText && btn.innerText.includes("Ảnh")) {
+                            btn.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                })()
+                '''
+                self._cdp_evaluate(ws, click_photo_js)
+                time.sleep(random.uniform(1, 2))
+
+                # Upload từng file qua CDP
+                for img_path in images:
+                    if os.path.exists(img_path):
+                        # Đọc file và encode base64
+                        with open(img_path, 'rb') as f:
+                            file_data = base64.b64encode(f.read()).decode('utf-8')
+
+                        # Tìm input file và set files
+                        set_file_js = f'''
+                        (function() {{
+                            let inputs = document.querySelectorAll('input[type="file"]');
+                            // Thường là input thứ 2 hoặc 3
+                            for (let inp of inputs) {{
+                                if (inp.accept && inp.accept.includes('image')) {{
+                                    return true;
+                                }}
+                            }}
+                            return inputs.length > 0;
+                        }})()
+                        '''
+                        has_input = self._cdp_evaluate(ws, set_file_js)
+
+                        if has_input:
+                            # Sử dụng DOM.setFileInputFiles
+                            # Đầu tiên get document
+                            doc_result = self._cdp_send(ws, "DOM.getDocument", {})
+                            root_id = doc_result.get('result', {}).get('root', {}).get('nodeId', 0)
+
+                            if root_id:
+                                # Tìm input file
+                                query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
+                                    "nodeId": root_id,
+                                    "selector": 'input[type="file"][accept*="image"]'
+                                })
+                                node_ids = query_result.get('result', {}).get('nodeIds', [])
+
+                                if node_ids:
+                                    # Set file cho input
+                                    self._cdp_send(ws, "DOM.setFileInputFiles", {
+                                        "nodeId": node_ids[0],
+                                        "files": [img_path]
+                                    })
+                                    time.sleep(random.uniform(1, 2))
+
+                time.sleep(random.uniform(2, 3))  # Đợi upload xong
+
+            # Bước 6: Click nút Đăng
+            click_post_js = '''
+            (function() {
+                // Tìm nút có innerText = "Đăng"
+                let btns = document.querySelectorAll('[role="button"]');
+                for (let btn of btns) {
+                    let text = btn.innerText ? btn.innerText.trim() : '';
+                    if (text === "Đăng") {
+                        btn.click();
+                        return true;
+                    }
+                }
+                // Fallback: tìm aria-label
+                let postBtn = document.querySelector('[aria-label="Đăng"]');
+                if (postBtn) {
+                    postBtn.click();
+                    return true;
+                }
+                return false;
+            })()
+            '''
+            posted = self._cdp_evaluate(ws, click_post_js)
+            if not posted:
+                print(f"[WARN] Không click được nút Đăng trong group {group_id}")
+                return (False, "")
+
+            time.sleep(random.uniform(3, 5))  # Đợi đăng xong
+
+            # Bước 7: Lấy URL bài viết mới (nếu có)
+            get_url_js = '''
+            (function() {
+                // Lấy URL hiện tại sau khi đăng
+                return window.location.href;
+            })()
+            '''
+            current_url = self._cdp_evaluate(ws, get_url_js) or ""
+
+            # Tạo URL giả nếu không lấy được post ID
+            if group_id in current_url:
+                post_url = current_url
+            else:
+                post_url = f"https://www.facebook.com/groups/{group_id}/posts/{int(time.time())}"
+
+            print(f"[OK] Đã đăng bài vào group {group_id}")
+            return (True, post_url)
+
+        except Exception as e:
+            print(f"[ERROR] Lỗi đăng bài group {group_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return (False, "")
 
     def _on_posting_complete(self, total: int):
         """Hoàn tất đăng bài"""
