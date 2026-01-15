@@ -11,7 +11,7 @@ import requests
 from datetime import datetime, date, timedelta
 from config import COLORS
 from widgets import ModernButton, ModernEntry
-from db import get_post_history, get_profiles
+from db import get_post_history
 from api_service import api
 
 
@@ -272,24 +272,27 @@ class PostsTab(ctk.CTkFrame):
         self.folder_menu.configure(values=folder_options)
 
     def _load_profiles(self):
-        """Load profiles từ folder đã chọn"""
+        """Load profiles từ Hidemium API"""
         folder_name = self.folder_var.get()
 
-        if folder_name == "-- Tất cả --":
-            self.profiles = get_profiles()
-        else:
-            folder_id = None
-            for f in self.folders:
-                if f.get('name') == folder_name:
-                    folder_id = f.get('uuid') or f.get('id')
-                    break
-            if folder_id:
-                try:
-                    self.profiles = api.get_profiles(folder_id=[folder_id])
-                except:
-                    self.profiles = get_profiles()
+        try:
+            if folder_name == "-- Tất cả --":
+                # Load tất cả profiles từ API
+                self.profiles = api.get_profiles(limit=500)
             else:
-                self.profiles = get_profiles()
+                # Tìm folder_id
+                folder_id = None
+                for f in self.folders:
+                    if f.get('name') == folder_name:
+                        folder_id = f.get('uuid') or f.get('id')
+                        break
+                if folder_id:
+                    self.profiles = api.get_profiles(folder_id=[folder_id], limit=500)
+                else:
+                    self.profiles = api.get_profiles(limit=500)
+        except Exception as e:
+            print(f"[ERROR] Load profiles: {e}")
+            self.profiles = []
 
         self.profile_count_label.configure(text=f"{len(self.profiles)} profiles")
 
