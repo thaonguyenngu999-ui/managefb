@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 from config import COLORS
 from widgets import ModernCard, ModernButton, ModernEntry, ModernTextbox, ScriptCard, SearchBar
-from database import get_scripts, save_script, delete_script
+from db import get_scripts, save_script, delete_script
 from api_service import api
 
 
@@ -402,7 +402,7 @@ class ScriptsTab(ctk.CTkFrame):
     
     def _load_profiles_for_run(self):
         """Load danh sách profiles để chọn chạy script"""
-        from database import get_profiles
+        from db import get_profiles
         profiles = get_profiles()
         self.available_profiles = profiles
         

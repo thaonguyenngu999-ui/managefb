@@ -7,7 +7,7 @@ import threading
 from config import COLORS
 from widgets import ModernCard, ModernButton, ModernEntry, ProfileCard, SearchBar
 from api_service import api
-from database import get_profiles as db_get_profiles, sync_profiles, update_profile_local
+from db import get_profiles as db_get_profiles, sync_profiles, update_profile_local
 
 
 class ProfilesTab(ctk.CTkFrame):
