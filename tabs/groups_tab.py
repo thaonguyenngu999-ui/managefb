@@ -893,9 +893,21 @@ class GroupsTab(ctk.CTkFrame):
 
     # ==================== SCAN TAB ====================
 
+    def _get_profiles_to_scan(self) -> List[str]:
+        """Lấy danh sách profile UUIDs cần quét"""
+        if self.multi_profile_var.get():
+            # Multi-select mode
+            return self.selected_profile_uuids.copy()
+        elif self.current_profile_uuid:
+            # Single-select mode
+            return [self.current_profile_uuid]
+        return []
+
     def _scan_groups(self):
         """Quét danh sách nhóm"""
-        if not self.current_profile_uuid:
+        profiles_to_scan = self._get_profiles_to_scan()
+
+        if not profiles_to_scan:
             self._set_status("Vui lòng chọn profile trước!", "warning")
             return
 
@@ -904,12 +916,37 @@ class GroupsTab(ctk.CTkFrame):
 
         self._is_scanning = True
         self.scan_progress.set(0)
-        self._set_status("Đang quét nhóm...", "info")
+
+        if len(profiles_to_scan) > 1:
+            self._set_status(f"Đang quét {len(profiles_to_scan)} profiles...", "info")
+        else:
+            self._set_status("Đang quét nhóm...", "info")
 
         def do_scan():
             try:
-                result = self._execute_group_scan()
-                self.after(0, lambda: self._on_scan_complete(result))
+                all_groups = []
+                total_profiles = len(profiles_to_scan)
+
+                for idx, profile_uuid in enumerate(profiles_to_scan):
+                    if not self._is_scanning:
+                        break
+
+                    # Update status
+                    self.after(0, lambda i=idx, t=total_profiles:
+                               self._set_status(f"Quét profile {i+1}/{t}...", "info"))
+
+                    # Set current profile for scanning
+                    self.current_profile_uuid = profile_uuid
+
+                    # Scan this profile
+                    result = self._execute_group_scan()
+                    all_groups.extend(result)
+
+                    # Update progress
+                    progress = (idx + 1) / total_profiles
+                    self.after(0, lambda p=progress: self.scan_progress.set(p))
+
+                self.after(0, lambda: self._on_scan_complete(all_groups))
             except Exception as e:
                 self.after(0, lambda: self._on_scan_error(str(e)))
 
