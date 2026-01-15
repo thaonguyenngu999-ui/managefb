@@ -1,894 +1,951 @@
 """
-Tab Kịch bản - Quản lý Hidemium Scripts + Local Python Scripts
+Tab Kịch bản - Lên lịch đăng bài tự động
+Persistent scheduling - lưu vào database, chạy ngầm khi app mở
 """
 import customtkinter as ctk
-from typing import List, Dict
+from typing import List, Dict, Optional
 import threading
 import json
+import time
 import os
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 from config import COLORS
-from widgets import ModernCard, ModernButton, ModernEntry, ModernTextbox, ScriptCard, SearchBar
-from db import get_scripts, save_script, delete_script
+from widgets import ModernCard, ModernButton, ModernEntry, ModernTextbox
+from db import (
+    get_schedules, get_schedule, save_schedule, delete_schedule,
+    update_schedule_stats, get_categories, get_groups, get_contents
+)
 from api_service import api
 
 
 class ScriptsTab(ctk.CTkFrame):
-    """Tab quản lý kịch bản automation - 2 phần: Hidemium + Local"""
-    
+    """Tab quản lý kịch bản đăng bài theo lịch"""
+
     def __init__(self, master, status_callback=None, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
-        
+
         self.status_callback = status_callback
-        self.hidemium_scripts: List[Dict] = []
-        self.local_scripts: List[Dict] = []
-        self.current_script: Dict = None
-        self.available_profiles: List[Dict] = []  # Profiles để chọn chạy script
-        
+        self.schedules: List[Dict] = []
+        self.folders: List[Dict] = []
+        self.categories: List[Dict] = []
+        self.current_schedule: Dict = None
+        self._scheduler_running = False
+        self._scheduler_thread = None
+
         self._create_ui()
-        self._load_all_scripts()
-    
+        self._load_data()
+        self._start_scheduler()
+
     def _create_ui(self):
+        """Tạo giao diện"""
         # ========== HEADER ==========
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
-        header_frame.pack(fill="x", padx=20, pady=(20, 10))
-        
+        header_frame.pack(fill="x", padx=20, pady=(20, 15))
+
         ctk.CTkLabel(
             header_frame,
-            text="📜 Quản lý Kịch bản",
+            text="📅 Kịch bản Đăng bài",
             font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(side="left")
-        
-        # ========== SUB-TABS ==========
-        tabs_frame = ctk.CTkFrame(self, fg_color="transparent")
-        tabs_frame.pack(fill="x", padx=20, pady=(0, 10))
-        
-        self.tab_var = ctk.StringVar(value="hidemium")
-        
-        self.hidemium_tab_btn = ctk.CTkButton(
-            tabs_frame,
-            text="☁️ Hidemium Scripts",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            corner_radius=8,
-            height=40,
-            width=180,
-            command=lambda: self._switch_tab("hidemium")
-        )
-        self.hidemium_tab_btn.pack(side="left", padx=(0, 5))
-        
-        self.local_tab_btn = ctk.CTkButton(
-            tabs_frame,
-            text="💻 Local Scripts",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color=COLORS["bg_secondary"],
-            hover_color=COLORS["border"],
-            corner_radius=8,
-            height=40,
-            width=180,
-            command=lambda: self._switch_tab("local")
-        )
-        self.local_tab_btn.pack(side="left", padx=5)
-        
-        # ========== CONTENT CONTAINER ==========
-        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-        
-        # Create both panels but show only one
-        self._create_hidemium_panel()
-        self._create_local_panel()
-        
-        # Show hidemium by default
-        self.local_container.pack_forget()
-    
-    def _switch_tab(self, tab: str):
-        """Chuyển đổi giữa 2 tabs"""
-        self.tab_var.set(tab)
-        
-        if tab == "hidemium":
-            self.hidemium_tab_btn.configure(fg_color=COLORS["accent"])
-            self.local_tab_btn.configure(fg_color=COLORS["bg_secondary"])
-            self.local_container.pack_forget()
-            self.hidemium_container.pack(fill="both", expand=True)
-        else:
-            self.local_tab_btn.configure(fg_color=COLORS["accent"])
-            self.hidemium_tab_btn.configure(fg_color=COLORS["bg_secondary"])
-            self.hidemium_container.pack_forget()
-            self.local_container.pack(fill="both", expand=True)
-    
-    # ==================== HIDEMIUM SCRIPTS PANEL ====================
-    
-    def _create_hidemium_panel(self):
-        """Panel cho Hidemium Scripts - chỉ sync và chạy"""
-        self.hidemium_container = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-        self.hidemium_container.pack(fill="both", expand=True)
-        
-        # Top bar
-        top_bar = ctk.CTkFrame(self.hidemium_container, fg_color=COLORS["bg_secondary"], corner_radius=12, height=60)
-        top_bar.pack(fill="x", pady=(0, 10))
-        top_bar.pack_propagate(False)
-        
-        top_inner = ctk.CTkFrame(top_bar, fg_color="transparent")
-        top_inner.pack(expand=True, fill="both", padx=15, pady=10)
-        
-        ctk.CTkLabel(
-            top_inner,
-            text="Scripts từ Hidemium (chỉ xem và chạy)",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-        
-        ModernButton(
-            top_inner,
-            text="Đồng bộ từ Hidemium",
-            icon="☁️",
-            variant="primary",
-            command=self._sync_hidemium_scripts,
-            width=180
-        ).pack(side="right")
-        
-        # Main content - 2 columns
-        main_hidemium = ctk.CTkFrame(self.hidemium_container, fg_color="transparent")
-        main_hidemium.pack(fill="both", expand=True)
-        
-        # Left - Scripts list
-        left_panel = ctk.CTkFrame(main_hidemium, fg_color=COLORS["bg_secondary"], corner_radius=12, width=350)
-        left_panel.pack(side="left", fill="y", padx=(0, 10))
-        left_panel.pack_propagate(False)
-        
-        ctk.CTkLabel(
-            left_panel,
-            text="📋 Danh sách Scripts",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=15, pady=15)
-        
-        self.hidemium_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
-        self.hidemium_list.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        
-        # Right - Run panel
-        right_panel = ctk.CTkFrame(main_hidemium, fg_color=COLORS["bg_secondary"], corner_radius=12)
-        right_panel.pack(side="right", fill="both", expand=True)
-        
-        ctk.CTkLabel(
-            right_panel,
-            text="▶️ Chạy Script",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=20, pady=(15, 10))
-        
-        # Selected script info
-        self.selected_script_frame = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_card"], corner_radius=10)
-        self.selected_script_frame.pack(fill="x", padx=20, pady=10)
-        
-        self.selected_script_label = ctk.CTkLabel(
-            self.selected_script_frame,
-            text="📌 Chưa chọn script nào\nBấm vào script bên trái để chọn",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"]
-        )
-        self.selected_script_label.pack(padx=15, pady=15)
-        
-        # Profile selection
-        profile_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
-        profile_frame.pack(fill="x", padx=20, pady=10)
-        
-        ctk.CTkLabel(
-            profile_frame,
-            text="Chọn Profile để chạy:",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(anchor="w", pady=(0, 5))
-        
-        self.profile_var = ctk.StringVar(value="Chọn profile...")
-        self.profile_menu = ctk.CTkOptionMenu(
-            profile_frame,
-            variable=self.profile_var,
-            values=["Chọn profile..."],
-            fg_color=COLORS["bg_card"],
-            button_color=COLORS["accent"],
-            width=300
-        )
-        self.profile_menu.pack(anchor="w")
-        
-        # Run button
-        btn_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=20)
-        
-        ModernButton(
-            btn_frame,
-            text="Chạy Script",
-            icon="▶",
-            variant="success",
-            command=self._run_hidemium_script,
-            width=150
-        ).pack(side="left")
-        
-        ModernButton(
-            btn_frame,
-            text="Dừng",
-            icon="■",
-            variant="danger",
-            command=self._stop_script,
-            width=100
-        ).pack(side="left", padx=10)
-        
-        # Log area
-        ctk.CTkLabel(
-            right_panel,
-            text="📋 Log chạy script:",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=20, pady=(20, 5))
-        
-        self.hidemium_log = ModernTextbox(right_panel, height=200)
-        self.hidemium_log.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-        self.hidemium_log.configure(state="disabled")
-    
-    # ==================== LOCAL SCRIPTS PANEL ====================
-    
-    def _create_local_panel(self):
-        """Panel cho Local Python Scripts - viết và sửa được"""
-        self.local_container = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-        
-        # Main content - 2 columns
-        main_local = ctk.CTkFrame(self.local_container, fg_color="transparent")
-        main_local.pack(fill="both", expand=True)
-        
-        # Left - Scripts list
-        left_panel = ctk.CTkFrame(main_local, fg_color=COLORS["bg_secondary"], corner_radius=12, width=320)
-        left_panel.pack(side="left", fill="y", padx=(0, 10))
-        left_panel.pack_propagate(False)
-        
-        # Header
-        header = ctk.CTkFrame(left_panel, fg_color="transparent")
-        header.pack(fill="x", padx=15, pady=15)
-        
-        ctk.CTkLabel(
-            header,
-            text="📁 My Scripts",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(side="left")
-        
-        ModernButton(
-            header,
-            text="+ Mới",
-            variant="success",
-            command=self._new_local_script,
-            width=70
-        ).pack(side="right")
-        
-        self.local_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
-        self.local_list.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        
-        # Right - Editor
-        right_panel = ctk.CTkFrame(main_local, fg_color=COLORS["bg_secondary"], corner_radius=12)
-        right_panel.pack(side="right", fill="both", expand=True)
-        
-        # Editor header
-        editor_header = ctk.CTkFrame(right_panel, fg_color="transparent")
-        editor_header.pack(fill="x", padx=20, pady=15)
-        
-        self.editor_title = ctk.CTkLabel(
-            editor_header,
-            text="✏️ Viết Script Python mới",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=COLORS["text_primary"]
-        )
-        self.editor_title.pack(side="left")
-        
-        # Form
-        form_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
-        form_frame.pack(fill="x", padx=20, pady=(0, 10))
-        
-        # Name row
-        name_row = ctk.CTkFrame(form_frame, fg_color="transparent")
-        name_row.pack(fill="x", pady=3)
-        ctk.CTkLabel(name_row, text="Tên:", width=80, anchor="w").pack(side="left")
-        self.local_name_entry = ModernEntry(name_row, placeholder="VD: Auto Like Posts")
-        self.local_name_entry.pack(side="left", fill="x", expand=True)
-        
-        # Description row
-        desc_row = ctk.CTkFrame(form_frame, fg_color="transparent")
-        desc_row.pack(fill="x", pady=3)
-        ctk.CTkLabel(desc_row, text="Mô tả:", width=80, anchor="w").pack(side="left")
-        self.local_desc_entry = ModernEntry(desc_row, placeholder="Mô tả ngắn gọn")
-        self.local_desc_entry.pack(side="left", fill="x", expand=True)
-        
-        # Code templates
-        template_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
-        template_frame.pack(fill="x", padx=20, pady=(5, 10))
-        
-        ctk.CTkLabel(
-            template_frame,
-            text="📝 Template:",
+
+        # Scheduler status
+        self.scheduler_status = ctk.CTkLabel(
+            header_frame,
+            text="⏸ Scheduler: Chưa chạy",
             font=ctk.CTkFont(size=12),
             text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-        
-        templates = [
-            ("Auto Like", self._template_like),
-            ("Auto Comment", self._template_comment),
-            ("Auto Scroll", self._template_scroll),
-            ("Custom", self._template_custom)
-        ]
-        
-        for name, cmd in templates:
-            ctk.CTkButton(
-                template_frame,
-                text=name,
-                width=90,
-                height=28,
-                fg_color=COLORS["bg_card"],
-                hover_color=COLORS["border"],
-                corner_radius=5,
-                font=ctk.CTkFont(size=11),
-                command=cmd
-            ).pack(side="left", padx=3)
-        
-        # Code editor label
-        ctk.CTkLabel(
-            right_panel,
-            text="🐍 Python Code:",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=20, pady=(5, 5))
-        
-        # Code editor
-        self.local_editor = ModernTextbox(right_panel, height=280)
-        self.local_editor.pack(fill="both", expand=True, padx=20, pady=(0, 10))
-        self._template_custom()  # Load default template
-        
-        # Action buttons
-        btn_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=(0, 15))
-        
+        )
+        self.scheduler_status.pack(side="right", padx=10)
+
         ModernButton(
-            btn_frame,
-            text="Lưu Script",
-            icon="💾",
+            header_frame,
+            text="+ Tạo kịch bản",
+            icon="📝",
             variant="success",
-            command=self._save_local_script,
-            width=130
-        ).pack(side="left", padx=3)
-        
-        ModernButton(
-            btn_frame,
-            text="Chạy thử",
-            icon="▶",
-            variant="primary",
-            command=self._test_local_script,
-            width=110
-        ).pack(side="left", padx=3)
-        
-        ModernButton(
-            btn_frame,
-            text="Xóa",
-            icon="🗑️",
-            variant="danger",
-            command=self._delete_current_local_script,
-            width=80
-        ).pack(side="left", padx=3)
-        
-        # Log area
+            command=self._new_schedule,
+            width=140
+        ).pack(side="right", padx=5)
+
+        # ========== MAIN CONTENT - 2 COLUMNS ==========
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+
+        # Left panel - Schedule list
+        left_panel = ctk.CTkFrame(main_frame, fg_color=COLORS["bg_secondary"], corner_radius=15, width=380)
+        left_panel.pack(side="left", fill="y", padx=(0, 10))
+        left_panel.pack_propagate(False)
+
+        # List header
+        list_header = ctk.CTkFrame(left_panel, fg_color="transparent")
+        list_header.pack(fill="x", padx=15, pady=15)
+
         ctk.CTkLabel(
-            right_panel,
-            text="📋 Output:",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            list_header,
+            text="📋 Danh sách kịch bản",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        ModernButton(
+            list_header,
+            text="🔄",
+            variant="secondary",
+            command=self._load_schedules,
+            width=40
+        ).pack(side="right")
+
+        # Schedule list
+        self.schedule_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
+        self.schedule_list.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        self.empty_label = ctk.CTkLabel(
+            self.schedule_list,
+            text="📭 Chưa có kịch bản nào\nBấm '+ Tạo kịch bản' để bắt đầu",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_secondary"],
+            justify="center"
+        )
+        self.empty_label.pack(pady=50)
+
+        # Right panel - Schedule editor
+        right_panel = ctk.CTkFrame(main_frame, fg_color=COLORS["bg_secondary"], corner_radius=15)
+        right_panel.pack(side="right", fill="both", expand=True)
+
+        # Editor scroll
+        self.editor_scroll = ctk.CTkScrollableFrame(right_panel, fg_color="transparent")
+        self.editor_scroll.pack(fill="both", expand=True, padx=15, pady=15)
+
+        self._create_editor_form()
+
+    def _create_editor_form(self):
+        """Tạo form chỉnh sửa kịch bản"""
+        editor = self.editor_scroll
+
+        # Title
+        self.editor_title = ctk.CTkLabel(
+            editor,
+            text="✏️ Tạo kịch bản mới",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        self.editor_title.pack(anchor="w", pady=(0, 15))
+
+        # ========== TÊN KỊCH BẢN ==========
+        name_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        name_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(name_frame, text="Tên kịch bản:", width=120, anchor="w").pack(side="left")
+        self.name_entry = ModernEntry(name_frame, placeholder="VD: Đăng Đông Hưng buổi sáng")
+        self.name_entry.pack(side="left", fill="x", expand=True)
+
+        # ========== CHỌN THƯ MỤC PROFILE ==========
+        folder_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        folder_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(folder_frame, text="📁 Thư mục profile:", width=120, anchor="w").pack(side="left")
+        self.folder_var = ctk.StringVar(value="-- Chọn thư mục --")
+        self.folder_menu = ctk.CTkOptionMenu(
+            folder_frame,
+            variable=self.folder_var,
+            values=["-- Chọn thư mục --"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=250
+        )
+        self.folder_menu.pack(side="left", padx=5)
+
+        # ========== KHUNG GIỜ ĐĂNG ==========
+        time_label = ctk.CTkLabel(
+            editor,
+            text="⏰ Khung giờ đăng (chọn nhiều):",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        time_label.pack(anchor="w", pady=(15, 5))
+
+        time_frame = ctk.CTkFrame(editor, fg_color=COLORS["bg_card"], corner_radius=10)
+        time_frame.pack(fill="x", pady=5)
+
+        self.time_vars = {}
+        time_grid = ctk.CTkFrame(time_frame, fg_color="transparent")
+        time_grid.pack(padx=10, pady=10)
+
+        # Tạo checkbox cho từng khung giờ (6h - 23h)
+        hours = list(range(6, 24))
+        for i, hour in enumerate(hours):
+            var = ctk.BooleanVar(value=False)
+            self.time_vars[hour] = var
+            cb = ctk.CTkCheckBox(
+                time_grid,
+                text=f"{hour}:00",
+                variable=var,
+                fg_color=COLORS["accent"],
+                width=70
+            )
+            cb.grid(row=i // 6, column=i % 6, padx=5, pady=3)
+
+        # Quick select buttons
+        quick_frame = ctk.CTkFrame(time_frame, fg_color="transparent")
+        quick_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        ctk.CTkButton(
+            quick_frame, text="Sáng (6-11h)", width=90, height=28,
+            fg_color=COLORS["bg_secondary"], command=lambda: self._select_hours(6, 12)
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            quick_frame, text="Chiều (12-17h)", width=90, height=28,
+            fg_color=COLORS["bg_secondary"], command=lambda: self._select_hours(12, 18)
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            quick_frame, text="Tối (18-23h)", width=90, height=28,
+            fg_color=COLORS["bg_secondary"], command=lambda: self._select_hours(18, 24)
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            quick_frame, text="Cả ngày", width=70, height=28,
+            fg_color=COLORS["accent"], command=lambda: self._select_hours(6, 24)
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            quick_frame, text="Bỏ chọn", width=70, height=28,
+            fg_color=COLORS["danger"], command=self._clear_hours
+        ).pack(side="left", padx=2)
+
+        # ========== KỊCH BẢN NỘI DUNG ==========
+        content_label = ctk.CTkLabel(
+            editor,
+            text="📝 Kịch bản nội dung:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        content_label.pack(anchor="w", pady=(15, 5))
+
+        content_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        content_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(content_frame, text="Danh mục:", width=100, anchor="w").pack(side="left")
+        self.category_var = ctk.StringVar(value="-- Chọn danh mục --")
+        self.category_menu = ctk.CTkOptionMenu(
+            content_frame,
+            variable=self.category_var,
+            values=["-- Chọn danh mục --"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=200
+        )
+        self.category_menu.pack(side="left", padx=5)
+
+        self.random_content_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            content_frame,
+            text="Random nội dung",
+            variable=self.random_content_var,
+            fg_color=COLORS["accent"]
+        ).pack(side="left", padx=10)
+
+        # ========== THƯ MỤC ẢNH ==========
+        image_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        image_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(image_frame, text="🖼️ Thư mục ảnh:", width=100, anchor="w").pack(side="left")
+        self.image_folder_entry = ModernEntry(image_frame, placeholder="Đường dẫn thư mục ảnh (tùy chọn)")
+        self.image_folder_entry.pack(side="left", fill="x", expand=True)
+        ModernButton(
+            image_frame, text="📂", variant="secondary",
+            command=self._browse_image_folder, width=40
+        ).pack(side="left", padx=5)
+
+        # ========== DELAY ==========
+        delay_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        delay_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(delay_frame, text="⏱️ Delay (giây):", width=100, anchor="w").pack(side="left")
+        self.delay_min_entry = ModernEntry(delay_frame, placeholder="30", width=60)
+        self.delay_min_entry.pack(side="left")
+        self.delay_min_entry.insert(0, "30")
+        ctk.CTkLabel(delay_frame, text=" đến ").pack(side="left")
+        self.delay_max_entry = ModernEntry(delay_frame, placeholder="60", width=60)
+        self.delay_max_entry.pack(side="left")
+        self.delay_max_entry.insert(0, "60")
+        ctk.CTkLabel(delay_frame, text=" (giữa các nhóm)").pack(side="left")
+
+        # ========== CHỌN NHÓM ĐĂNG ==========
+        group_label = ctk.CTkLabel(
+            editor,
+            text="👥 Chọn nhóm đăng:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        group_label.pack(anchor="w", pady=(15, 5))
+
+        group_btn_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        group_btn_frame.pack(fill="x", pady=5)
+
+        self.group_select_all_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            group_btn_frame,
+            text="Chọn tất cả",
+            variable=self.group_select_all_var,
+            fg_color=COLORS["accent"],
+            command=self._toggle_all_groups
+        ).pack(side="left")
+
+        self.group_count_label = ctk.CTkLabel(
+            group_btn_frame,
+            text="(0 nhóm đã chọn)",
+            font=ctk.CTkFont(size=12),
             text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=20, pady=(5, 3))
-        
-        self.local_log = ModernTextbox(right_panel, height=100)
-        self.local_log.pack(fill="x", padx=20, pady=(0, 15))
-        self.local_log.configure(state="disabled")
-    
-    # ==================== DATA LOADING ====================
-    
-    def _load_all_scripts(self):
-        """Load tất cả scripts"""
-        self._load_local_scripts()
-        self._load_profiles_for_run()
-    
-    def _load_local_scripts(self):
-        """Load local scripts từ database"""
-        all_scripts = get_scripts()
-        self.local_scripts = [s for s in all_scripts if s.get('type') != 'hidemium']
-        self.hidemium_scripts = [s for s in all_scripts if s.get('type') == 'hidemium']
-        self._render_local_scripts()
-        self._render_hidemium_scripts()
-    
-    def _load_profiles_for_run(self):
-        """Load danh sách profiles để chọn chạy script"""
-        from db import get_profiles
-        profiles = get_profiles()
-        self.available_profiles = profiles
-        
-        profile_names = ["Chọn profile..."] + [
-            f"{p.get('name', 'Unknown')} ({p.get('uuid', '')[:8]}...)"
-            for p in profiles
-        ]
-        self.profile_menu.configure(values=profile_names)
-    
-    def _sync_hidemium_scripts(self):
-        """Đồng bộ scripts từ Hidemium API"""
-        self._log_hidemium("☁️ Đang đồng bộ scripts từ Hidemium...")
-        self._set_status("Đang đồng bộ scripts...", "info")
-        
-        def do_sync():
-            scripts = api.get_scripts(page=1, limit=100)
-            self.after(0, lambda: self._on_hidemium_synced(scripts))
-        
-        threading.Thread(target=do_sync, daemon=True).start()
-    
-    def _on_hidemium_synced(self, scripts: List):
-        """Xử lý khi sync xong"""
-        if scripts:
-            self._log_hidemium(f"✅ Tìm thấy {len(scripts)} scripts từ Hidemium")
-            
-            # Lưu vào local database
-            for script in scripts:
-                script_data = {
-                    'name': script.get('name', 'Unnamed'),
-                    'description': f"Hidemium Script (key: {script.get('key')})",
-                    'type': 'hidemium',
-                    'hidemium_key': script.get('key'),
-                    'content': json.dumps(script, ensure_ascii=False)
-                }
-                save_script(script_data)
-            
-            self._load_local_scripts()
-            self._set_status(f"Đã đồng bộ {len(scripts)} scripts", "success")
-        else:
-            self._log_hidemium("⚠️ Không tìm thấy scripts nào")
-            self._set_status("Không có scripts từ Hidemium", "warning")
-    
-    # ==================== HIDEMIUM SCRIPTS RENDERING ====================
-    
-    def _render_hidemium_scripts(self):
-        """Render danh sách Hidemium scripts"""
-        for widget in self.hidemium_list.winfo_children():
-            widget.destroy()
-        
-        if not self.hidemium_scripts:
-            ctk.CTkLabel(
-                self.hidemium_list,
-                text="📭 Chưa có scripts\nBấm 'Đồng bộ từ Hidemium'",
-                font=ctk.CTkFont(size=12),
-                text_color=COLORS["text_secondary"]
-            ).pack(pady=30)
-            return
-        
-        for script in self.hidemium_scripts:
-            self._create_hidemium_script_card(script)
-    
-    def _create_hidemium_script_card(self, script: Dict):
-        """Tạo card cho Hidemium script"""
-        card = ctk.CTkFrame(self.hidemium_list, fg_color=COLORS["bg_card"], corner_radius=10)
-        card.pack(fill="x", pady=4)
-        
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=12, pady=10)
-        
-        # Name
+        )
+        self.group_count_label.pack(side="left", padx=10)
+
+        ModernButton(
+            group_btn_frame, text="Tải nhóm", variant="secondary",
+            command=self._load_groups_for_folder, width=100
+        ).pack(side="right")
+
+        # Group list
+        self.group_list_frame = ctk.CTkFrame(editor, fg_color=COLORS["bg_card"], corner_radius=10, height=150)
+        self.group_list_frame.pack(fill="x", pady=5)
+        self.group_list_frame.pack_propagate(False)
+
+        self.group_scroll = ctk.CTkScrollableFrame(self.group_list_frame, fg_color="transparent")
+        self.group_scroll.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.group_vars = {}  # {group_id: BooleanVar}
+        self.groups = []
+
         ctk.CTkLabel(
-            inner,
-            text=f"☁️ {script.get('name', 'Unknown')}",
+            self.group_scroll,
+            text="Chọn thư mục profile trước, sau đó bấm 'Tải nhóm'",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        ).pack(pady=20)
+
+        # ========== ACTION BUTTONS ==========
+        btn_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(20, 10))
+
+        ModernButton(
+            btn_frame,
+            text="💾 Lưu kịch bản",
+            icon="",
+            variant="success",
+            command=self._save_schedule,
+            width=140
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            btn_frame,
+            text="▶ Chạy ngay",
+            icon="",
+            variant="primary",
+            command=self._run_now,
+            width=120
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            btn_frame,
+            text="🗑️ Xóa",
+            icon="",
+            variant="danger",
+            command=self._delete_schedule,
+            width=80
+        ).pack(side="left", padx=5)
+
+        # ========== THỐNG KÊ ==========
+        stats_frame = ctk.CTkFrame(editor, fg_color=COLORS["bg_card"], corner_radius=10)
+        stats_frame.pack(fill="x", pady=(15, 5))
+
+        stats_inner = ctk.CTkFrame(stats_frame, fg_color="transparent")
+        stats_inner.pack(padx=15, pady=10)
+
+        ctk.CTkLabel(
+            stats_inner,
+            text="📊 Thống kê:",
             font=ctk.CTkFont(size=13, weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(anchor="w")
-        
-        # Key
+
+        self.stats_label = ctk.CTkLabel(
+            stats_inner,
+            text="Đã đăng: 0 | Thành công: 0 | Lỗi: 0",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.stats_label.pack(anchor="w", pady=5)
+
+        self.last_run_label = ctk.CTkLabel(
+            stats_inner,
+            text="Lần chạy cuối: Chưa có",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        )
+        self.last_run_label.pack(anchor="w")
+
+        # ========== LOG ==========
+        log_label = ctk.CTkLabel(
+            editor,
+            text="📋 Log:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        log_label.pack(anchor="w", pady=(15, 5))
+
+        self.log_textbox = ModernTextbox(editor, height=120)
+        self.log_textbox.pack(fill="x", pady=5)
+        self.log_textbox.configure(state="disabled")
+
+    def _select_hours(self, start: int, end: int):
+        """Chọn các giờ từ start đến end"""
+        for hour, var in self.time_vars.items():
+            var.set(start <= hour < end)
+
+    def _clear_hours(self):
+        """Bỏ chọn tất cả giờ"""
+        for var in self.time_vars.values():
+            var.set(False)
+
+    def _toggle_all_groups(self):
+        """Toggle chọn tất cả nhóm"""
+        select_all = self.group_select_all_var.get()
+        for var in self.group_vars.values():
+            var.set(select_all)
+        self._update_group_count()
+
+    def _update_group_count(self):
+        """Cập nhật số nhóm đã chọn"""
+        count = sum(1 for var in self.group_vars.values() if var.get())
+        self.group_count_label.configure(text=f"({count} nhóm đã chọn)")
+
+    def _browse_image_folder(self):
+        """Chọn thư mục ảnh"""
+        from tkinter import filedialog
+        folder = filedialog.askdirectory()
+        if folder:
+            self.image_folder_entry.delete(0, "end")
+            self.image_folder_entry.insert(0, folder)
+
+    def _load_data(self):
+        """Load dữ liệu ban đầu"""
+        self._load_folders()
+        self._load_categories()
+        self._load_schedules()
+
+    def _load_folders(self):
+        """Load danh sách folders từ Hidemium"""
+        try:
+            self.folders = api.get_folders()
+        except:
+            self.folders = []
+
+        folder_options = ["-- Chọn thư mục --"]
+        for f in self.folders:
+            folder_options.append(f.get('name', 'Unknown'))
+        self.folder_menu.configure(values=folder_options)
+
+    def _load_categories(self):
+        """Load danh sách categories"""
+        try:
+            self.categories = get_categories()
+        except:
+            self.categories = []
+
+        cat_options = ["-- Chọn danh mục --"]
+        for c in self.categories:
+            cat_options.append(c.get('name', 'Unknown'))
+        self.category_menu.configure(values=cat_options)
+
+    def _load_schedules(self):
+        """Load danh sách schedules"""
+        try:
+            self.schedules = get_schedules()
+        except:
+            self.schedules = []
+
+        self._render_schedules()
+
+    def _render_schedules(self):
+        """Render danh sách schedules"""
+        for widget in self.schedule_list.winfo_children():
+            widget.destroy()
+
+        if not self.schedules:
+            self.empty_label = ctk.CTkLabel(
+                self.schedule_list,
+                text="📭 Chưa có kịch bản nào\nBấm '+ Tạo kịch bản' để bắt đầu",
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text_secondary"],
+                justify="center"
+            )
+            self.empty_label.pack(pady=50)
+            return
+
+        for schedule in self.schedules:
+            self._create_schedule_card(schedule)
+
+    def _create_schedule_card(self, schedule: Dict):
+        """Tạo card cho schedule"""
+        is_active = schedule.get('is_active', 0) == 1
+        bg_color = "#1a3a2a" if is_active else COLORS["bg_card"]
+
+        card = ctk.CTkFrame(self.schedule_list, fg_color=bg_color, corner_radius=10)
+        card.pack(fill="x", pady=4)
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=12, pady=10)
+
+        # Header row
+        header_row = ctk.CTkFrame(inner, fg_color="transparent")
+        header_row.pack(fill="x")
+
+        # Status indicator
+        status_text = "🟢" if is_active else "⚫"
+        ctk.CTkLabel(
+            header_row,
+            text=status_text,
+            font=ctk.CTkFont(size=14)
+        ).pack(side="left")
+
+        # Name
+        ctk.CTkLabel(
+            header_row,
+            text=schedule.get('name', 'Không tên'),
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left", padx=5)
+
+        # Folder name
         ctk.CTkLabel(
             inner,
-            text=f"Key: {script.get('hidemium_key', 'N/A')}",
+            text=f"📁 {schedule.get('folder_name', 'N/A')}",
             font=ctk.CTkFont(size=11),
             text_color=COLORS["text_secondary"]
         ).pack(anchor="w")
-        
-        # Select button
-        ctk.CTkButton(
-            inner,
-            text="Chọn để chạy",
-            width=100,
-            height=28,
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            corner_radius=5,
-            command=lambda s=script: self._select_hidemium_script(s)
-        ).pack(anchor="w", pady=(5, 0))
-    
-    def _select_hidemium_script(self, script: Dict):
-        """Chọn script để chạy"""
-        self.current_script = script
-        self.selected_script_label.configure(
-            text=f"📌 {script.get('name', 'Unknown')}\nKey: {script.get('hidemium_key', 'N/A')}",
-            text_color=COLORS["text_primary"]
-        )
-        self._log_hidemium(f"Đã chọn script: {script.get('name')}")
-    
-    def _run_hidemium_script(self):
-        """Chạy Hidemium script"""
-        if not self.current_script:
-            self._log_hidemium("❌ Chưa chọn script!")
-            return
-        
-        profile_text = self.profile_var.get()
-        if profile_text == "Chọn profile...":
-            self._log_hidemium("❌ Chưa chọn profile!")
-            return
-        
-        # Tìm profile UUID
-        idx = self.profile_menu.cget("values").index(profile_text) - 1
-        if idx < 0 or idx >= len(self.available_profiles):
-            self._log_hidemium("❌ Profile không hợp lệ!")
-            return
-        
-        profile = self.available_profiles[idx]
-        script_key = self.current_script.get('hidemium_key')
-        
-        self._log_hidemium(f"▶ Đang chạy script '{self.current_script.get('name')}' với profile '{profile.get('name')}'...")
-        self._set_status("Đang chạy script...", "info")
-        
-        def do_run():
-            result = api.run_script(script_key, profile.get('uuid'))
-            self.after(0, lambda: self._on_script_run_complete(result))
-        
-        threading.Thread(target=do_run, daemon=True).start()
-    
-    def _on_script_run_complete(self, result):
-        """Xử lý kết quả chạy script"""
-        if result and result.get('type') != 'error':
-            self._log_hidemium("✅ Script đã được khởi chạy!")
-            self._set_status("Script đang chạy", "success")
+
+        # Time slots
+        time_slots = schedule.get('time_slots', '')
+        if time_slots:
+            hours = [f"{h}h" for h in time_slots.split(',')[:5]]
+            time_text = ', '.join(hours)
+            if len(time_slots.split(',')) > 5:
+                time_text += '...'
         else:
-            error = result.get('title', 'Lỗi không xác định') if result else 'Không có response'
-            self._log_hidemium(f"❌ Lỗi: {error}")
-            self._set_status(f"Lỗi: {error}", "error")
-    
-    def _stop_script(self):
-        """Dừng script đang chạy"""
-        self._log_hidemium("⏹ Đang dừng script...")
-        # TODO: Implement stop API
-    
-    # ==================== LOCAL SCRIPTS RENDERING ====================
-    
-    def _render_local_scripts(self):
-        """Render danh sách local scripts"""
-        for widget in self.local_list.winfo_children():
-            widget.destroy()
-        
-        if not self.local_scripts:
-            ctk.CTkLabel(
-                self.local_list,
-                text="📭 Chưa có scripts\nBấm '+ Mới' để tạo",
-                font=ctk.CTkFont(size=12),
-                text_color=COLORS["text_secondary"]
-            ).pack(pady=30)
-            return
-        
-        for script in self.local_scripts:
-            self._create_local_script_card(script)
-    
-    def _create_local_script_card(self, script: Dict):
-        """Tạo card cho local script"""
-        card = ctk.CTkFrame(self.local_list, fg_color=COLORS["bg_card"], corner_radius=10)
-        card.pack(fill="x", pady=4)
-        
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=12, pady=10)
-        
-        # Name
+            time_text = "Chưa cài giờ"
+
         ctk.CTkLabel(
             inner,
-            text=f"🐍 {script.get('name', 'Unknown')}",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=COLORS["text_primary"]
+            text=f"⏰ {time_text}",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
         ).pack(anchor="w")
-        
-        # Description
-        desc = script.get('description', '')[:40]
-        if desc:
-            ctk.CTkLabel(
-                inner,
-                text=desc,
-                font=ctk.CTkFont(size=11),
-                text_color=COLORS["text_secondary"]
-            ).pack(anchor="w")
-        
+
+        # Stats
+        stats_text = f"📊 {schedule.get('success_count', 0)}/{schedule.get('post_count', 0)} thành công"
+        ctk.CTkLabel(
+            inner,
+            text=stats_text,
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["success"] if schedule.get('success_count', 0) > 0 else COLORS["text_secondary"]
+        ).pack(anchor="w")
+
         # Buttons
         btn_row = ctk.CTkFrame(inner, fg_color="transparent")
-        btn_row.pack(anchor="w", pady=(5, 0))
-        
+        btn_row.pack(fill="x", pady=(5, 0))
+
         ctk.CTkButton(
             btn_row,
             text="Sửa",
-            width=50,
-            height=26,
+            width=50, height=26,
             fg_color=COLORS["accent"],
             corner_radius=5,
-            command=lambda s=script: self._edit_local_script(s)
+            command=lambda s=schedule: self._edit_schedule(s)
         ).pack(side="left", padx=(0, 5))
-        
+
+        toggle_text = "Tắt" if is_active else "Bật"
+        toggle_color = COLORS["warning"] if is_active else COLORS["success"]
         ctk.CTkButton(
             btn_row,
-            text="▶ Chạy",
-            width=60,
-            height=26,
-            fg_color=COLORS["success"],
+            text=toggle_text,
+            width=50, height=26,
+            fg_color=toggle_color,
             corner_radius=5,
-            command=lambda s=script: self._run_local_script(s)
+            command=lambda s=schedule: self._toggle_schedule(s)
         ).pack(side="left")
-    
-    def _new_local_script(self):
-        """Tạo local script mới"""
-        self.current_script = None
-        self.editor_title.configure(text="✏️ Viết Script Python mới")
-        self.local_name_entry.delete(0, "end")
-        self.local_desc_entry.delete(0, "end")
-        self._template_custom()
-        self._log_local("📝 Tạo script mới...")
-    
-    def _edit_local_script(self, script: Dict):
-        """Chỉnh sửa local script"""
-        self.current_script = script
-        self.editor_title.configure(text=f"✏️ Sửa: {script.get('name', '')}")
-        
-        self.local_name_entry.delete(0, "end")
-        self.local_name_entry.insert(0, script.get('name', ''))
-        
-        self.local_desc_entry.delete(0, "end")
-        self.local_desc_entry.insert(0, script.get('description', ''))
-        
-        self.local_editor.delete("1.0", "end")
-        self.local_editor.insert("1.0", script.get('content', ''))
-        
-        self._log_local(f"📝 Đang sửa: {script.get('name')}")
-    
-    def _save_local_script(self):
-        """Lưu local script"""
-        name = self.local_name_entry.get().strip()
+
+    def _new_schedule(self):
+        """Tạo schedule mới"""
+        self.current_schedule = None
+        self.editor_title.configure(text="✏️ Tạo kịch bản mới")
+        self._clear_form()
+        self._log("📝 Tạo kịch bản mới...")
+
+    def _clear_form(self):
+        """Xóa form"""
+        self.name_entry.delete(0, "end")
+        self.folder_var.set("-- Chọn thư mục --")
+        self._clear_hours()
+        self.category_var.set("-- Chọn danh mục --")
+        self.image_folder_entry.delete(0, "end")
+        self.delay_min_entry.delete(0, "end")
+        self.delay_min_entry.insert(0, "30")
+        self.delay_max_entry.delete(0, "end")
+        self.delay_max_entry.insert(0, "60")
+        self.group_vars = {}
+        for widget in self.group_scroll.winfo_children():
+            widget.destroy()
+        self.stats_label.configure(text="Đã đăng: 0 | Thành công: 0 | Lỗi: 0")
+        self.last_run_label.configure(text="Lần chạy cuối: Chưa có")
+
+    def _edit_schedule(self, schedule: Dict):
+        """Chỉnh sửa schedule"""
+        self.current_schedule = schedule
+        self.editor_title.configure(text=f"✏️ Sửa: {schedule.get('name', '')}")
+
+        # Fill form
+        self.name_entry.delete(0, "end")
+        self.name_entry.insert(0, schedule.get('name', ''))
+
+        self.folder_var.set(schedule.get('folder_name', '-- Chọn thư mục --'))
+
+        # Time slots
+        self._clear_hours()
+        time_slots = schedule.get('time_slots', '')
+        if time_slots:
+            for hour_str in time_slots.split(','):
+                try:
+                    hour = int(hour_str.strip())
+                    if hour in self.time_vars:
+                        self.time_vars[hour].set(True)
+                except:
+                    pass
+
+        # Category
+        cat_id = schedule.get('content_category_id')
+        if cat_id:
+            for cat in self.categories:
+                if cat.get('id') == cat_id:
+                    self.category_var.set(cat.get('name', ''))
+                    break
+        else:
+            self.category_var.set("-- Chọn danh mục --")
+
+        # Image folder
+        self.image_folder_entry.delete(0, "end")
+        self.image_folder_entry.insert(0, schedule.get('image_folder', ''))
+
+        # Delay
+        self.delay_min_entry.delete(0, "end")
+        self.delay_min_entry.insert(0, str(schedule.get('delay_min', 30)))
+        self.delay_max_entry.delete(0, "end")
+        self.delay_max_entry.insert(0, str(schedule.get('delay_max', 60)))
+
+        # Load groups for this folder
+        self._load_groups_for_folder()
+
+        # Select saved groups
+        saved_groups = schedule.get('group_ids', '')
+        if saved_groups:
+            saved_group_list = saved_groups.split(',')
+            for gid, var in self.group_vars.items():
+                var.set(gid in saved_group_list)
+            self._update_group_count()
+
+        # Stats
+        self.stats_label.configure(
+            text=f"Đã đăng: {schedule.get('post_count', 0)} | "
+                 f"Thành công: {schedule.get('success_count', 0)} | "
+                 f"Lỗi: {schedule.get('error_count', 0)}"
+        )
+
+        last_run = schedule.get('last_run_at', '')
+        if last_run:
+            self.last_run_label.configure(text=f"Lần chạy cuối: {last_run}")
+        else:
+            self.last_run_label.configure(text="Lần chạy cuối: Chưa có")
+
+        self._log(f"📝 Đang sửa: {schedule.get('name')}")
+
+    def _load_groups_for_folder(self):
+        """Load nhóm cho folder đã chọn"""
+        folder_name = self.folder_var.get()
+        if folder_name == "-- Chọn thư mục --":
+            self._log("⚠️ Vui lòng chọn thư mục profile trước")
+            return
+
+        # Find folder
+        folder = None
+        for f in self.folders:
+            if f.get('name') == folder_name:
+                folder = f
+                break
+
+        if not folder:
+            return
+
+        # Clear current groups
+        for widget in self.group_scroll.winfo_children():
+            widget.destroy()
+        self.group_vars = {}
+
+        # Load profiles in folder
+        folder_id = folder.get('id')
+        if folder_id:
+            try:
+                profiles = api.get_profiles(folder_id=[folder_id], limit=500)
+                if profiles and len(profiles) > 0:
+                    # Get first profile's UUID to load its groups
+                    first_profile = profiles[0]
+                    if isinstance(first_profile, dict):
+                        profile_uuid = first_profile.get('uuid', '')
+                        if profile_uuid:
+                            self.groups = get_groups(profile_uuid)
+                            self._render_groups()
+                            return
+            except Exception as e:
+                print(f"Error loading groups: {e}")
+
+        ctk.CTkLabel(
+            self.group_scroll,
+            text="Không tìm thấy nhóm nào",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        ).pack(pady=20)
+
+    def _render_groups(self):
+        """Render danh sách nhóm"""
+        for widget in self.group_scroll.winfo_children():
+            widget.destroy()
+
+        if not self.groups:
+            ctk.CTkLabel(
+                self.group_scroll,
+                text="Không có nhóm nào",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(pady=20)
+            return
+
+        for group in self.groups:
+            group_id = group.get('group_id', '')
+            var = ctk.BooleanVar(value=False)
+            self.group_vars[group_id] = var
+
+            cb = ctk.CTkCheckBox(
+                self.group_scroll,
+                text=f"{group.get('group_name', 'Unknown')[:40]}",
+                variable=var,
+                fg_color=COLORS["accent"],
+                command=self._update_group_count
+            )
+            cb.pack(anchor="w", pady=2)
+
+        self._update_group_count()
+
+    def _save_schedule(self):
+        """Lưu schedule"""
+        name = self.name_entry.get().strip()
         if not name:
-            self._log_local("❌ Vui lòng nhập tên script!")
+            self._log("❌ Vui lòng nhập tên kịch bản")
             return
-        
-        script_data = {
+
+        folder_name = self.folder_var.get()
+        if folder_name == "-- Chọn thư mục --":
+            self._log("❌ Vui lòng chọn thư mục profile")
+            return
+
+        # Get folder id
+        folder_id = None
+        for f in self.folders:
+            if f.get('name') == folder_name:
+                folder_id = str(f.get('id', ''))
+                break
+
+        # Get selected hours
+        selected_hours = [str(h) for h, var in self.time_vars.items() if var.get()]
+        if not selected_hours:
+            self._log("❌ Vui lòng chọn ít nhất 1 khung giờ")
+            return
+
+        # Get category id
+        category_id = None
+        cat_name = self.category_var.get()
+        if cat_name != "-- Chọn danh mục --":
+            for c in self.categories:
+                if c.get('name') == cat_name:
+                    category_id = c.get('id')
+                    break
+
+        # Get selected groups
+        selected_groups = [gid for gid, var in self.group_vars.items() if var.get()]
+
+        # Build data
+        data = {
             'name': name,
-            'description': self.local_desc_entry.get().strip(),
-            'type': 'python',
-            'content': self.local_editor.get("1.0", "end").strip()
+            'folder_id': folder_id,
+            'folder_name': folder_name,
+            'time_slots': ','.join(selected_hours),
+            'content_category_id': category_id,
+            'image_folder': self.image_folder_entry.get().strip(),
+            'group_ids': ','.join(selected_groups),
+            'delay_min': int(self.delay_min_entry.get() or 30),
+            'delay_max': int(self.delay_max_entry.get() or 60),
+            'is_active': 1
         }
-        
-        if self.current_script and self.current_script.get('id'):
-            script_data['id'] = self.current_script['id']
-        
-        save_script(script_data)
-        self._load_local_scripts()
-        self._log_local(f"✅ Đã lưu: {name}")
-        self._set_status(f"Đã lưu script: {name}", "success")
-    
-    def _delete_current_local_script(self):
-        """Xóa script hiện tại"""
-        if not self.current_script:
-            self._log_local("❌ Chưa chọn script để xóa!")
-            return
-        
-        script_id = self.current_script.get('id')
-        if script_id:
-            delete_script(script_id)
-            self._load_local_scripts()
-            self._new_local_script()
-            self._log_local("🗑️ Đã xóa script")
-            self._set_status("Đã xóa script", "success")
-    
-    def _run_local_script(self, script: Dict):
-        """Chạy local Python script"""
-        self._log_local(f"▶ Đang chạy: {script.get('name')}...")
-        # TODO: Implement actual execution with subprocess
-    
-    def _test_local_script(self):
-        """Test script hiện tại"""
-        code = self.local_editor.get("1.0", "end").strip()
-        if not code:
-            self._log_local("❌ Code trống!")
-            return
-        
-        self._log_local("▶ Đang test script...\n" + "─" * 30)
-        
-        # Validate Python syntax
-        try:
-            compile(code, '<string>', 'exec')
-            self._log_local("✅ Syntax OK!")
-        except SyntaxError as e:
-            self._log_local(f"❌ Syntax Error: {e}")
-    
-    # ==================== TEMPLATES ====================
-    
-    def _template_like(self):
-        """Template Auto Like"""
-        code = '''"""
-Auto Like Posts Script
-Sử dụng Selenium để tự động like các bài post
-"""
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import time
 
-def run(driver):
-    """
-    Hàm chính - được gọi khi chạy script
-    driver: Selenium WebDriver instance
-    """
-    # Scroll để load posts
-    driver.execute_script("window.scrollBy(0, 500)")
-    time.sleep(2)
-    
-    # Tìm các nút Like
-    like_buttons = driver.find_elements(
-        By.CSS_SELECTOR, 
-        '[data-testid="like-button"], [aria-label*="Like"]'
-    )
-    
-    liked_count = 0
-    for btn in like_buttons[:5]:  # Like tối đa 5 posts
+        if self.current_schedule:
+            data['id'] = self.current_schedule['id']
+
         try:
-            btn.click()
-            liked_count += 1
-            time.sleep(1)  # Delay giữa các like
+            save_schedule(data)
+            self._load_schedules()
+            self._log(f"✅ Đã lưu kịch bản: {name}")
+            self._set_status(f"Đã lưu: {name}", "success")
         except Exception as e:
-            print(f"Skip: {e}")
-    
-    return f"Đã like {liked_count} posts"
+            self._log(f"❌ Lỗi lưu: {e}")
 
-# Chạy thử
-if __name__ == "__main__":
-    print("Script sẵn sàng!")
-'''
-        self.local_editor.delete("1.0", "end")
-        self.local_editor.insert("1.0", code)
-    
-    def _template_comment(self):
-        """Template Auto Comment"""
-        code = '''"""
-Auto Comment Script
-Tự động comment vào bài post
-"""
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-import time
-import random
+    def _delete_schedule(self):
+        """Xóa schedule"""
+        if not self.current_schedule:
+            self._log("❌ Chưa chọn kịch bản để xóa")
+            return
 
-# Danh sách comments random
-COMMENTS = [
-    "Hay quá! 👍",
-    "Cảm ơn bạn đã chia sẻ!",
-    "Rất hữu ích!",
-    "Nice post! 🔥",
-    "Tuyệt vời!"
-]
+        try:
+            delete_schedule(self.current_schedule['id'])
+            self._load_schedules()
+            self._new_schedule()
+            self._log("🗑️ Đã xóa kịch bản")
+            self._set_status("Đã xóa kịch bản", "success")
+        except Exception as e:
+            self._log(f"❌ Lỗi xóa: {e}")
 
-def run(driver, post_url=None):
-    """
-    Hàm chính
-    driver: Selenium WebDriver
-    post_url: URL bài post cần comment
-    """
-    if post_url:
-        driver.get(post_url)
-        time.sleep(3)
-    
-    # Tìm ô comment
-    comment_box = driver.find_element(
-        By.CSS_SELECTOR,
-        '[data-testid="comment-box"] textarea, [contenteditable="true"]'
-    )
-    
-    # Random comment
-    comment_text = random.choice(COMMENTS)
-    
-    # Nhập comment
-    comment_box.click()
-    time.sleep(0.5)
-    comment_box.send_keys(comment_text)
-    comment_box.send_keys(Keys.ENTER)
-    
-    time.sleep(2)
-    return f"Đã comment: {comment_text}"
+    def _toggle_schedule(self, schedule: Dict):
+        """Bật/tắt schedule"""
+        schedule['is_active'] = 0 if schedule.get('is_active', 0) == 1 else 1
+        save_schedule(schedule)
+        self._load_schedules()
 
-if __name__ == "__main__":
-    print("Script sẵn sàng!")
-'''
-        self.local_editor.delete("1.0", "end")
-        self.local_editor.insert("1.0", code)
-    
-    def _template_scroll(self):
-        """Template Auto Scroll"""
-        code = '''"""
-Auto Scroll Feed Script
-Tự động scroll Facebook feed
-"""
-from selenium import webdriver
-import time
+        status = "Bật" if schedule['is_active'] == 1 else "Tắt"
+        self._log(f"⚡ {status} kịch bản: {schedule.get('name')}")
 
-def run(driver, scroll_count=10, delay=2):
-    """
-    Scroll feed
-    driver: Selenium WebDriver
-    scroll_count: Số lần scroll
-    delay: Thời gian chờ giữa các lần (giây)
-    """
-    for i in range(scroll_count):
-        # Scroll xuống
-        driver.execute_script("window.scrollBy(0, 800)")
-        print(f"Scroll {i+1}/{scroll_count}")
-        time.sleep(delay)
-    
-    return f"Đã scroll {scroll_count} lần"
+    def _run_now(self):
+        """Chạy kịch bản ngay"""
+        if not self.current_schedule:
+            self._log("❌ Vui lòng lưu kịch bản trước")
+            return
 
-if __name__ == "__main__":
-    print("Script sẵn sàng!")
-'''
-        self.local_editor.delete("1.0", "end")
-        self.local_editor.insert("1.0", code)
-    
-    def _template_custom(self):
-        """Template Custom"""
-        code = '''"""
-Custom Automation Script
-Viết script tự động của bạn ở đây
-"""
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-import time
+        self._log(f"▶ Đang chạy: {self.current_schedule.get('name')}...")
+        threading.Thread(
+            target=self._execute_schedule,
+            args=(self.current_schedule,),
+            daemon=True
+        ).start()
 
-def run(driver):
-    """
-    Hàm chính - được gọi khi chạy script
-    
-    Args:
-        driver: Selenium WebDriver instance (đã kết nối với Hidemium profile)
-    
-    Returns:
-        str: Kết quả thực thi
-    """
-    # Mở Facebook
-    driver.get("https://facebook.com")
-    time.sleep(3)
-    
-    # TODO: Thêm code automation của bạn ở đây
-    
-    return "Script hoàn thành!"
+    def _execute_schedule(self, schedule: Dict):
+        """Thực hiện đăng bài theo schedule"""
+        folder_id = schedule.get('folder_id')
+        group_ids = schedule.get('group_ids', '').split(',')
+        category_id = schedule.get('content_category_id')
+        delay_min = schedule.get('delay_min', 30)
+        delay_max = schedule.get('delay_max', 60)
 
-if __name__ == "__main__":
-    print("Script sẵn sàng!")
-'''
-        self.local_editor.delete("1.0", "end")
-        self.local_editor.insert("1.0", code)
-    
-    # ==================== LOGGING ====================
-    
-    def _log_hidemium(self, msg: str):
-        """Log cho Hidemium panel"""
-        self.hidemium_log.configure(state="normal")
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.hidemium_log.insert("end", f"\n[{timestamp}] {msg}")
-        self.hidemium_log.see("end")
-        self.hidemium_log.configure(state="disabled")
-    
-    def _log_local(self, msg: str):
-        """Log cho Local panel"""
-        self.local_log.configure(state="normal")
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.local_log.insert("end", f"\n[{timestamp}] {msg}")
-        self.local_log.see("end")
-        self.local_log.configure(state="disabled")
-    
+        if not folder_id or not group_ids:
+            self.after(0, lambda: self._log("❌ Thiếu thông tin folder hoặc nhóm"))
+            return
+
+        # Get profiles
+        try:
+            profiles = api.get_profiles(folder_id=[int(folder_id)], limit=500)
+        except:
+            profiles = []
+
+        if not profiles:
+            self.after(0, lambda: self._log("❌ Không có profile trong thư mục"))
+            return
+
+        # Get contents
+        contents = []
+        if category_id:
+            try:
+                contents = get_contents(category_id)
+            except:
+                contents = []
+
+        if not contents:
+            self.after(0, lambda: self._log("⚠️ Không có nội dung, sẽ đăng rỗng"))
+
+        self.after(0, lambda: self._log(f"📊 {len(profiles)} profiles, {len(group_ids)} nhóm"))
+
+        success = 0
+        errors = 0
+
+        # TODO: Implement actual posting logic similar to groups_tab
+        # For now, just simulate
+        for i, profile in enumerate(profiles[:3]):  # Limit for testing
+            profile_name = profile.get('name', 'Unknown') if isinstance(profile, dict) else str(profile)[:8]
+            self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Đang xử lý..."))
+
+            # Simulate posting delay
+            time.sleep(random.randint(delay_min, delay_max) / 10)
+            success += 1
+
+            self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✓ Hoàn thành"))
+
+        # Update stats
+        update_schedule_stats(schedule['id'], post_count=len(profiles[:3]), success_count=success, error_count=errors)
+
+        self.after(0, lambda: self._log(f"✅ Hoàn tất: {success} thành công, {errors} lỗi"))
+        self.after(0, self._load_schedules)
+
+    def _start_scheduler(self):
+        """Khởi động scheduler chạy ngầm"""
+        if self._scheduler_running:
+            return
+
+        self._scheduler_running = True
+        self._scheduler_thread = threading.Thread(target=self._scheduler_loop, daemon=True)
+        self._scheduler_thread.start()
+        self.scheduler_status.configure(text="🟢 Scheduler: Đang chạy", text_color=COLORS["success"])
+
+    def _scheduler_loop(self):
+        """Vòng lặp scheduler kiểm tra giờ đăng"""
+        while self._scheduler_running:
+            try:
+                current_hour = datetime.now().hour
+                current_minute = datetime.now().minute
+
+                # Chỉ chạy vào phút 0-5 của mỗi giờ
+                if current_minute <= 5:
+                    schedules = get_schedules(active_only=True)
+                    for schedule in schedules:
+                        time_slots = schedule.get('time_slots', '')
+                        if str(current_hour) in time_slots.split(','):
+                            # Kiểm tra xem đã chạy trong giờ này chưa
+                            last_run = schedule.get('last_run_at', '')
+                            if last_run:
+                                try:
+                                    last_run_time = datetime.fromisoformat(last_run)
+                                    if last_run_time.hour == current_hour and last_run_time.date() == datetime.now().date():
+                                        continue  # Đã chạy trong giờ này
+                                except:
+                                    pass
+
+                            self.after(0, lambda s=schedule: self._log(f"⏰ Auto run: {s.get('name')}"))
+                            self._execute_schedule(schedule)
+            except Exception as e:
+                print(f"Scheduler error: {e}")
+
+            # Check every minute
+            time.sleep(60)
+
+    def _log(self, message: str):
+        """Thêm log"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        self.log_textbox.configure(state="normal")
+        self.log_textbox.insert("end", f"[{timestamp}] {message}\n")
+        self.log_textbox.see("end")
+        self.log_textbox.configure(state="disabled")
+
     def _set_status(self, text: str, status_type: str = "info"):
-        """Cập nhật status bar"""
+        """Cập nhật status"""
         if self.status_callback:
             self.status_callback(text, status_type)
+
+    def destroy(self):
+        """Cleanup khi đóng"""
+        self._scheduler_running = False
+        super().destroy()

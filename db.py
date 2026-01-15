@@ -158,6 +158,29 @@ def init_database():
             )
         """)
 
+        # ============ SCHEDULES TABLE ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                folder_id TEXT,
+                folder_name TEXT,
+                time_slots TEXT,
+                content_category_id INTEGER,
+                image_folder TEXT,
+                group_ids TEXT,
+                delay_min INTEGER DEFAULT 30,
+                delay_max INTEGER DEFAULT 60,
+                is_active INTEGER DEFAULT 1,
+                post_count INTEGER DEFAULT 0,
+                success_count INTEGER DEFAULT 0,
+                error_count INTEGER DEFAULT 0,
+                last_run_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Tạo category mặc định nếu chưa có
         cursor.execute("SELECT COUNT(*) FROM categories")
         if cursor.fetchone()[0] == 0:
@@ -855,6 +878,112 @@ def save_post_history(data: Dict) -> Dict:
         ))
         data['id'] = cursor.lastrowid
         return data
+
+
+# ==================== SCHEDULES ====================
+
+def get_schedules(active_only: bool = False) -> List[Dict]:
+    """Lấy danh sách schedules"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if active_only:
+            cursor.execute("SELECT * FROM schedules WHERE is_active = 1 ORDER BY id")
+        else:
+            cursor.execute("SELECT * FROM schedules ORDER BY id")
+        return rows_to_list(cursor.fetchall())
+
+
+def get_schedule(schedule_id: int) -> Optional[Dict]:
+    """Lấy schedule theo ID"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
+        row = cursor.fetchone()
+        return row_to_dict(row)
+
+
+def save_schedule(data: Dict) -> Dict:
+    """Lưu schedule (insert hoặc update)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        if data.get('id'):
+            # Update
+            cursor.execute("""
+                UPDATE schedules SET
+                    name = ?, folder_id = ?, folder_name = ?, time_slots = ?,
+                    content_category_id = ?, image_folder = ?, group_ids = ?,
+                    delay_min = ?, delay_max = ?, is_active = ?, updated_at = ?
+                WHERE id = ?
+            """, (
+                data.get('name', ''),
+                data.get('folder_id', ''),
+                data.get('folder_name', ''),
+                data.get('time_slots', ''),
+                data.get('content_category_id'),
+                data.get('image_folder', ''),
+                data.get('group_ids', ''),
+                data.get('delay_min', 30),
+                data.get('delay_max', 60),
+                data.get('is_active', 1),
+                now,
+                data['id']
+            ))
+        else:
+            # Insert
+            cursor.execute("""
+                INSERT INTO schedules (name, folder_id, folder_name, time_slots,
+                    content_category_id, image_folder, group_ids, delay_min, delay_max,
+                    is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get('name', ''),
+                data.get('folder_id', ''),
+                data.get('folder_name', ''),
+                data.get('time_slots', ''),
+                data.get('content_category_id'),
+                data.get('image_folder', ''),
+                data.get('group_ids', ''),
+                data.get('delay_min', 30),
+                data.get('delay_max', 60),
+                data.get('is_active', 1),
+                now, now
+            ))
+            data['id'] = cursor.lastrowid
+        return data
+
+
+def delete_schedule(schedule_id: int) -> bool:
+    """Xóa schedule"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+        return cursor.rowcount > 0
+
+
+def update_schedule_stats(schedule_id: int, post_count: int = None,
+                          success_count: int = None, error_count: int = None):
+    """Cập nhật thống kê schedule"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        updates = ["last_run_at = ?"]
+        values = [now]
+
+        if post_count is not None:
+            updates.append("post_count = post_count + ?")
+            values.append(post_count)
+        if success_count is not None:
+            updates.append("success_count = success_count + ?")
+            values.append(success_count)
+        if error_count is not None:
+            updates.append("error_count = error_count + ?")
+            values.append(error_count)
+
+        values.append(schedule_id)
+        cursor.execute(f"UPDATE schedules SET {', '.join(updates)} WHERE id = ?", values)
 
 
 # Khởi tạo database khi import module
