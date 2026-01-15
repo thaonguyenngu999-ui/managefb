@@ -1,567 +1,794 @@
 """
-Tab Bài đăng - Quản lý các bài đăng và tương tác
+Tab Bài đăng - Quản lý các bài đăng và tăng tương tác (Like)
 """
 import customtkinter as ctk
-from typing import List, Dict
-import webbrowser
+from typing import List, Dict, Optional
+import threading
+import random
+import time
+import re
+import requests
+from datetime import datetime, date, timedelta
 from config import COLORS
-from widgets import ModernCard, ModernButton, ModernEntry, ModernTextbox, PostCard, SearchBar
-from db import get_posts, save_post, delete_post, update_post_stats
+from widgets import ModernButton, ModernEntry
+from db import get_post_history, get_profiles
+from api_service import api
 
 
 class PostsTab(ctk.CTkFrame):
-    """Tab quản lý bài đăng và tương tác"""
-    
+    """Tab quản lý bài đăng và tăng like"""
+
     def __init__(self, master, status_callback=None, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
-        
+
         self.status_callback = status_callback
         self.posts: List[Dict] = []
-        
+        self.profiles: List[Dict] = []
+        self.folders: List[Dict] = []
+        self._is_running = False
+        self._stop_requested = False
+
+        # Store post status
+        self.post_vars = {}  # {post_id: BooleanVar}
+        self.post_widgets = {}  # {post_id: widget dict}
+        self.post_status = {}  # {post_id: {target, liked, completed, error}}
+
         self._create_ui()
-        self._load_posts()
-    
+        self._load_data()
+
     def _create_ui(self):
+        """Tạo giao diện"""
         # ========== HEADER ==========
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.pack(fill="x", padx=20, pady=(20, 15))
-        
+
         ctk.CTkLabel(
             header_frame,
             text="📰 Quản lý Bài đăng",
             font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(side="left")
-        
+
         ModernButton(
             header_frame,
             text="Làm mới",
             icon="🔄",
             variant="secondary",
-            command=self._load_posts,
+            command=self._load_data,
             width=120
         ).pack(side="right", padx=5)
-        
-        # ========== ADD POST SECTION ==========
-        add_section = ctk.CTkFrame(
-            self,
-            fg_color=COLORS["bg_secondary"],
-            corner_radius=15
-        )
-        add_section.pack(fill="x", padx=20, pady=(0, 15))
-        
-        # Section header
+
+        # ========== SETTINGS SECTION ==========
+        settings_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=15)
+        settings_frame.pack(fill="x", padx=20, pady=(0, 15))
+
+        # Row 1: Date filter
+        row1 = ctk.CTkFrame(settings_frame, fg_color="transparent")
+        row1.pack(fill="x", padx=20, pady=(15, 8))
+
         ctk.CTkLabel(
-            add_section,
-            text="➕ Thêm bài đăng mới",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            row1,
+            text="📅 Lọc theo ngày:",
+            font=ctk.CTkFont(size=13),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=20, pady=(15, 10))
-        
-        # Input fields
-        input_frame = ctk.CTkFrame(add_section, fg_color="transparent")
-        input_frame.pack(fill="x", padx=20, pady=(0, 15))
-        
-        # URL input
-        url_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
-        url_frame.pack(fill="x", pady=5)
-        
-        ctk.CTkLabel(
-            url_frame,
-            text="URL bài viết:",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"],
-            width=100
         ).pack(side="left")
-        
-        self.url_entry = ModernEntry(
-            url_frame,
-            placeholder="https://facebook.com/post/123456789"
+
+        self.date_filter_var = ctk.StringVar(value="Hôm nay")
+        self.date_filter_menu = ctk.CTkOptionMenu(
+            row1,
+            variable=self.date_filter_var,
+            values=["Hôm nay", "Hôm qua", "7 ngày", "30 ngày", "Tất cả"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=120,
+            command=self._on_date_filter_change
         )
-        self.url_entry.pack(side="left", fill="x", expand=True, padx=(10, 0))
-        
-        # Title input
-        title_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
-        title_frame.pack(fill="x", pady=5)
-        
-        ctk.CTkLabel(
-            title_frame,
-            text="Tiêu đề:",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"],
-            width=100
-        ).pack(side="left")
-        
-        self.title_entry = ModernEntry(
-            title_frame,
-            placeholder="Mô tả ngắn về bài viết"
-        )
-        self.title_entry.pack(side="left", fill="x", expand=True, padx=(10, 0))
-        
-        # Target interactions
-        target_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
-        target_frame.pack(fill="x", pady=5)
-        
-        ctk.CTkLabel(
-            target_frame,
-            text="Mục tiêu:",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"],
-            width=100
-        ).pack(side="left")
-        
-        self.like_target = ModernEntry(target_frame, placeholder="Số like", width=100)
-        self.like_target.pack(side="left", padx=(10, 5))
-        
-        ctk.CTkLabel(
-            target_frame,
-            text="Like",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left", padx=(0, 20))
-        
-        self.comment_target = ModernEntry(target_frame, placeholder="Số CMT", width=100)
-        self.comment_target.pack(side="left", padx=(0, 5))
-        
-        ctk.CTkLabel(
-            target_frame,
-            text="Comment",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-        
-        # Add button
-        btn_frame = ctk.CTkFrame(add_section, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=(0, 15))
-        
+        self.date_filter_menu.pack(side="left", padx=10)
+
+        ctk.CTkLabel(row1, text="hoặc chọn ngày:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(15, 5))
+        self.custom_date_entry = ModernEntry(row1, placeholder="dd/mm/yyyy", width=100)
+        self.custom_date_entry.pack(side="left")
+
         ModernButton(
-            btn_frame,
-            text="Thêm bài đăng",
-            icon="➕",
-            variant="success",
-            command=self._add_post,
-            width=150
+            row1,
+            text="Lọc",
+            variant="secondary",
+            command=self._filter_by_custom_date,
+            width=60
+        ).pack(side="left", padx=5)
+
+        self.post_count_label = ctk.CTkLabel(
+            row1,
+            text="0 bài",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["accent"]
+        )
+        self.post_count_label.pack(side="right")
+
+        # Row 2: Profile folder & Thread count & Like count
+        row2 = ctk.CTkFrame(settings_frame, fg_color="transparent")
+        row2.pack(fill="x", padx=20, pady=(0, 15))
+
+        ctk.CTkLabel(
+            row2,
+            text="📁 Thư mục profile:",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_primary"]
         ).pack(side="left")
-        
-        # ========== POSTS LIST ==========
-        list_header = ctk.CTkFrame(self, fg_color="transparent")
-        list_header.pack(fill="x", padx=20, pady=(10, 10))
-        
+
+        self.folder_var = ctk.StringVar(value="-- Tất cả --")
+        self.folder_menu = ctk.CTkOptionMenu(
+            row2,
+            variable=self.folder_var,
+            values=["-- Tất cả --"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=180,
+            command=self._on_folder_change
+        )
+        self.folder_menu.pack(side="left", padx=10)
+
+        ctk.CTkLabel(row2, text="Số luồng:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(20, 5))
+        self.thread_count_entry = ModernEntry(row2, placeholder="3", width=50)
+        self.thread_count_entry.pack(side="left")
+        self.thread_count_entry.insert(0, "3")
+
+        ctk.CTkLabel(row2, text="Số like/bài:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(20, 5))
+        self.like_count_entry = ModernEntry(row2, placeholder="5", width=50)
+        self.like_count_entry.pack(side="left")
+        self.like_count_entry.insert(0, "5")
+
+        self.profile_count_label = ctk.CTkLabel(
+            row2,
+            text="0 profiles",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.profile_count_label.pack(side="right")
+
+        # ========== POST LIST SECTION ==========
+        list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=15)
+        list_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+
+        # List header with select all
+        list_header = ctk.CTkFrame(list_frame, fg_color="transparent")
+        list_header.pack(fill="x", padx=15, pady=(15, 10))
+
+        self.select_all_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            list_header,
+            text="Chọn tất cả",
+            variable=self.select_all_var,
+            fg_color=COLORS["accent"],
+            command=self._toggle_select_all
+        ).pack(side="left")
+
         ctk.CTkLabel(
             list_header,
             text="📋 Danh sách bài đăng",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=ctk.CTkFont(size=15, weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(side="left")
-        
-        self.count_label = ctk.CTkLabel(
-            list_header,
-            text="(0 bài)",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"]
-        )
-        self.count_label.pack(side="left", padx=10)
-        
-        # Search bar
-        search_frame = ctk.CTkFrame(list_header, fg_color="transparent")
-        search_frame.pack(side="right")
-        
-        self.search_entry = ModernEntry(
-            search_frame,
-            placeholder="Tìm kiếm...",
-            width=250
-        )
-        self.search_entry.pack(side="left", padx=5)
-        self.search_entry.bind("<KeyRelease>", self._on_search)
-        
-        # Sort options
-        self.sort_var = ctk.StringVar(value="newest")
-        sort_menu = ctk.CTkOptionMenu(
-            search_frame,
-            variable=self.sort_var,
-            values=["Mới nhất", "Cũ nhất", "Nhiều like nhất", "Nhiều CMT nhất"],
-            fg_color=COLORS["bg_card"],
-            button_color=COLORS["accent"],
-            button_hover_color=COLORS["accent_hover"],
-            dropdown_fg_color=COLORS["bg_card"],
-            dropdown_hover_color=COLORS["border"],
-            width=150,
-            command=self._on_sort
-        )
-        sort_menu.pack(side="left", padx=5)
-        
-        # Posts scroll area
-        self.posts_scroll = ctk.CTkScrollableFrame(
-            self,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["border"],
-            scrollbar_button_hover_color=COLORS["accent"]
-        )
-        self.posts_scroll.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-        
-        # Empty state
+        ).pack(side="left", padx=20)
+
+        # Table header
+        table_header = ctk.CTkFrame(list_frame, fg_color=COLORS["bg_card"], corner_radius=8, height=35)
+        table_header.pack(fill="x", padx=15, pady=(0, 5))
+        table_header.pack_propagate(False)
+
+        headers = [("", 35), ("Link bài viết", 350), ("Mục tiêu", 70), ("Đã like", 70), ("Hoàn thành", 80), ("Lỗi", 50)]
+        for text, width in headers:
+            ctk.CTkLabel(
+                table_header,
+                text=text,
+                width=width,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=COLORS["text_primary"]
+            ).pack(side="left", padx=3)
+
+        # Scrollable post list
+        self.post_list_scroll = ctk.CTkScrollableFrame(list_frame, fg_color="transparent")
+        self.post_list_scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
         self.empty_label = ctk.CTkLabel(
-            self.posts_scroll,
-            text="📭 Chưa có bài đăng nào\nThêm URL bài viết Facebook ở phần trên để bắt đầu",
+            self.post_list_scroll,
+            text="📭 Chưa có bài đăng nào\nĐăng bài ở tab 'Đăng Nhóm' trước",
             font=ctk.CTkFont(size=14),
             text_color=COLORS["text_secondary"],
             justify="center"
         )
-    
+        self.empty_label.pack(pady=50)
+
+        # ========== ACTION SECTION ==========
+        action_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=15)
+        action_frame.pack(fill="x", padx=20, pady=(0, 20))
+
+        # Buttons row
+        btn_row = ctk.CTkFrame(action_frame, fg_color="transparent")
+        btn_row.pack(fill="x", padx=20, pady=15)
+
+        ModernButton(
+            btn_row,
+            text="Bắt đầu Like",
+            icon="👍",
+            variant="success",
+            command=self._start_liking,
+            width=140
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            btn_row,
+            text="Dừng",
+            icon="⏹️",
+            variant="danger",
+            command=self._stop_liking,
+            width=80
+        ).pack(side="left", padx=5)
+
+        # Progress
+        self.progress_bar = ctk.CTkProgressBar(
+            btn_row,
+            fg_color=COLORS["bg_card"],
+            progress_color=COLORS["success"],
+            width=200
+        )
+        self.progress_bar.pack(side="left", padx=20)
+        self.progress_bar.set(0)
+
+        self.status_label = ctk.CTkLabel(
+            btn_row,
+            text="Sẵn sàng",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.status_label.pack(side="left", padx=10)
+
+        # Log
+        self.log_textbox = ctk.CTkTextbox(
+            action_frame,
+            fg_color=COLORS["bg_card"],
+            text_color=COLORS["text_primary"],
+            font=ctk.CTkFont(size=11),
+            height=100
+        )
+        self.log_textbox.pack(fill="x", padx=20, pady=(0, 15))
+        self.log_textbox.configure(state="disabled")
+
+    def _load_data(self):
+        """Load posts và profiles"""
+        self._load_folders()
+        self._load_profiles()
+        self._load_posts()
+
+    def _load_folders(self):
+        """Load danh sách folders từ Hidemium"""
+        try:
+            self.folders = api.get_folders()
+        except:
+            self.folders = []
+
+        folder_options = ["-- Tất cả --"]
+        for f in self.folders:
+            folder_options.append(f.get('name', 'Unknown'))
+        self.folder_menu.configure(values=folder_options)
+
+    def _load_profiles(self):
+        """Load profiles từ folder đã chọn"""
+        folder_name = self.folder_var.get()
+
+        if folder_name == "-- Tất cả --":
+            self.profiles = get_profiles()
+        else:
+            folder_id = None
+            for f in self.folders:
+                if f.get('name') == folder_name:
+                    folder_id = f.get('uuid') or f.get('id')
+                    break
+            if folder_id:
+                try:
+                    self.profiles = api.get_profiles(folder_id=[folder_id])
+                except:
+                    self.profiles = get_profiles()
+            else:
+                self.profiles = get_profiles()
+
+        self.profile_count_label.configure(text=f"{len(self.profiles)} profiles")
+
     def _load_posts(self):
-        """Load danh sách bài đăng từ database"""
-        self.posts = get_posts()
-        self._render_posts()
-    
-    def _render_posts(self, posts: List[Dict] = None):
+        """Load danh sách bài đăng theo filter"""
+        filter_value = self.date_filter_var.get()
+        today = date.today()
+
+        if filter_value == "Hôm nay":
+            start_date = today
+        elif filter_value == "Hôm qua":
+            start_date = today - timedelta(days=1)
+        elif filter_value == "7 ngày":
+            start_date = today - timedelta(days=7)
+        elif filter_value == "30 ngày":
+            start_date = today - timedelta(days=30)
+        else:
+            start_date = None
+
+        # Get posts from history
+        all_posts = get_post_history()
+
+        if start_date:
+            self.posts = []
+            for p in all_posts:
+                post_date_str = p.get('posted_at', '')
+                if post_date_str:
+                    try:
+                        post_date = datetime.strptime(post_date_str[:10], '%Y-%m-%d').date()
+                        if post_date >= start_date:
+                            self.posts.append(p)
+                    except:
+                        pass
+        else:
+            self.posts = all_posts
+
+        self.post_count_label.configure(text=f"{len(self.posts)} bài")
+        self._render_post_list()
+
+    def _filter_by_custom_date(self):
+        """Lọc theo ngày nhập vào"""
+        date_str = self.custom_date_entry.get().strip()
+        if not date_str:
+            return
+
+        try:
+            # Parse dd/mm/yyyy
+            custom_date = datetime.strptime(date_str, '%d/%m/%Y').date()
+        except:
+            self._log("Định dạng ngày không hợp lệ (dd/mm/yyyy)")
+            return
+
+        all_posts = get_post_history()
+        self.posts = []
+
+        for p in all_posts:
+            post_date_str = p.get('posted_at', '')
+            if post_date_str:
+                try:
+                    post_date = datetime.strptime(post_date_str[:10], '%Y-%m-%d').date()
+                    if post_date == custom_date:
+                        self.posts.append(p)
+                except:
+                    pass
+
+        self.post_count_label.configure(text=f"{len(self.posts)} bài")
+        self._render_post_list()
+
+    def _render_post_list(self):
         """Render danh sách bài đăng"""
         # Clear existing
-        for widget in self.posts_scroll.winfo_children():
+        for widget in self.post_list_scroll.winfo_children():
             widget.destroy()
-        
-        display_posts = posts if posts is not None else self.posts
-        
-        self.count_label.configure(text=f"({len(display_posts)} bài)")
-        
-        if not display_posts:
+
+        self.post_vars = {}
+        self.post_widgets = {}
+
+        if not self.posts:
             self.empty_label = ctk.CTkLabel(
-                self.posts_scroll,
-                text="📭 Chưa có bài đăng nào\nThêm URL bài viết Facebook ở phần trên để bắt đầu",
+                self.post_list_scroll,
+                text="📭 Chưa có bài đăng nào\nĐăng bài ở tab 'Đăng Nhóm' trước",
                 font=ctk.CTkFont(size=14),
                 text_color=COLORS["text_secondary"],
                 justify="center"
             )
             self.empty_label.pack(pady=50)
             return
-        
-        for post in display_posts:
-            card = PostCard(
-                self.posts_scroll,
-                post_data=post,
-                on_like=self._like_post,
-                on_comment=self._comment_post,
-                on_delete=self._delete_post
+
+        target_likes = int(self.like_count_entry.get() or 5)
+
+        for i, post in enumerate(self.posts):
+            post_id = post.get('id', i)
+            post_url = post.get('post_url', '')
+
+            # Initialize status if not exists
+            if post_id not in self.post_status:
+                self.post_status[post_id] = {
+                    'target': target_likes,
+                    'liked': 0,
+                    'completed': False,
+                    'error': False
+                }
+
+            row = ctk.CTkFrame(self.post_list_scroll, fg_color=COLORS["bg_card"], corner_radius=8, height=40)
+            row.pack(fill="x", pady=2)
+            row.pack_propagate(False)
+
+            # Checkbox
+            var = ctk.BooleanVar(value=False)
+            self.post_vars[post_id] = var
+            cb = ctk.CTkCheckBox(
+                row,
+                text="",
+                variable=var,
+                fg_color=COLORS["accent"],
+                width=35
             )
-            card.pack(fill="x", pady=5)
-    
-    def _add_post(self):
-        """Thêm bài đăng mới"""
-        url = self.url_entry.get().strip()
-        title = self.title_entry.get().strip()
-        
-        if not url:
-            self._set_status("Vui lòng nhập URL bài viết", "warning")
-            return
-        
-        # Validate URL (basic)
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-        
-        post_data = {
-            'url': url,
-            'title': title or 'Bài viết Facebook',
-            'target_likes': int(self.like_target.get() or 0),
-            'target_comments': int(self.comment_target.get() or 0)
-        }
-        
-        saved = save_post(post_data)
-        
-        # Clear inputs
-        self.url_entry.delete(0, "end")
-        self.title_entry.delete(0, "end")
-        self.like_target.delete(0, "end")
-        self.comment_target.delete(0, "end")
-        
+            cb.pack(side="left", padx=5)
+
+            # Link (clickable)
+            link_label = ctk.CTkLabel(
+                row,
+                text=post_url[:55] + "..." if len(post_url) > 55 else post_url,
+                width=350,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["accent"],
+                cursor="hand2",
+                anchor="w"
+            )
+            link_label.pack(side="left", padx=3)
+            link_label.bind("<Button-1>", lambda e, url=post_url: self._open_url(url))
+
+            # Target
+            target_label = ctk.CTkLabel(
+                row,
+                text=str(self.post_status[post_id]['target']),
+                width=70,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_primary"]
+            )
+            target_label.pack(side="left", padx=3)
+
+            # Liked count
+            liked_label = ctk.CTkLabel(
+                row,
+                text=str(self.post_status[post_id]['liked']),
+                width=70,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["success"]
+            )
+            liked_label.pack(side="left", padx=3)
+
+            # Completed
+            completed = self.post_status[post_id]['completed']
+            completed_label = ctk.CTkLabel(
+                row,
+                text="✓" if completed else "-",
+                width=80,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["success"] if completed else COLORS["text_secondary"]
+            )
+            completed_label.pack(side="left", padx=3)
+
+            # Error
+            error = self.post_status[post_id]['error']
+            error_label = ctk.CTkLabel(
+                row,
+                text="✗" if error else "-",
+                width=50,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["danger"] if error else COLORS["text_secondary"]
+            )
+            error_label.pack(side="left", padx=3)
+
+            # Store widgets for updating
+            self.post_widgets[post_id] = {
+                'row': row,
+                'target': target_label,
+                'liked': liked_label,
+                'completed': completed_label,
+                'error': error_label
+            }
+
+    def _toggle_select_all(self):
+        """Toggle chọn tất cả"""
+        select_all = self.select_all_var.get()
+        for var in self.post_vars.values():
+            var.set(select_all)
+
+    def _on_date_filter_change(self, choice):
+        """Khi đổi filter ngày"""
         self._load_posts()
-        self._set_status(f"Đã thêm bài đăng: {title or url}", "success")
-    
-    def _like_post(self, post: Dict):
-        """Mở dialog like bài đăng"""
-        dialog = LikeDialog(self, post, self.status_callback)
-        dialog.grab_set()
-    
-    def _comment_post(self, post: Dict):
-        """Mở dialog comment bài đăng"""
-        dialog = CommentDialog(self, post, self.status_callback)
-        dialog.grab_set()
-    
-    def _delete_post(self, post: Dict):
-        """Xóa bài đăng"""
-        post_id = post.get('id')
-        if post_id:
-            delete_post(post_id)
-            self._load_posts()
-            self._set_status("Đã xóa bài đăng", "success")
-    
-    def _on_search(self, event=None):
-        """Tìm kiếm bài đăng"""
-        query = self.search_entry.get().lower()
-        if not query:
-            self._render_posts()
+
+    def _on_folder_change(self, choice):
+        """Khi đổi folder"""
+        self._load_profiles()
+
+    def _open_url(self, url):
+        """Mở URL trong browser"""
+        import webbrowser
+        if url:
+            webbrowser.open(url)
+
+    def _log(self, message: str):
+        """Thêm log"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        self.log_textbox.configure(state="normal")
+        self.log_textbox.insert("end", f"[{timestamp}] {message}\n")
+        self.log_textbox.see("end")
+        self.log_textbox.configure(state="disabled")
+
+    def _update_post_status(self, post_id, liked=None, completed=None, error=None):
+        """Cập nhật status của post"""
+        if post_id not in self.post_status:
             return
-        
-        filtered = [
-            p for p in self.posts
-            if query in p.get('url', '').lower()
-            or query in p.get('title', '').lower()
-        ]
-        self._render_posts(filtered)
-    
-    def _on_sort(self, choice: str):
-        """Sắp xếp bài đăng"""
-        posts = self.posts.copy()
-        
-        if choice == "Mới nhất":
-            posts.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-        elif choice == "Cũ nhất":
-            posts.sort(key=lambda x: x.get('created_at', ''))
-        elif choice == "Nhiều like nhất":
-            posts.sort(key=lambda x: x.get('like_count', 0), reverse=True)
-        elif choice == "Nhiều CMT nhất":
-            posts.sort(key=lambda x: x.get('comment_count', 0), reverse=True)
-        
-        self._render_posts(posts)
-    
+
+        if liked is not None:
+            self.post_status[post_id]['liked'] = liked
+        if completed is not None:
+            self.post_status[post_id]['completed'] = completed
+        if error is not None:
+            self.post_status[post_id]['error'] = error
+
+        # Update UI
+        if post_id in self.post_widgets:
+            widgets = self.post_widgets[post_id]
+            if liked is not None:
+                widgets['liked'].configure(text=str(liked))
+            if completed is not None:
+                widgets['completed'].configure(
+                    text="✓" if completed else "-",
+                    text_color=COLORS["success"] if completed else COLORS["text_secondary"]
+                )
+            if error is not None:
+                widgets['error'].configure(
+                    text="✗" if error else "-",
+                    text_color=COLORS["danger"] if error else COLORS["text_secondary"]
+                )
+
     def _set_status(self, text: str, status_type: str = "info"):
-        """Cập nhật status bar"""
+        """Cập nhật status"""
         if self.status_callback:
             self.status_callback(text, status_type)
+        self.status_label.configure(text=text)
 
+    def _start_liking(self):
+        """Bắt đầu like bài viết"""
+        if self._is_running:
+            return
 
-class LikeDialog(ctk.CTkToplevel):
-    """Dialog cấu hình like bài đăng"""
-    
-    def __init__(self, parent, post: Dict, status_callback=None):
-        super().__init__(parent)
-        
-        self.post = post
-        self.status_callback = status_callback
-        
-        self.title("❤️ Like bài đăng")
-        self.geometry("550x450")
-        self.configure(fg_color=COLORS["bg_dark"])
-        self.transient(parent)
-        
-        self._create_ui()
-    
-    def _create_ui(self):
-        # Header
-        ctk.CTkLabel(
-            self,
-            text="❤️ Cấu hình Like bài đăng",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(pady=20)
-        
-        # Post info
-        info_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
-        info_frame.pack(fill="x", padx=30, pady=10)
-        
-        url = self.post.get('url', '')[:50]
-        ctk.CTkLabel(
-            info_frame,
-            text=f"🔗 {url}...",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["accent"]
-        ).pack(anchor="w", padx=15, pady=10)
-        
-        # Config form
-        form_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
-        form_frame.pack(fill="x", padx=30, pady=10)
-        
-        # Number of likes
-        ctk.CTkLabel(
-            form_frame,
-            text="Số lượng like:",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=20, pady=(15, 5))
-        
-        self.like_count = ModernEntry(form_frame, placeholder="VD: 10", width=200)
-        self.like_count.pack(anchor="w", padx=20, pady=(0, 15))
-        self.like_count.insert(0, "10")
-        
-        # Delay between likes
-        ctk.CTkLabel(
-            form_frame,
-            text="Thời gian chờ giữa mỗi like (giây):",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=20, pady=(0, 5))
-        
-        self.delay_entry = ModernEntry(form_frame, placeholder="VD: 5", width=200)
-        self.delay_entry.pack(anchor="w", padx=20, pady=(0, 15))
-        self.delay_entry.insert(0, "5")
-        
-        # Select profiles
-        ctk.CTkLabel(
-            form_frame,
-            text="Chọn profiles để sử dụng:",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=20, pady=(0, 5))
-        
-        self.profile_option = ctk.CTkOptionMenu(
-            form_frame,
-            values=["Tất cả profiles", "Profiles đang chạy", "Chọn thủ công"],
-            fg_color=COLORS["bg_card"],
-            button_color=COLORS["accent"],
-            width=300
-        )
-        self.profile_option.pack(anchor="w", padx=20, pady=(0, 20))
-        
-        # Buttons
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=30, pady=20)
-        
-        ModernButton(
-            btn_frame,
-            text="Bắt đầu Like",
-            icon="▶",
-            variant="success",
-            command=self._start_like,
-            width=140
-        ).pack(side="left", padx=5)
-        
-        ModernButton(
-            btn_frame,
-            text="Hủy",
-            variant="secondary",
-            command=self.destroy,
-            width=100
-        ).pack(side="left", padx=5)
-    
-    def _start_like(self):
-        """Bắt đầu quá trình like"""
-        count = int(self.like_count.get() or 10)
-        delay = int(self.delay_entry.get() or 5)
-        
-        if self.status_callback:
-            self.status_callback(f"Đang thực hiện {count} likes với delay {delay}s...", "info")
-        
-        # Update post stats (simulation)
-        update_post_stats(self.post['id'], likes=count)
-        
-        self.destroy()
+        # Get selected posts
+        selected_posts = []
+        for post in self.posts:
+            post_id = post.get('id', self.posts.index(post))
+            if post_id in self.post_vars and self.post_vars[post_id].get():
+                selected_posts.append(post)
 
+        if not selected_posts:
+            self._log("Vui lòng chọn ít nhất 1 bài để like")
+            return
 
-class CommentDialog(ctk.CTkToplevel):
-    """Dialog cấu hình comment bài đăng"""
-    
-    def __init__(self, parent, post: Dict, status_callback=None):
-        super().__init__(parent)
-        
-        self.post = post
-        self.status_callback = status_callback
-        
-        self.title("💬 Comment bài đăng")
-        self.geometry("600x550")
-        self.configure(fg_color=COLORS["bg_dark"])
-        self.transient(parent)
-        
-        self._create_ui()
-    
-    def _create_ui(self):
-        # Header
-        ctk.CTkLabel(
-            self,
-            text="💬 Cấu hình Comment bài đăng",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(pady=20)
-        
-        # Post info
-        info_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
-        info_frame.pack(fill="x", padx=30, pady=10)
-        
-        url = self.post.get('url', '')[:50]
-        ctk.CTkLabel(
-            info_frame,
-            text=f"🔗 {url}...",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["accent"]
-        ).pack(anchor="w", padx=15, pady=10)
-        
-        # Comment templates
-        form_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
-        form_frame.pack(fill="x", padx=30, pady=10)
-        
-        ctk.CTkLabel(
-            form_frame,
-            text="Danh sách comment (mỗi dòng 1 comment):",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=20, pady=(15, 5))
-        
-        self.comments_text = ModernTextbox(form_frame, height=150)
-        self.comments_text.pack(fill="x", padx=20, pady=(0, 15))
-        self.comments_text.insert("1.0", "Bài viết hay quá! 👍\nThanks for sharing!\nRất hữu ích ❤️\n🔥🔥🔥")
-        
-        # Config
-        config_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
-        config_frame.pack(fill="x", padx=20, pady=(0, 15))
-        
-        ctk.CTkLabel(
-            config_frame,
-            text="Số comment:",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-        
-        self.comment_count = ModernEntry(config_frame, width=80)
-        self.comment_count.pack(side="left", padx=(5, 20))
-        self.comment_count.insert(0, "5")
-        
-        ctk.CTkLabel(
-            config_frame,
-            text="Delay (giây):",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-        
-        self.delay_entry = ModernEntry(config_frame, width=80)
-        self.delay_entry.pack(side="left", padx=5)
-        self.delay_entry.insert(0, "10")
-        
-        # Random option
-        self.random_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(
-            form_frame,
-            text="Random thứ tự comment",
-            variable=self.random_var,
-            fg_color=COLORS["accent"]
-        ).pack(anchor="w", padx=20, pady=(0, 15))
-        
-        # Buttons
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=30, pady=20)
-        
-        ModernButton(
-            btn_frame,
-            text="Bắt đầu Comment",
-            icon="▶",
-            variant="success",
-            command=self._start_comment,
-            width=160
-        ).pack(side="left", padx=5)
-        
-        ModernButton(
-            btn_frame,
-            text="Hủy",
-            variant="secondary",
-            command=self.destroy,
-            width=100
-        ).pack(side="left", padx=5)
-    
-    def _start_comment(self):
-        """Bắt đầu quá trình comment"""
-        count = int(self.comment_count.get() or 5)
-        delay = int(self.delay_entry.get() or 10)
-        
-        if self.status_callback:
-            self.status_callback(f"Đang thực hiện {count} comments với delay {delay}s...", "info")
-        
-        # Update post stats (simulation)
-        update_post_stats(self.post['id'], comments=count)
-        
-        self.destroy()
+        if not self.profiles:
+            self._log("Không có profile nào để sử dụng")
+            return
+
+        # Get settings
+        try:
+            thread_count = int(self.thread_count_entry.get() or 3)
+            like_count = int(self.like_count_entry.get() or 5)
+        except:
+            thread_count = 3
+            like_count = 5
+
+        # Update target for selected posts
+        for post in selected_posts:
+            post_id = post.get('id', self.posts.index(post))
+            if post_id in self.post_status:
+                self.post_status[post_id]['target'] = like_count
+                self.post_status[post_id]['liked'] = 0
+                self.post_status[post_id]['completed'] = False
+                self.post_status[post_id]['error'] = False
+            self._update_post_status(post_id, liked=0, completed=False, error=False)
+
+        self._is_running = True
+        self._stop_requested = False
+
+        self._log(f"Bắt đầu like {len(selected_posts)} bài với {thread_count} luồng, {like_count} like/bài")
+        self._set_status(f"Đang chạy... 0/{len(selected_posts)}")
+
+        # Start in background
+        threading.Thread(
+            target=self._execute_liking,
+            args=(selected_posts, thread_count, like_count),
+            daemon=True
+        ).start()
+
+    def _execute_liking(self, posts: List[Dict], thread_count: int, like_count: int):
+        """Thực hiện like với multiple threads"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        total_posts = len(posts)
+        completed_posts = 0
+
+        # Shuffle profiles
+        available_profiles = self.profiles.copy()
+        random.shuffle(available_profiles)
+
+        for post in posts:
+            if self._stop_requested:
+                break
+
+            post_id = post.get('id', posts.index(post))
+            post_url = post.get('post_url', '')
+
+            if not post_url:
+                self.after(0, lambda pid=post_id: self._update_post_status(pid, error=True))
+                completed_posts += 1
+                continue
+
+            self.after(0, lambda msg=f"Đang like: {post_url[:50]}...": self._log(msg))
+
+            # Get profiles for this post
+            profiles_to_use = available_profiles[:like_count]
+            if len(profiles_to_use) < like_count:
+                # Not enough profiles, reuse
+                profiles_to_use = (available_profiles * ((like_count // len(available_profiles)) + 1))[:like_count]
+
+            liked_count = 0
+            error_occurred = False
+
+            def like_with_profile(profile):
+                """Like bài với 1 profile"""
+                return self._like_post_with_profile(profile, post_url)
+
+            # Execute with thread pool
+            with ThreadPoolExecutor(max_workers=min(thread_count, len(profiles_to_use))) as executor:
+                futures = {executor.submit(like_with_profile, p): p for p in profiles_to_use}
+
+                for future in as_completed(futures):
+                    if self._stop_requested:
+                        break
+
+                    try:
+                        success = future.result()
+                        if success:
+                            liked_count += 1
+                            self.after(0, lambda pid=post_id, lc=liked_count: self._update_post_status(pid, liked=lc))
+                    except Exception as e:
+                        error_occurred = True
+                        self.after(0, lambda msg=f"Lỗi: {e}": self._log(msg))
+
+            # Update final status
+            is_completed = liked_count >= like_count
+            self.after(0, lambda pid=post_id, c=is_completed, e=error_occurred:
+                       self._update_post_status(pid, completed=c, error=e if not c else False))
+
+            completed_posts += 1
+            progress = completed_posts / total_posts
+            self.after(0, lambda p=progress: self.progress_bar.set(p))
+            self.after(0, lambda cp=completed_posts, tp=total_posts:
+                       self._set_status(f"Đang chạy... {cp}/{tp}"))
+
+            # Delay between posts
+            if not self._stop_requested and completed_posts < total_posts:
+                time.sleep(random.uniform(2, 5))
+
+        self._is_running = False
+        self.after(0, lambda: self._set_status("Hoàn tất"))
+        self.after(0, lambda: self._log(f"Hoàn tất like {completed_posts}/{total_posts} bài"))
+
+    def _like_post_with_profile(self, profile: Dict, post_url: str) -> bool:
+        """Like bài viết với 1 profile qua CDP"""
+        import websocket
+        import json
+
+        profile_uuid = profile.get('uuid', '')
+        if not profile_uuid:
+            return False
+
+        try:
+            # Mở browser
+            result = api.open_browser(profile_uuid)
+            if result.get('type') == 'error':
+                return False
+
+            data = result.get('data', {})
+            remote_port = data.get('remote_port')
+            ws_url = data.get('web_socket', '')
+
+            if not remote_port:
+                match = re.search(r':(\d+)/', ws_url)
+                if match:
+                    remote_port = int(match.group(1))
+
+            if not remote_port:
+                return False
+
+            cdp_base = f"http://127.0.0.1:{remote_port}"
+            time.sleep(2)
+
+            # Lấy page websocket
+            page_ws = None
+            for _ in range(5):
+                try:
+                    resp = requests.get(f"{cdp_base}/json", timeout=10)
+                    pages = resp.json()
+                    for p in pages:
+                        if p.get('type') == 'page':
+                            page_ws = p.get('webSocketDebuggerUrl')
+                            break
+                    if page_ws:
+                        break
+                except:
+                    time.sleep(1)
+
+            if not page_ws:
+                return False
+
+            # Kết nối WebSocket
+            ws = None
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+            except:
+                try:
+                    ws = websocket.create_connection(page_ws, timeout=30)
+                except:
+                    return False
+
+            cdp_id = 1
+
+            def cdp_send(method, params=None):
+                nonlocal cdp_id
+                cdp_id += 1
+                msg = {"id": cdp_id, "method": method, "params": params or {}}
+                ws.send(json.dumps(msg))
+                while True:
+                    try:
+                        ws.settimeout(30)
+                        resp = ws.recv()
+                        data = json.loads(resp)
+                        if data.get('id') == cdp_id:
+                            return data
+                    except:
+                        return {}
+
+            def cdp_eval(expr):
+                result = cdp_send("Runtime.evaluate", {
+                    "expression": expr,
+                    "returnByValue": True,
+                    "awaitPromise": True
+                })
+                return result.get('result', {}).get('result', {}).get('value')
+
+            # Navigate đến bài viết
+            cdp_send("Page.navigate", {"url": post_url})
+            time.sleep(random.uniform(4, 6))
+
+            # Đợi page load
+            for _ in range(10):
+                ready = cdp_eval("document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(random.uniform(1, 2))
+
+            # Click Like
+            click_like_js = '''
+            (function() {
+                let all = document.querySelectorAll('[aria-label="Thích"], [aria-label="Like"]');
+                for (let btn of all) {
+                    let rect = btn.getBoundingClientRect();
+                    if (rect.top > 0 && rect.top < window.innerHeight && rect.width > 0) {
+                        btn.click();
+                        return true;
+                    }
+                }
+                return false;
+            })()
+            '''
+            result = cdp_eval(click_like_js)
+
+            time.sleep(random.uniform(1, 2))
+
+            # Đóng WebSocket
+            try:
+                ws.close()
+            except:
+                pass
+
+            return result == True
+
+        except Exception as e:
+            print(f"[ERROR] Like với profile {profile_uuid[:8]}: {e}")
+            return False
+
+    def _stop_liking(self):
+        """Dừng quá trình like"""
+        if self._is_running:
+            self._stop_requested = True
+            self._log("Đang dừng...")
+            self._set_status("Đang dừng...")
