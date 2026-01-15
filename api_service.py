@@ -254,7 +254,7 @@ class HidemiumAPI:
     
     # ============ FOLDER MANAGEMENT ============
     
-    def get_folders(self, limit: int = 100, page: int = 1, is_local: bool = False) -> List:
+    def get_folders(self, limit: int = 100, page: int = 1, is_local: bool = True) -> List:
         """Lấy danh sách folders"""
         result = self._request(
             "GET",
