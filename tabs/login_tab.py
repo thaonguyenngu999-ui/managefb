@@ -11,8 +11,16 @@ from datetime import datetime
 from config import COLORS
 from widgets import ModernCard, ModernButton, ModernEntry
 from api_service import api
-import openpyxl
-from openpyxl import Workbook
+
+# Optional: openpyxl for XLSX support
+try:
+    import openpyxl
+    from openpyxl import Workbook
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
+    openpyxl = None
+    Workbook = None
 
 
 class LoginTab(ctk.CTkFrame):
@@ -577,6 +585,10 @@ class LoginTab(ctk.CTkFrame):
 
     def _browse_xlsx(self):
         """Chọn file XLSX"""
+        if not HAS_OPENPYXL:
+            self._log("⚠️ Cần cài openpyxl: pip install openpyxl")
+            return
+
         from tkinter import filedialog
         path = filedialog.askopenfilename(
             filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
@@ -589,6 +601,10 @@ class LoginTab(ctk.CTkFrame):
 
     def _load_xlsx(self):
         """Load dữ liệu từ file XLSX"""
+        if not HAS_OPENPYXL:
+            self._log("⚠️ Cần cài openpyxl: pip install openpyxl")
+            return
+
         if not self.xlsx_path or not os.path.exists(self.xlsx_path):
             return
 
