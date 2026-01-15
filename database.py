@@ -27,7 +27,8 @@ def load_json(filepath: str) -> List | Dict:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
+        except (json.JSONDecodeError, IOError, OSError):
+            # Return empty list on JSON parse errors or file read errors
             return []
     return []
 
