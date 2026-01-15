@@ -1,6 +1,7 @@
 """
 Job Definitions - Pre-built automation jobs
 Each job is isolated and self-contained
+Human-like behavior built-in
 """
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Callable, Any
@@ -11,6 +12,7 @@ import traceback
 from .engine import StateMachine, JobState, StateResult, FailureType, AutomationEngine
 from .cdp_client import CDPClient, Condition, ConditionType
 from .artifacts import ArtifactCollector
+from .human_behavior import HumanBehavior, AntiDetection
 
 
 @dataclass
@@ -311,9 +313,8 @@ class PostToGroupJob(Job):
                     failure_type=FailureType.ELEMENT_NOT_FOUND
                 )
 
-        # Wait for post dialog/textarea to appear
-        import time
-        time.sleep(1)
+        # Wait for post dialog/textarea to appear (human-like delay)
+        HumanBehavior.random_delay(0.8, 1.5)
 
         return StateResult(success=True)
 
@@ -360,8 +361,8 @@ class PostToGroupJob(Job):
                 failure_type=FailureType.ELEMENT_NOT_FOUND
             )
 
-        import time
-        time.sleep(1)
+        # Human-like pause after typing before clicking post
+        HumanBehavior.think_pause()
 
         # Click Post button
         post_js = '''
@@ -399,10 +400,9 @@ class PostToGroupJob(Job):
     def _handle_action_verify(self, ctx: Dict) -> StateResult:
         """Verify post was successful"""
         cdp = self.context.cdp
-        import time
 
-        # Wait for post to complete
-        time.sleep(3)
+        # Wait for post to complete (human-like reading time)
+        HumanBehavior.random_delay(2.0, 4.0)
 
         # Check for success indicators:
         # 1. Post dialog closed
@@ -424,7 +424,7 @@ class PostToGroupJob(Job):
             return StateResult(success=True)
 
         # Method 2: Wait a bit more and check URL for post
-        time.sleep(2)
+        HumanBehavior.random_delay(1.5, 2.5)
 
         # Take screenshot for manual verification
         ss = cdp.take_screenshot()
@@ -602,8 +602,7 @@ class LikePostJob(Job):
 
         # Scroll down to find it
         cdp.scroll_to(y=300)
-        import time
-        time.sleep(1)
+        HumanBehavior.random_delay(0.8, 1.2)
 
         result = cdp.execute_js(js)
         if result.success and result.data and result.data.get('found'):
@@ -647,8 +646,8 @@ class LikePostJob(Job):
     def _handle_action_verify(self, ctx: Dict) -> StateResult:
         """Verify like was successful"""
         cdp = self.context.cdp
-        import time
-        time.sleep(1)
+        # Human-like wait after clicking
+        HumanBehavior.random_delay(0.8, 1.5)
 
         # Check if button changed (label should change to "Bỏ thích" / "Unlike")
         js = '''

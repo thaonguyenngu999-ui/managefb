@@ -1,16 +1,20 @@
 """
 CDP Client - Chrome DevTools Protocol wrapper with condition-based waits
 No more sleep() - wait for conditions instead
+Human-like behavior built-in
 """
 import json
 import time
 import re
+import random
 import requests
 import websocket
 from dataclasses import dataclass
 from typing import Optional, Callable, Any, Dict, List
 from enum import Enum
 from datetime import datetime
+
+from .human_behavior import HumanBehavior, AntiDetection, WaitStrategy
 
 
 class ConditionType(Enum):
@@ -190,14 +194,20 @@ class CDPClient:
 
     # ==================== CONDITION-BASED WAITS ====================
 
-    def wait_for(self, condition: Condition, timeout_ms: int = None) -> WaitResult:
+    def wait_for(self, condition: Condition, timeout_ms: int = None,
+                debounce_ms: int = 0) -> WaitResult:
         """
         Wait for a condition to be true
         This is the core - no blind sleep!
+
+        Args:
+            condition: The condition to wait for
+            timeout_ms: Maximum time to wait
+            debounce_ms: Condition must be true for this long (anti-flake)
         """
         timeout = timeout_ms or self.default_timeout
         start = datetime.now()
-        poll_interval = 100  # ms
+        stable_start = None
 
         while True:
             elapsed = int((datetime.now() - start).total_seconds() * 1000)
@@ -215,16 +225,31 @@ class CDPClient:
             try:
                 result = self._check_condition(condition)
                 if result:
-                    self._log_operation(
-                        f'wait_{condition.type.value}', True, elapsed,
-                        {'condition': condition.description}
-                    )
-                    return WaitResult(success=True, elapsed_ms=elapsed, data=result)
+                    if debounce_ms > 0:
+                        # Debounce: condition must stay true
+                        if stable_start is None:
+                            stable_start = datetime.now()
+                        elif (datetime.now() - stable_start).total_seconds() * 1000 >= debounce_ms:
+                            self._log_operation(
+                                f'wait_{condition.type.value}', True, elapsed,
+                                {'condition': condition.description, 'debounced': True}
+                            )
+                            return WaitResult(success=True, elapsed_ms=elapsed, data=result)
+                    else:
+                        self._log_operation(
+                            f'wait_{condition.type.value}', True, elapsed,
+                            {'condition': condition.description}
+                        )
+                        return WaitResult(success=True, elapsed_ms=elapsed, data=result)
+                else:
+                    stable_start = None  # Reset debounce
             except Exception as e:
-                # Condition check failed, will retry
+                stable_start = None  # Reset debounce on error
                 pass
 
-            time.sleep(poll_interval / 1000)
+            # Poll with jitter to avoid pattern detection
+            poll_interval = HumanBehavior.add_jitter(0.1, 0.3)
+            time.sleep(poll_interval)
 
     def _check_condition(self, condition: Condition) -> Any:
         """Check if a condition is met"""
@@ -330,8 +355,8 @@ class CDPClient:
             self._log_operation('navigate', False, duration, {'url': url, 'error': str(e)})
             return ActionResult(False, str(e))
 
-    def click(self, selector: str) -> ActionResult:
-        """Click element - just the action, no verification"""
+    def click(self, selector: str, human_like: bool = True) -> ActionResult:
+        """Click element with human-like behavior"""
         start = datetime.now()
         try:
             # First wait for element to be clickable
@@ -347,18 +372,26 @@ class CDPClient:
             if not wait_result.success:
                 return ActionResult(False, wait_result.error)
 
-            # Execute click
-            js = f'''
-                (function() {{
-                    let el = document.querySelector('{selector}');
-                    if (el) {{
-                        el.click();
-                        return true;
-                    }}
-                    return false;
-                }})()
-            '''
-            result = self._evaluate_js(js)
+            if human_like:
+                # Human-like: scroll, hover, then click
+                result = AntiDetection.natural_click(self, selector)
+            else:
+                # Direct click
+                js = f'''
+                    (function() {{
+                        let el = document.querySelector('{selector}');
+                        if (el) {{
+                            el.click();
+                            return true;
+                        }}
+                        return false;
+                    }})()
+                '''
+                result = self._evaluate_js(js)
+
+            # Add human-like delay after click
+            if human_like:
+                HumanBehavior.random_delay(0.3, 0.8)
 
             duration = int((datetime.now() - start).total_seconds() * 1000)
             self._log_operation('click', result, duration, {'selector': selector})
@@ -369,8 +402,9 @@ class CDPClient:
             self._log_operation('click', False, duration, {'selector': selector, 'error': str(e)})
             return ActionResult(False, str(e))
 
-    def type_text(self, selector: str, text: str, clear: bool = True) -> ActionResult:
-        """Type text into input - just the action"""
+    def type_text(self, selector: str, text: str, clear: bool = True,
+                  human_like: bool = True) -> ActionResult:
+        """Type text with optional human-like character-by-character input"""
         start = datetime.now()
         try:
             # Wait for element
@@ -386,27 +420,53 @@ class CDPClient:
             if not wait_result.success:
                 return ActionResult(False, wait_result.error)
 
-            # Clear and type
-            escaped_text = text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n')
-            js = f'''
-                (function() {{
-                    let el = document.querySelector('{selector}');
-                    if (!el) return false;
-                    el.focus();
-                    if ({str(clear).lower()}) el.value = '';
-                    el.value = '{escaped_text}';
-                    el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    return true;
-                }})()
-            '''
-            result = self._evaluate_js(js)
+            if clear:
+                # Clear existing content
+                clear_js = f'''
+                    (function() {{
+                        let el = document.querySelector('{selector}');
+                        if (!el) return false;
+                        el.focus();
+                        if (el.contentEditable === 'true') {{
+                            el.innerHTML = '';
+                        }} else {{
+                            el.value = '';
+                        }}
+                        return true;
+                    }})()
+                '''
+                self._evaluate_js(clear_js)
+                HumanBehavior.random_delay(0.1, 0.3)
+
+            if human_like and len(text) < 500:
+                # Type character by character for shorter texts
+                result = AntiDetection.gradual_type(self, selector, text)
+            else:
+                # Paste for longer texts (still human-like to paste)
+                escaped_text = text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n')
+                js = f'''
+                    (function() {{
+                        let el = document.querySelector('{selector}');
+                        if (!el) return false;
+                        el.focus();
+                        if (el.contentEditable === 'true') {{
+                            document.execCommand('insertText', false, '{escaped_text}');
+                        }} else {{
+                            el.value = '{escaped_text}';
+                            el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                        }}
+                        return true;
+                    }})()
+                '''
+                result = self._evaluate_js(js)
 
             duration = int((datetime.now() - start).total_seconds() * 1000)
             self._log_operation('type_text', result, duration, {
                 'selector': selector,
-                'text_length': len(text)
+                'text_length': len(text),
+                'human_like': human_like
             })
-            return ActionResult(result)
+            return ActionResult(True if result else False)
 
         except Exception as e:
             duration = int((datetime.now() - start).total_seconds() * 1000)
