@@ -294,60 +294,154 @@ profiles = response.json()
 
 ## 🏗️ Build EXE
 
+### Sử dụng PyInstaller
+
 ```bash
 # Cài đặt PyInstaller
 pip install pyinstaller
 
-# Build
+# Build EXE với spec file
 pyinstaller build.spec
 
-# Hoặc build đơn giản
-pyinstaller --onefile --windowed --name "FB Manager Pro" main.py
+# Hoặc build trực tiếp
+pyinstaller --onefile --windowed --name="FacebookManagerPro" main.py
 ```
 
-File exe sẽ được tạo trong thư mục `dist/`
+### File build.spec
 
-### 📁 Cấu trúc thư mục
+```python
+# -*- mode: python ; coding: utf-8 -*-
 
+a = Analysis(
+    ['main.py'],
+    pathex=[],
+    binaries=[],
+    datas=[('data', 'data')],
+    hiddenimports=['customtkinter'],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='FacebookManagerPro',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    icon='icon.ico'  # Optional
+)
 ```
-managefb/
-├── main.py              # Entry point
-├── config.py            # Cấu hình ứng dụng
-├── api_service.py       # Hidemium API service
-├── database.py          # Database local (JSON)
-├── widgets.py           # Custom UI widgets
-├── tabs/
-│   ├── __init__.py
-│   ├── profiles_tab.py  # Tab quản lý profiles
-│   ├── scripts_tab.py   # Tab kịch bản
-│   └── posts_tab.py     # Tab bài đăng
-├── data/                # Dữ liệu local
-│   ├── scripts.json     # Kịch bản đã lưu
-│   ├── posts.json       # Bài đăng đã lưu
-│   └── settings.json    # Cài đặt
-├── requirements.txt     # Dependencies
-├── build.spec          # PyInstaller config
-└── README.md           # Documentation
+
+**Output:** `dist/FacebookManagerPro.exe`
+
+---
+
+## 🛠️ Troubleshooting
+
+### Lỗi thường gặp
+
+| Lỗi | Nguyên nhân | Giải pháp |
+|-----|-------------|-----------|
+| `Connection refused` | Hidemium API chưa bật | Mở Hidemium → Settings → Enable API |
+| `401 Unauthorized` | Token sai | Kiểm tra lại token trong config.py |
+| `RuntimeError: main thread` | Threading issue | Đã fix với `_safe_after()` wrapper |
+| `osVersion invalid` | OS version không hợp lệ | Sử dụng version từ dropdown |
+| `git not recognized` | Git chưa cài hoặc PATH chưa refresh | Restart terminal hoặc cài Git |
+
+### Debug Mode
+
+```python
+# Bật debug trong config.py
+DEBUG = True
+LOG_LEVEL = "DEBUG"
 ```
 
-### 🎨 Giao diện
+### Reset Database
 
-- **Theme tối** - Dễ nhìn, hiện đại
+```bash
+# Xóa cache local để làm mới
+rm -rf data/*.json
+```
+
+---
+
+## 🎨 Giao diện
+
+- **Theme tối** - Dễ nhìn, hiện đại với CustomTkinter
 - **UI responsive** - Tự điều chỉnh theo kích thước cửa sổ
-- **Navigation sidebar** - Chuyển tab dễ dàng
-- **Status bar** - Theo dõi trạng thái kết nối và hoạt động
+- **Tab Navigation** - Chuyển tab dễ dàng
+- **Auto-refresh** - Cập nhật trạng thái real-time
+- **Status indicators** - Icon màu cho trạng thái Running/Stopped
 
-### 🔧 Yêu cầu hệ thống
+---
 
-- Windows 10/11
-- Python 3.9+
-- Hidemium Browser đang chạy
-- RAM: 4GB+
-- Ổ cứng: 100MB
+## 🤝 Đóng góp
 
-### 📝 API Reference
+1. Fork repository
+2. Tạo branch mới (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add AmazingFeature'`)
+4. Push branch (`git push origin feature/AmazingFeature`)
+5. Tạo Pull Request
 
-Xem chi tiết trong file `api.txt` - Tài liệu API Hidemium đầy đủ.
+### Coding Standards
+
+- Python PEP8 style guide
+- Docstrings cho functions
+- Type hints khi có thể
+- Comments tiếng Việt/Anh
+
+---
+
+## 📄 License
+
+Distributed under the **MIT License**. See `LICENSE` for more information.
+
+---
+
+## 👨‍💻 Tác giả
+
+**thaonguyenngu999-ui**
+
+- GitHub: [@thaonguyenngu999-ui](https://github.com/thaonguyenngu999-ui)
+- Repository: [managefb](https://github.com/thaonguyenngu999-ui/managefb)
+
+---
+
+## 🙏 Acknowledgments
+
+- [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) - Modern UI framework cho Python
+- [Hidemium Browser](https://hidemium.io) - Anti-detect browser với API mạnh mẽ
+- [Python Requests](https://requests.readthedocs.io) - HTTP library đơn giản và hiệu quả
+
+---
+
+## 📝 Changelog
+
+### v1.0.0 (2026-01-15)
+- ✅ Initial release
+- ✅ Profiles Tab với auto-refresh
+- ✅ Scripts Tab với Hidemium + Local Python scripts
+- ✅ Posts Tab (basic UI)
+- ✅ Create Profile hỗ trợ Windows/macOS/Linux/Android/iOS
+- ✅ Thread-safe callbacks với `_safe_after()` wrapper
+
+---
+
+<p align="center">
+  Made with ❤️ by thaonguyenngu999-ui
+</p>
+
 
 ### ⚠️ Lưu ý
 
