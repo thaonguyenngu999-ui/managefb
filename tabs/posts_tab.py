@@ -774,11 +774,24 @@ class PostsTab(ctk.CTkFrame):
 
             self.after(0, lambda pn=profile_name, p=remote_port: self._log(f"[{pn}] Đã mở, port: {p}"))
 
-            # Kết nối CDP MAX
-            time.sleep(2)  # Đợi browser khởi động
+            # Kết nối CDP MAX với retry
             helper = CDPHelper()
-            if not helper.connect(remote_port):
-                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không kết nối được CDP"))
+            max_retries = 3
+            connected = False
+
+            for attempt in range(max_retries):
+                wait_time = 2 + attempt * 2  # 2s, 4s, 6s
+                time.sleep(wait_time)
+
+                if helper.connect(remote_port):
+                    connected = True
+                    break
+                else:
+                    if attempt < max_retries - 1:
+                        self.after(0, lambda pn=profile_name, a=attempt+1: self._log(f"[{pn}] Thử kết nối lại ({a}/{max_retries-1})..."))
+
+            if not connected:
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không kết nối được CDP sau {max_retries} lần thử"))
                 return False
 
             # Navigate đến bài viết

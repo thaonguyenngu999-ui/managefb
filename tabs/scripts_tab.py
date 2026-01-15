@@ -139,20 +139,73 @@ class ScriptsTab(ctk.CTkFrame):
         self.name_entry = ModernEntry(name_frame, placeholder="VD: Đăng Đông Hưng buổi sáng")
         self.name_entry.pack(side="left", fill="x", expand=True)
 
-        # ========== CHỌN THƯ MỤC PROFILE ==========
+        # ========== LỌC THEO THƯ MỤC ==========
         folder_frame = ctk.CTkFrame(editor, fg_color="transparent")
         folder_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(folder_frame, text="📁 Thư mục profile:", width=120, anchor="w").pack(side="left")
-        self.folder_var = ctk.StringVar(value="-- Chọn thư mục --")
+        ctk.CTkLabel(folder_frame, text="📁 Lọc thư mục:", width=120, anchor="w").pack(side="left")
+        self.folder_var = ctk.StringVar(value="-- Tất cả --")
         self.folder_menu = ctk.CTkOptionMenu(
             folder_frame,
             variable=self.folder_var,
-            values=["-- Chọn thư mục --"],
+            values=["-- Tất cả --"],
             fg_color=COLORS["bg_card"],
             button_color=COLORS["accent"],
-            width=250
+            width=180,
+            command=self._on_folder_filter_change
         )
         self.folder_menu.pack(side="left", padx=5)
+
+        ModernButton(
+            folder_frame, text="Tải profiles", variant="secondary",
+            command=self._load_profiles_for_schedule, width=110
+        ).pack(side="left", padx=5)
+
+        # ========== CHỌN PROFILES (multi-select) ==========
+        profile_label = ctk.CTkLabel(
+            editor,
+            text="👤 Chọn Profiles (để đăng bài):",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        profile_label.pack(anchor="w", pady=(15, 5))
+
+        profile_btn_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        profile_btn_frame.pack(fill="x", pady=5)
+
+        self.profile_select_all_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            profile_btn_frame,
+            text="Chọn tất cả",
+            variable=self.profile_select_all_var,
+            fg_color=COLORS["accent"],
+            command=self._toggle_all_profiles
+        ).pack(side="left")
+
+        self.profile_count_label = ctk.CTkLabel(
+            profile_btn_frame,
+            text="(0 profile đã chọn)",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.profile_count_label.pack(side="left", padx=10)
+
+        # Profile list frame
+        self.profile_list_frame = ctk.CTkFrame(editor, fg_color=COLORS["bg_card"], corner_radius=10, height=120)
+        self.profile_list_frame.pack(fill="x", pady=5)
+        self.profile_list_frame.pack_propagate(False)
+
+        self.profile_scroll = ctk.CTkScrollableFrame(self.profile_list_frame, fg_color="transparent")
+        self.profile_scroll.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.profile_vars = {}  # {profile_uuid: BooleanVar}
+        self.profiles = []
+
+        ctk.CTkLabel(
+            self.profile_scroll,
+            text="Bấm 'Tải profiles' để hiện danh sách",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        ).pack(pady=20)
 
         # ========== KHUNG GIỜ ĐĂNG ==========
         time_label = ctk.CTkLabel(
@@ -412,6 +465,88 @@ class ScriptsTab(ctk.CTkFrame):
         count = sum(1 for var in self.group_vars.values() if var.get())
         self.group_count_label.configure(text=f"({count} nhóm đã chọn)")
 
+    def _toggle_all_profiles(self):
+        """Toggle chọn tất cả profiles"""
+        select_all = self.profile_select_all_var.get()
+        for var in self.profile_vars.values():
+            var.set(select_all)
+        self._update_profile_count()
+
+    def _update_profile_count(self):
+        """Cập nhật số profile đã chọn"""
+        count = sum(1 for var in self.profile_vars.values() if var.get())
+        self.profile_count_label.configure(text=f"({count} profile đã chọn)")
+
+    def _on_folder_filter_change(self, choice):
+        """Khi đổi folder filter"""
+        self._load_profiles_for_schedule()
+
+    def _load_profiles_for_schedule(self):
+        """Load profiles theo folder đã chọn"""
+        folder_name = self.folder_var.get()
+
+        # Clear current profiles
+        for widget in self.profile_scroll.winfo_children():
+            widget.destroy()
+        self.profile_vars = {}
+
+        try:
+            if folder_name == "-- Tất cả --":
+                self.profiles = api.get_profiles(limit=500)
+            else:
+                # Tìm folder_id
+                folder_id = None
+                for f in self.folders:
+                    if f.get('name') == folder_name:
+                        folder_id = f.get('id')
+                        break
+                if folder_id:
+                    self.profiles = api.get_profiles(folder_id=[folder_id], limit=500)
+                else:
+                    self.profiles = api.get_profiles(limit=500)
+        except Exception as e:
+            print(f"Error loading profiles: {e}")
+            self.profiles = []
+
+        self._render_profiles()
+
+    def _render_profiles(self):
+        """Render danh sách profiles"""
+        for widget in self.profile_scroll.winfo_children():
+            widget.destroy()
+
+        if not self.profiles:
+            ctk.CTkLabel(
+                self.profile_scroll,
+                text="Không có profile nào",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(pady=20)
+            return
+
+        for profile in self.profiles:
+            if isinstance(profile, dict):
+                profile_uuid = profile.get('uuid', '')
+                profile_name = profile.get('name', profile_uuid[:8])
+            else:
+                profile_uuid = str(profile)
+                profile_name = profile_uuid[:8]
+
+            var = ctk.BooleanVar(value=False)
+            self.profile_vars[profile_uuid] = var
+
+            cb = ctk.CTkCheckBox(
+                self.profile_scroll,
+                text=profile_name,
+                variable=var,
+                fg_color=COLORS["accent"],
+                command=self._update_profile_count
+            )
+            cb.pack(anchor="w", pady=2)
+
+        self._update_profile_count()
+        self._log(f"Đã tải {len(self.profiles)} profiles")
+
     def _browse_image_folder(self):
         """Chọn thư mục ảnh"""
         from tkinter import filedialog
@@ -433,7 +568,7 @@ class ScriptsTab(ctk.CTkFrame):
         except:
             self.folders = []
 
-        folder_options = ["-- Chọn thư mục --"]
+        folder_options = ["-- Tất cả --"]
         for f in self.folders:
             folder_options.append(f.get('name', 'Unknown'))
         self.folder_menu.configure(values=folder_options)
@@ -577,7 +712,7 @@ class ScriptsTab(ctk.CTkFrame):
     def _clear_form(self):
         """Xóa form"""
         self.name_entry.delete(0, "end")
-        self.folder_var.set("-- Chọn thư mục --")
+        self.folder_var.set("-- Tất cả --")
         self._clear_hours()
         self.category_var.set("-- Chọn danh mục --")
         self.image_folder_entry.delete(0, "end")
@@ -585,6 +720,13 @@ class ScriptsTab(ctk.CTkFrame):
         self.delay_min_entry.insert(0, "30")
         self.delay_max_entry.delete(0, "end")
         self.delay_max_entry.insert(0, "60")
+        # Clear profiles
+        self.profile_vars = {}
+        for widget in self.profile_scroll.winfo_children():
+            widget.destroy()
+        self.profile_select_all_var.set(False)
+        self._update_profile_count()
+        # Clear groups
         self.group_vars = {}
         for widget in self.group_scroll.winfo_children():
             widget.destroy()
@@ -663,41 +805,39 @@ class ScriptsTab(ctk.CTkFrame):
     def _load_groups_for_folder(self):
         """Load nhóm cho folder đã chọn"""
         folder_name = self.folder_var.get()
-        if folder_name == "-- Chọn thư mục --":
-            self._log("⚠️ Vui lòng chọn thư mục profile trước")
-            return
-
-        # Find folder
-        folder = None
-        for f in self.folders:
-            if f.get('name') == folder_name:
-                folder = f
-                break
-
-        if not folder:
-            return
 
         # Clear current groups
         for widget in self.group_scroll.winfo_children():
             widget.destroy()
         self.group_vars = {}
 
-        # Load profiles in folder
-        folder_id = folder.get('id')
-        if folder_id:
-            try:
-                profiles = api.get_profiles(folder_id=[folder_id], limit=500)
-                if profiles and len(profiles) > 0:
-                    # Get first profile's UUID to load its groups
-                    first_profile = profiles[0]
-                    if isinstance(first_profile, dict):
-                        profile_uuid = first_profile.get('uuid', '')
-                        if profile_uuid:
-                            self.groups = get_groups(profile_uuid)
-                            self._render_groups()
-                            return
-            except Exception as e:
-                print(f"Error loading groups: {e}")
+        try:
+            # Load profiles based on folder selection
+            if folder_name == "-- Tất cả --":
+                profiles = api.get_profiles(limit=500)
+            else:
+                # Find folder_id
+                folder_id = None
+                for f in self.folders:
+                    if f.get('name') == folder_name:
+                        folder_id = f.get('id')
+                        break
+                if folder_id:
+                    profiles = api.get_profiles(folder_id=[folder_id], limit=500)
+                else:
+                    profiles = api.get_profiles(limit=500)
+
+            if profiles and len(profiles) > 0:
+                # Get first profile's UUID to load its groups
+                first_profile = profiles[0]
+                if isinstance(first_profile, dict):
+                    profile_uuid = first_profile.get('uuid', '')
+                    if profile_uuid:
+                        self.groups = get_groups(profile_uuid)
+                        self._render_groups()
+                        return
+        except Exception as e:
+            print(f"Error loading groups: {e}")
 
         ctk.CTkLabel(
             self.group_scroll,
