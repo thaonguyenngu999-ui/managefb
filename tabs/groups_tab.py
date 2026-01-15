@@ -2925,6 +2925,7 @@ class GroupsTab(ctk.CTkFrame):
             return
 
         cdp_base = f"http://127.0.0.1:{remote_port}"
+        self._commenting_port = remote_port  # Lưu để dùng cho tab mới
         time.sleep(2)
 
         # Đóng hết tab cũ
@@ -3024,20 +3025,103 @@ class GroupsTab(ctk.CTkFrame):
         return True
 
     def _comment_on_post_cdp(self, ws, post_url: str, comment: str) -> bool:
-        """Bình luận vào bài qua CDP"""
+        """Bình luận vào bài qua CDP - Mở tab mới để tránh dialog"""
         import time
+        import websocket as ws_module
+        import json as json_module
 
         if not post_url or 'facebook.com' not in post_url:
             return False
 
         try:
-            # Navigate đến bài viết
-            self._cdp_send(ws, "Page.navigate", {"url": post_url})
-            time.sleep(random.uniform(3, 5))
+            # Tạo tab mới để tránh Leave site dialog
+            result = self._cdp_send(ws, "Target.createTarget", {"url": post_url})
+            target_id = result.get('result', {}).get('targetId')
+
+            if not target_id:
+                print(f"[WARN] Không tạo được tab mới cho: {post_url}")
+                return False
+
+            time.sleep(random.uniform(3, 5))  # Đợi tab mới load
+
+            # Lấy WebSocket của tab mới
+            new_ws_url = None
+            try:
+                cdp_base = f"http://127.0.0.1:{self._commenting_port}"
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('id') == target_id:
+                        new_ws_url = p.get('webSocketDebuggerUrl')
+                        break
+            except:
+                pass
+
+            if not new_ws_url:
+                # Đóng tab mới
+                self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+                return False
+
+            # Kết nối WebSocket tab mới
+            new_ws = None
+            try:
+                new_ws = ws_module.create_connection(new_ws_url, timeout=30, suppress_origin=True)
+            except:
+                try:
+                    new_ws = ws_module.create_connection(new_ws_url, timeout=30)
+                except:
+                    self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+                    return False
+
+            # Helper để gửi CDP command đến tab mới
+            def send_new(method, params=None):
+                self._cdp_id += 1
+                msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+                new_ws.send(json_module.dumps(msg))
+                while True:
+                    try:
+                        new_ws.settimeout(30)
+                        resp = new_ws.recv()
+                        data = json_module.loads(resp)
+                        if data.get('id') == self._cdp_id:
+                            return data
+                    except:
+                        return {}
+
+            def eval_new(expr):
+                result = send_new("Runtime.evaluate", {
+                    "expression": expr,
+                    "returnByValue": True,
+                    "awaitPromise": True
+                })
+                return result.get('result', {}).get('result', {}).get('value')
+
+            def type_in_new_tab(text):
+                """Gõ text trong tab mới với kiểu giống người"""
+                for char in text:
+                    # Random typo (3% chance)
+                    if random.random() < 0.03:
+                        wrong_char = random.choice('abcdefghijklmnopqrstuvwxyz')
+                        send_new("Input.insertText", {"text": wrong_char})
+                        time.sleep(random.uniform(0.05, 0.15))
+                        send_new("Input.dispatchKeyEvent", {
+                            "type": "keyDown",
+                            "key": "Backspace",
+                            "code": "Backspace"
+                        })
+                        send_new("Input.dispatchKeyEvent", {
+                            "type": "keyUp",
+                            "key": "Backspace",
+                            "code": "Backspace"
+                        })
+                        time.sleep(random.uniform(0.1, 0.2))
+
+                    send_new("Input.insertText", {"text": char})
+                    time.sleep(random.uniform(0.03, 0.12))
 
             # Đợi page load
             for _ in range(10):
-                ready = self._cdp_evaluate(ws, "document.readyState")
+                ready = eval_new("document.readyState")
                 if ready == 'complete':
                     break
                 time.sleep(1)
@@ -3045,7 +3129,7 @@ class GroupsTab(ctk.CTkFrame):
             time.sleep(random.uniform(1, 2))
 
             # Scroll xuống một chút để thấy comment box
-            self._cdp_evaluate(ws, "window.scrollBy(0, 300);")
+            eval_new("window.scrollBy(0, 300);")
             time.sleep(random.uniform(0.5, 1))
 
             # Tìm và click vào ô comment
@@ -3085,25 +3169,31 @@ class GroupsTab(ctk.CTkFrame):
                 return false;
             })()
             '''
-            clicked = self._cdp_evaluate(ws, click_comment_js)
+            clicked = eval_new(click_comment_js)
             if not clicked:
                 print(f"[WARN] Không tìm thấy ô comment: {post_url}")
+                # Đóng tab mới
+                try:
+                    new_ws.close()
+                except:
+                    pass
+                self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
                 return False
 
             time.sleep(random.uniform(1, 2))
 
             # Gõ comment từng ký tự
-            self._type_like_human(ws, comment)
+            type_in_new_tab(comment)
             time.sleep(random.uniform(0.5, 1))
 
             # Nhấn Enter để gửi comment
-            self._cdp_send(ws, "Input.dispatchKeyEvent", {
+            send_new("Input.dispatchKeyEvent", {
                 "type": "keyDown",
                 "key": "Enter",
                 "code": "Enter"
             })
             time.sleep(0.1)
-            self._cdp_send(ws, "Input.dispatchKeyEvent", {
+            send_new("Input.dispatchKeyEvent", {
                 "type": "keyUp",
                 "key": "Enter",
                 "code": "Enter"
@@ -3112,6 +3202,14 @@ class GroupsTab(ctk.CTkFrame):
             time.sleep(random.uniform(2, 3))
 
             print(f"[OK] Đã comment: {post_url[:50]}")
+
+            # Đóng tab mới
+            try:
+                new_ws.close()
+            except:
+                pass
+            self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+
             return True
 
         except Exception as e:
