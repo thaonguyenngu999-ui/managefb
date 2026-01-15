@@ -216,7 +216,7 @@ class LoginTab(ctk.CTkFrame):
 
         ctk.CTkLabel(
             scroll,
-            text="XLSX: A(Status), B(FB ID), C(User), D(Pass), E(Email), F(Email Pass), G(2FA Secret)",
+            text="XLSX: A(Status-trống), B(UID), C(Password), D(2FA Secret), E(Email), F(Email Pass)",
             font=ctk.CTkFont(size=11),
             text_color=COLORS["text_secondary"],
             wraplength=400
@@ -614,10 +614,10 @@ class LoginTab(ctk.CTkFrame):
 
             self.accounts = []
             for row_idx, row in enumerate(sheet.iter_rows(min_row=1, values_only=True), start=1):
-                if not row or len(row) < 4:
+                if not row or len(row) < 3:  # Cần ít nhất B(UID) và C(Password)
                     continue
 
-                # Columns: A=Status, B=FB ID, C=Username, D=Password, E=Email, F=Email Pass, G=2FA Secret
+                # Columns: A=Status(trống), B=UID, C=Password, D=2FA Secret, E=Email, F=Email Pass
                 # Helper: convert Excel float to clean string (61551817090446.0 -> "61551817090446")
                 def clean_str(val):
                     if val is None:
@@ -631,11 +631,10 @@ class LoginTab(ctk.CTkFrame):
                     'row': row_idx,
                     'status': clean_str(row[0]),
                     'fb_id': clean_str(row[1]),
-                    'username': clean_str(row[2]),
-                    'password': clean_str(row[3]),
+                    'password': clean_str(row[2]),
+                    'totp_secret': clean_str(row[3]) if len(row) > 3 else '',  # 2FA secret
                     'email': clean_str(row[4]) if len(row) > 4 else '',
-                    'email_pass': clean_str(row[5]) if len(row) > 5 else '',
-                    'totp_secret': clean_str(row[6]) if len(row) > 6 else ''  # 2FA secret
+                    'email_pass': clean_str(row[5]) if len(row) > 5 else ''
                 }
 
                 # Skip if no FB ID
