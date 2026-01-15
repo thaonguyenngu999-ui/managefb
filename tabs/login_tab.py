@@ -289,7 +289,7 @@ class LoginTab(ctk.CTkFrame):
         self.delete_bad_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
             options_frame,
-            text="Xóa profile nếu nick lỗi",
+            text="🗑️ Xóa profile nếu nick DIE",
             variable=self.delete_bad_var,
             fg_color=COLORS["accent"]
         ).pack(side="left")
@@ -1016,7 +1016,16 @@ class LoginTab(ctk.CTkFrame):
                     }
 
                     // Check for disabled/banned account
-                    let diePhrases = ['bị vô hiệu hóa', 'disabled', 'suspended', 'đã bị khóa', 'account has been'];
+                    let diePhrases = [
+                        'vô hiệu hóa tài khoản',
+                        'đã vô hiệu hóa',
+                        'bị vô hiệu hóa',
+                        'disabled',
+                        'suspended',
+                        'đã bị khóa',
+                        'account has been disabled',
+                        'tài khoản của bạn đã bị'
+                    ];
                     for (let phrase of diePhrases) {
                         if (pageText.includes(phrase)) return 'DIE';
                     }
@@ -1060,15 +1069,18 @@ class LoginTab(ctk.CTkFrame):
                     # Tìm input 2FA và nhập code
                     time.sleep(1)
 
-                    # Focus vào input 2FA
+                    # Focus vào input 2FA (selector mới cho FB React)
                     evaluate('''
                         (function() {
-                            let input = document.querySelector('input[name="approvals_code"]') ||
-                                       document.querySelector('input[type="text"]') ||
-                                       document.querySelector('input[type="tel"]');
+                            let input = document.querySelector('input[id^="_r_"]') ||
+                                       document.querySelector('input[autocomplete="off"][type="text"]') ||
+                                       document.querySelector('input[name="approvals_code"]');
                             if (input) {
                                 input.focus();
-                                input.value = '';
+                                // Dùng native setter để bypass React
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                                nativeInputValueSetter.call(input, '');
+                                input.dispatchEvent(new Event('input', {bubbles: true}));
                             }
                         })()
                     ''')
@@ -1079,15 +1091,26 @@ class LoginTab(ctk.CTkFrame):
                         send_cmd("Input.insertText", {"text": digit})
                         time.sleep(random.uniform(0.15, 0.35))
 
-                    time.sleep(0.5)
+                    time.sleep(0.8)
 
-                    # Submit 2FA form
+                    # Submit 2FA form (dùng div[role="button"] cho FB mới)
                     evaluate('''
                         (function() {
-                            let btn = document.querySelector('button[type="submit"]') ||
-                                     document.querySelector('#checkpointSubmitButton') ||
-                                     document.querySelector('button[name="submit[Continue]"]');
-                            if (btn) btn.click();
+                            let btn = document.querySelector('div[role="button"][tabindex="0"]') ||
+                                     document.querySelector('div[aria-label*="Tiếp"]') ||
+                                     document.querySelector('div[aria-label*="Continue"]') ||
+                                     document.querySelector('button[type="submit"]');
+                            if (btn) {
+                                btn.click();
+                                return 'clicked';
+                            }
+                            // Fallback: click button cuối cùng
+                            let allBtns = document.querySelectorAll('div[role="button"]');
+                            if (allBtns.length > 0) {
+                                allBtns[allBtns.length - 1].click();
+                                return 'clicked_last';
+                            }
+                            return 'no_btn';
                         })()
                     ''')
 
@@ -1101,6 +1124,15 @@ class LoginTab(ctk.CTkFrame):
                     self.after(0, lambda err=str(e): self._log(f"  2FA error: {err}"))
 
             ws.close()
+
+            # Xóa profile nếu nick die và option được bật
+            if status_clean == 'DIE' and self.delete_bad_var.get():
+                try:
+                    self.after(0, lambda: self._log(f"  🗑️ Xóa profile die..."))
+                    delete_result = api.delete_profiles([uuid], is_local=False)
+                    self.after(0, lambda r=delete_result: self._log(f"  Delete: {r}"))
+                except Exception as e:
+                    self.after(0, lambda err=str(e): self._log(f"  Delete error: {err}"))
 
             # Không đóng browser nếu thành công
             if status_clean != 'LIVE':
