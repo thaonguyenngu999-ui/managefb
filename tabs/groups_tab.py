@@ -2453,26 +2453,39 @@ class GroupsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(5, 8))  # Đợi đăng xong (đợi lâu hơn cho duyệt tự động)
 
-            # Bước 7: Navigate lại trang group
-            # Xóa beforeunload handler để tránh dialog "Leave site?"
-            self._cdp_evaluate(ws, "window.onbeforeunload = null;")
-            self._cdp_evaluate(ws, '''
-                window.addEventListener('beforeunload', function(e) {
-                    e.stopImmediatePropagation();
-                }, true);
-            ''')
+            # Bước 7: Đóng composer và tìm URL bài viết (không navigate để tránh dialog)
+            # Nhấn Escape để đóng composer nếu còn mở
+            self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                "type": "keyDown",
+                "key": "Escape",
+                "code": "Escape"
+            })
             time.sleep(0.3)
+            self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                "type": "keyUp",
+                "key": "Escape",
+                "code": "Escape"
+            })
+            time.sleep(random.uniform(1, 2))
 
-            self._cdp_send(ws, "Page.navigate", {"url": group_url})
-            time.sleep(random.uniform(4, 6))
+            # Nếu có Facebook modal, click "Rời khỏi Trang"
+            self._cdp_evaluate(ws, '''
+                (function() {
+                    let btns = document.querySelectorAll('[role="button"]');
+                    for (let btn of btns) {
+                        let text = btn.innerText || "";
+                        if (text.includes("Rời khỏi") || text.includes("Leave") || text.includes("Discard")) {
+                            btn.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                })()
+            ''')
+            time.sleep(random.uniform(1, 2))
 
-            # Đợi page load xong
-            for _ in range(10):
-                ready = self._cdp_evaluate(ws, "document.readyState")
-                if ready == 'complete':
-                    break
-                time.sleep(1)
-
+            # Scroll lên đầu trang để thấy bài mới
+            self._cdp_evaluate(ws, "window.scrollTo(0, 0);")
             time.sleep(random.uniform(1, 2))
 
             # Tìm bài vừa đăng (bao gồm cả pending)
@@ -2522,21 +2535,21 @@ class GroupsTab(ctk.CTkFrame):
             })()
             '''
 
-            # Thử lấy URL - nếu không tìm thấy, đợi thêm và reload lại
+            # Thử lấy URL - nếu không tìm thấy, đợi thêm và scroll để load thêm
             post_url = None
             for attempt in range(3):
                 post_url = self._cdp_evaluate(ws, get_post_url_js)
                 if post_url and ('/posts/' in post_url or 'pfbid' in post_url):
                     break
 
-                # Đợi thêm và navigate lại nếu chưa tìm thấy
+                # Đợi thêm, scroll để trigger load thêm bài
                 if attempt < 2:
-                    time.sleep(random.uniform(3, 5))
-                    # Xóa beforeunload handler
-                    self._cdp_evaluate(ws, "window.onbeforeunload = null;")
-                    time.sleep(0.2)
-                    self._cdp_send(ws, "Page.navigate", {"url": group_url})
-                    time.sleep(random.uniform(3, 4))
+                    time.sleep(random.uniform(2, 4))
+                    # Scroll xuống rồi lên để refresh feed
+                    self._cdp_evaluate(ws, "window.scrollBy(0, 300);")
+                    time.sleep(1)
+                    self._cdp_evaluate(ws, "window.scrollTo(0, 0);")
+                    time.sleep(random.uniform(2, 3))
 
             # Nếu không lấy được, chỉ trả về URL group
             if not post_url:
