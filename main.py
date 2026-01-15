@@ -5,7 +5,7 @@ Tích hợp Hidemium Browser API
 import customtkinter as ctk
 from config import COLORS, WINDOW_WIDTH, WINDOW_HEIGHT, APP_NAME, APP_VERSION
 from widgets import StatusBar
-from tabs import ProfilesTab, ScriptsTab, PostsTab, ContentTab, GroupsTab
+from tabs import ProfilesTab, ScriptsTab, PostsTab, ContentTab, GroupsTab, LoginTab
 
 
 class FBManagerApp(ctk.CTk):
@@ -84,6 +84,7 @@ class FBManagerApp(ctk.CTk):
         self.nav_buttons = {}
         nav_items = [
             ("profiles", "📋", "Quản lý Profiles"),
+            ("login", "🔐", "Login FB"),
             ("content", "✏️", "Soạn tin"),
             ("groups", "👥", "Đăng Nhóm"),
             ("scripts", "📜", "Kịch bản"),
@@ -159,6 +160,12 @@ class FBManagerApp(ctk.CTk):
 
         # Profiles tab
         self.tabs["profiles"] = ProfilesTab(
+            self.main_frame,
+            status_callback=self._update_status
+        )
+
+        # Login FB tab
+        self.tabs["login"] = LoginTab(
             self.main_frame,
             status_callback=self._update_status
         )

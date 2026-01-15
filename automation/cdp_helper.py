@@ -364,46 +364,63 @@ class CDPHelper:
     # ==================== HIGH-LEVEL ACTIONS ====================
 
     def click_like_button(self) -> bool:
-        """Click the Like button on current page (Facebook)"""
+        """Click the Like button on current page (Facebook post)"""
         if not self.is_connected:
             return False
 
-        # Try Vietnamese first, then English
-        for label in ["Thích", "Like"]:
-            locator = self._client.by_aria_label(label)
-            if self._client.is_visible(locator):
-                # Define postcondition: button changes to Unlike
-                def check_liked():
-                    unlike_vn = self._client.by_aria_label("Bỏ thích")
-                    unlike_en = self._client.by_aria_label("Unlike")
-                    return self._client.exists(unlike_vn) or self._client.exists(unlike_en)
-
-                postcond = Postcondition(
-                    check=check_liked,
-                    description="Like button changed to Unlike",
-                    timeout_ms=5000
-                )
-
-                result = self._client.click(locator, postcondition=postcond)
-                if result.success:
-                    HumanBehavior.random_delay(0.5, 1.0)
-                    return True
-
-        # Fallback: try JS click
-        js = '''
+        # Specific JS to find and click the MAIN post's Like button (not comment likes)
+        js_click_like = '''
             (function() {
-                let buttons = document.querySelectorAll('[aria-label*="Thích"], [aria-label*="Like"]');
-                for (let btn of buttons) {
+                // Find the main post's action bar (contains Thích, Bình luận, Chia sẻ)
+                // The main Like button is usually the first one in the action bar
+
+                // Method 1: Find by action bar structure
+                let actionBars = document.querySelectorAll('[role="button"][aria-label*="Thích"], [role="button"][aria-label*="Like"]');
+
+                for (let btn of actionBars) {
+                    // Skip if it's a comment like (usually smaller or nested deeper)
                     let rect = btn.getBoundingClientRect();
-                    if (rect.top > 0 && rect.top < window.innerHeight && rect.width > 0) {
-                        btn.click();
-                        return true;
+
+                    // Main post Like button is usually larger and in view
+                    if (rect.width < 20 || rect.height < 20) continue;
+                    if (rect.top < 0 || rect.top > window.innerHeight) continue;
+
+                    // Check if it's in the main action bar (has siblings like Comment, Share)
+                    let parent = btn.closest('[role="group"], [class*="action"]') || btn.parentElement?.parentElement;
+                    if (parent) {
+                        let siblingText = parent.innerText || '';
+                        // Main action bar has Comment/Bình luận and Share/Chia sẻ nearby
+                        if (siblingText.includes('Bình luận') || siblingText.includes('Comment') ||
+                            siblingText.includes('Chia sẻ') || siblingText.includes('Share')) {
+                            btn.click();
+                            return 'clicked';
+                        }
                     }
                 }
-                return false;
+
+                // Method 2: Find first visible Like button that's not already liked
+                for (let btn of actionBars) {
+                    let label = btn.getAttribute('aria-label') || '';
+                    // Skip "Unlike" or "Bỏ thích" buttons
+                    if (label.includes('Bỏ thích') || label.includes('Unlike')) continue;
+
+                    let rect = btn.getBoundingClientRect();
+                    if (rect.width > 30 && rect.height > 20 && rect.top > 0 && rect.top < window.innerHeight) {
+                        btn.click();
+                        return 'clicked';
+                    }
+                }
+
+                return 'not_found';
             })()
         '''
-        return self._client.execute(js)
+
+        result = self._client.execute(js_click_like)
+        if result == 'clicked':
+            HumanBehavior.random_delay(0.3, 0.6)
+            return True
+
+        return False
 
     def open_post_composer(self) -> bool:
         """Open post composer dialog on Facebook group page"""

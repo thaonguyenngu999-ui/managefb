@@ -1,0 +1,900 @@
+"""
+Tab Login FB - Đăng nhập Facebook cho các profiles
+"""
+import customtkinter as ctk
+from typing import List, Dict, Optional
+import threading
+import time
+import os
+import queue
+from datetime import datetime
+from config import COLORS
+from widgets import ModernCard, ModernButton, ModernEntry
+from api_service import api
+import openpyxl
+from openpyxl import Workbook
+
+
+class LoginTab(ctk.CTkFrame):
+    """Tab đăng nhập Facebook cho profiles"""
+
+    def __init__(self, master, status_callback=None, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+
+        self.status_callback = status_callback
+        self.folders: List[Dict] = []
+        self.profiles: List[Dict] = []
+        self.accounts: List[Dict] = []  # Từ file XLSX
+        self.xlsx_path: str = ""
+        self.workbook: Optional[Workbook] = None
+
+        # Profile status: {uuid: {'has_fb': bool, 'status': str}}
+        self.profile_status: Dict[str, Dict] = {}
+        self.profile_vars: Dict[str, ctk.BooleanVar] = {}
+
+        # Running state
+        self._is_running = False
+        self._stop_requested = False
+        self._threads: List[threading.Thread] = []
+
+        self._create_ui()
+        self._load_folders()
+
+    def _create_ui(self):
+        """Tạo giao diện"""
+        # ========== HEADER ==========
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(fill="x", padx=20, pady=(20, 15))
+
+        ctk.CTkLabel(
+            header_frame,
+            text="🔐 Đăng nhập Facebook",
+            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        ModernButton(
+            header_frame,
+            text="Làm mới",
+            icon="🔄",
+            variant="secondary",
+            command=self._load_folders,
+            width=100
+        ).pack(side="right", padx=5)
+
+        # ========== MAIN CONTENT - 2 COLUMNS ==========
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+
+        # Left panel - Profile selection
+        left_panel = ctk.CTkFrame(main_frame, fg_color=COLORS["bg_secondary"], corner_radius=15, width=400)
+        left_panel.pack(side="left", fill="y", padx=(0, 10))
+        left_panel.pack_propagate(False)
+
+        self._create_profile_panel(left_panel)
+
+        # Right panel - Account import & Login
+        right_panel = ctk.CTkFrame(main_frame, fg_color=COLORS["bg_secondary"], corner_radius=15)
+        right_panel.pack(side="right", fill="both", expand=True)
+
+        self._create_login_panel(right_panel)
+
+    def _create_profile_panel(self, parent):
+        """Tạo panel chọn profiles"""
+        # Header
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        header.pack(fill="x", padx=15, pady=15)
+
+        ctk.CTkLabel(
+            header,
+            text="📁 Profiles",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        # Folder selection
+        folder_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        folder_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(folder_frame, text="Thư mục:", width=70, anchor="w").pack(side="left")
+        self.folder_var = ctk.StringVar(value="-- Chọn --")
+        self.folder_menu = ctk.CTkOptionMenu(
+            folder_frame,
+            variable=self.folder_var,
+            values=["-- Chọn --"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=150,
+            command=self._on_folder_change
+        )
+        self.folder_menu.pack(side="left", padx=5)
+
+        ModernButton(
+            folder_frame,
+            text="Tải",
+            variant="secondary",
+            command=self._load_profiles,
+            width=60
+        ).pack(side="left", padx=5)
+
+        # Check FB status controls
+        check_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        check_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(check_frame, text="Luồng:", width=50, anchor="w").pack(side="left")
+        self.check_thread_entry = ModernEntry(check_frame, placeholder="3", width=50)
+        self.check_thread_entry.pack(side="left", padx=5)
+        self.check_thread_entry.insert(0, "3")
+
+        ModernButton(
+            check_frame,
+            text="🔍 Check FB",
+            variant="primary",
+            command=self._check_fb_status,
+            width=100
+        ).pack(side="left", padx=5)
+
+        self.check_progress = ctk.CTkLabel(
+            check_frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        )
+        self.check_progress.pack(side="right")
+
+        # Filter controls
+        filter_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        filter_frame.pack(fill="x", padx=15, pady=5)
+
+        self.filter_var = ctk.StringVar(value="Tất cả")
+        ctk.CTkRadioButton(
+            filter_frame, text="Tất cả", variable=self.filter_var, value="Tất cả",
+            command=self._apply_filter
+        ).pack(side="left", padx=5)
+        ctk.CTkRadioButton(
+            filter_frame, text="Chưa có FB", variable=self.filter_var, value="Chưa có FB",
+            command=self._apply_filter
+        ).pack(side="left", padx=5)
+        ctk.CTkRadioButton(
+            filter_frame, text="Có FB", variable=self.filter_var, value="Có FB",
+            command=self._apply_filter
+        ).pack(side="left", padx=5)
+
+        # Select all
+        select_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        select_frame.pack(fill="x", padx=15, pady=5)
+
+        self.select_all_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            select_frame,
+            text="Chọn tất cả",
+            variable=self.select_all_var,
+            fg_color=COLORS["accent"],
+            command=self._toggle_all
+        ).pack(side="left")
+
+        self.profile_count_label = ctk.CTkLabel(
+            select_frame,
+            text="(0 đã chọn)",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.profile_count_label.pack(side="left", padx=10)
+
+        # Profile list
+        self.profile_scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self.profile_scroll.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+
+        ctk.CTkLabel(
+            self.profile_scroll,
+            text="Chọn thư mục để xem profiles",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        ).pack(pady=30)
+
+    def _create_login_panel(self, parent):
+        """Tạo panel đăng nhập"""
+        scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=15, pady=15)
+
+        # Import XLSX section
+        import_label = ctk.CTkLabel(
+            scroll,
+            text="📥 Import tài khoản Facebook",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        import_label.pack(anchor="w", pady=(0, 10))
+
+        ctk.CTkLabel(
+            scroll,
+            text="File XLSX có các cột: A(Trạng thái), B(FB ID), C(Username), D(Password), E(Email), F(Email Pass)",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"],
+            wraplength=400
+        ).pack(anchor="w")
+
+        import_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        import_frame.pack(fill="x", pady=10)
+
+        self.xlsx_entry = ModernEntry(import_frame, placeholder="Chọn file XLSX...", width=300)
+        self.xlsx_entry.pack(side="left", fill="x", expand=True)
+
+        ModernButton(
+            import_frame,
+            text="📂 Chọn file",
+            variant="secondary",
+            command=self._browse_xlsx,
+            width=100
+        ).pack(side="left", padx=5)
+
+        # Account preview
+        self.account_info = ctk.CTkLabel(
+            scroll,
+            text="Chưa import file",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.account_info.pack(anchor="w", pady=5)
+
+        # Account list preview
+        self.account_list_frame = ctk.CTkFrame(scroll, fg_color=COLORS["bg_card"], corner_radius=10, height=150)
+        self.account_list_frame.pack(fill="x", pady=10)
+        self.account_list_frame.pack_propagate(False)
+
+        self.account_scroll = ctk.CTkScrollableFrame(self.account_list_frame, fg_color="transparent")
+        self.account_scroll.pack(fill="both", expand=True, padx=5, pady=5)
+
+        ctk.CTkLabel(
+            self.account_scroll,
+            text="Import file XLSX để xem danh sách tài khoản",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        ).pack(pady=30)
+
+        # Login settings
+        settings_label = ctk.CTkLabel(
+            scroll,
+            text="⚙️ Cài đặt Login",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        settings_label.pack(anchor="w", pady=(20, 10))
+
+        settings_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        settings_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(settings_frame, text="Số luồng:", width=70, anchor="w").pack(side="left")
+        self.login_thread_entry = ModernEntry(settings_frame, placeholder="3", width=60)
+        self.login_thread_entry.pack(side="left", padx=5)
+        self.login_thread_entry.insert(0, "3")
+
+        ctk.CTkLabel(settings_frame, text="Delay (s):", width=70, anchor="w").pack(side="left", padx=(20, 0))
+        self.delay_entry = ModernEntry(settings_frame, placeholder="5", width=60)
+        self.delay_entry.pack(side="left", padx=5)
+        self.delay_entry.insert(0, "5")
+
+        # Options
+        options_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        options_frame.pack(fill="x", pady=5)
+
+        self.delete_bad_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Xóa profile nếu nick lỗi",
+            variable=self.delete_bad_var,
+            fg_color=COLORS["accent"]
+        ).pack(side="left")
+
+        self.save_xlsx_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Lưu trạng thái vào XLSX",
+            variable=self.save_xlsx_var,
+            fg_color=COLORS["accent"]
+        ).pack(side="left", padx=20)
+
+        # Action buttons
+        btn_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(20, 10))
+
+        self.start_btn = ModernButton(
+            btn_frame,
+            text="▶️ Bắt đầu Login",
+            variant="success",
+            command=self._start_login,
+            width=150
+        )
+        self.start_btn.pack(side="left", padx=5)
+
+        self.stop_btn = ModernButton(
+            btn_frame,
+            text="⏹️ Dừng",
+            variant="danger",
+            command=self._stop_login,
+            width=100
+        )
+        self.stop_btn.pack(side="left", padx=5)
+
+        # Progress
+        self.progress_label = ctk.CTkLabel(
+            scroll,
+            text="",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["accent"]
+        )
+        self.progress_label.pack(anchor="w", pady=5)
+
+        self.progress_bar = ctk.CTkProgressBar(scroll, width=400, height=15)
+        self.progress_bar.pack(fill="x", pady=5)
+        self.progress_bar.set(0)
+
+        # Log
+        log_label = ctk.CTkLabel(
+            scroll,
+            text="📋 Log",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        log_label.pack(anchor="w", pady=(15, 5))
+
+        self.log_text = ctk.CTkTextbox(scroll, height=200, fg_color=COLORS["bg_card"])
+        self.log_text.pack(fill="x", pady=5)
+
+    def _load_folders(self):
+        """Load danh sách thư mục"""
+        try:
+            self.folders = api.get_folders() or []
+            folder_names = ["-- Chọn --"] + [f.get('name', '') for f in self.folders if f.get('name')]
+            self.folder_menu.configure(values=folder_names)
+            self.folder_var.set("-- Chọn --")
+        except Exception as e:
+            self._log(f"Lỗi tải folders: {e}")
+
+    def _on_folder_change(self, choice):
+        """Khi chọn folder"""
+        if choice != "-- Chọn --":
+            self._load_profiles()
+
+    def _load_profiles(self):
+        """Load profiles theo folder"""
+        folder_name = self.folder_var.get()
+        if folder_name == "-- Chọn --":
+            return
+
+        # Clear
+        for widget in self.profile_scroll.winfo_children():
+            widget.destroy()
+        self.profile_vars = {}
+
+        try:
+            folder_id = None
+            for f in self.folders:
+                if f.get('name') == folder_name:
+                    folder_id = f.get('id')
+                    break
+
+            if folder_id:
+                self.profiles = api.get_profiles(folder_id=[folder_id], limit=500) or []
+            else:
+                self.profiles = []
+
+            self._render_profiles()
+            self._log(f"Đã tải {len(self.profiles)} profiles")
+
+        except Exception as e:
+            self._log(f"Lỗi tải profiles: {e}")
+
+    def _render_profiles(self, filter_type: str = "Tất cả"):
+        """Render danh sách profiles"""
+        for widget in self.profile_scroll.winfo_children():
+            widget.destroy()
+
+        old_selections = {uuid: var.get() for uuid, var in self.profile_vars.items()}
+        self.profile_vars = {}
+
+        if not self.profiles:
+            ctk.CTkLabel(
+                self.profile_scroll,
+                text="Không có profile nào",
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_secondary"]
+            ).pack(pady=30)
+            return
+
+        for profile in self.profiles:
+            uuid = profile.get('uuid', '')
+            name = profile.get('name', uuid[:8])
+
+            # Check filter
+            status = self.profile_status.get(uuid, {})
+            has_fb = status.get('has_fb', None)
+
+            if filter_type == "Chưa có FB" and has_fb is True:
+                continue
+            if filter_type == "Có FB" and has_fb is not True:
+                continue
+
+            # Create frame for each profile
+            pf = ctk.CTkFrame(self.profile_scroll, fg_color="transparent")
+            pf.pack(fill="x", pady=2)
+
+            var = ctk.BooleanVar(value=old_selections.get(uuid, False))
+            self.profile_vars[uuid] = var
+
+            cb = ctk.CTkCheckBox(
+                pf,
+                text=name,
+                variable=var,
+                fg_color=COLORS["accent"],
+                command=self._update_count,
+                width=150
+            )
+            cb.pack(side="left")
+
+            # Status indicator
+            if has_fb is True:
+                status_text = "✅ Có FB"
+                status_color = COLORS["success"]
+            elif has_fb is False:
+                status_text = "❌ Chưa có"
+                status_color = COLORS["danger"]
+            else:
+                status_text = "❓ Chưa check"
+                status_color = COLORS["text_secondary"]
+
+            ctk.CTkLabel(
+                pf,
+                text=status_text,
+                font=ctk.CTkFont(size=11),
+                text_color=status_color
+            ).pack(side="right", padx=5)
+
+        self._update_count()
+
+    def _apply_filter(self):
+        """Apply profile filter"""
+        self._render_profiles(self.filter_var.get())
+
+    def _toggle_all(self):
+        """Toggle select all"""
+        select_all = self.select_all_var.get()
+        for var in self.profile_vars.values():
+            var.set(select_all)
+        self._update_count()
+
+    def _update_count(self):
+        """Update selected count"""
+        count = sum(1 for var in self.profile_vars.values() if var.get())
+        self.profile_count_label.configure(text=f"({count} đã chọn)")
+
+    def _check_fb_status(self):
+        """Check if profiles have FB logged in"""
+        if self._is_running:
+            return
+
+        selected = [uuid for uuid, var in self.profile_vars.items() if var.get()]
+        if not selected:
+            self._log("⚠️ Chưa chọn profile nào")
+            return
+
+        self._is_running = True
+        self._stop_requested = False
+
+        thread_count = int(self.check_thread_entry.get() or 3)
+
+        def check_worker(profile_queue: queue.Queue):
+            while not self._stop_requested:
+                try:
+                    uuid = profile_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+                try:
+                    # Mở browser và check xem có FB không
+                    result = api.open_browser(uuid)
+                    if result.get('status') == 'successfully':
+                        data = result.get('data', {})
+                        remote_port = data.get('remote_port')
+                        ws_url = data.get('web_socket', '')
+
+                        # Kết nối CDP và check
+                        has_fb = self._check_profile_has_fb(remote_port, ws_url)
+                        self.profile_status[uuid] = {'has_fb': has_fb}
+
+                        # Đóng browser
+                        api.close_browser(uuid)
+
+                        self.after(0, lambda u=uuid, h=has_fb: self._log(
+                            f"[{u[:8]}] {'✅ Có FB' if h else '❌ Chưa có FB'}"
+                        ))
+
+                except Exception as e:
+                    self.after(0, lambda u=uuid, err=str(e): self._log(f"[{u[:8]}] Lỗi: {err}"))
+
+                profile_queue.task_done()
+
+        def run_check():
+            q = queue.Queue()
+            for uuid in selected:
+                q.put(uuid)
+
+            threads = []
+            for _ in range(min(thread_count, len(selected))):
+                t = threading.Thread(target=check_worker, args=(q,))
+                t.start()
+                threads.append(t)
+
+            for t in threads:
+                t.join()
+
+            self.after(0, self._on_check_complete)
+
+        threading.Thread(target=run_check, daemon=True).start()
+
+    def _check_profile_has_fb(self, remote_port: int, ws_url: str) -> bool:
+        """Check if browser has FB logged in"""
+        from automation import CDPHelper
+        import time
+
+        helper = CDPHelper()
+        time.sleep(1.5)
+
+        if not helper.connect(remote_port=remote_port, ws_url=ws_url):
+            return False
+
+        try:
+            # Navigate to Facebook
+            helper.navigate("https://www.facebook.com")
+            helper.wait_for_page_ready(timeout_ms=10000)
+
+            # Check if logged in by looking for profile elements
+            js = '''
+                (function() {
+                    // Check for login form or logged-in indicators
+                    let loginForm = document.querySelector('input[name="email"], input[name="pass"]');
+                    if (loginForm) return false;
+
+                    // Check for profile menu or user indicator
+                    let profileMenu = document.querySelector('[aria-label*="Account"], [aria-label*="Tài khoản"]');
+                    let messenger = document.querySelector('[aria-label*="Messenger"]');
+                    let notifications = document.querySelector('[aria-label*="Notifications"], [aria-label*="Thông báo"]');
+
+                    return !!(profileMenu || messenger || notifications);
+                })()
+            '''
+            result = helper.execute(js)
+            return result is True
+
+        finally:
+            helper.close()
+
+    def _on_check_complete(self):
+        """Khi check xong"""
+        self._is_running = False
+        self._apply_filter()
+        self._log("✅ Đã check xong tất cả profiles")
+
+    def _browse_xlsx(self):
+        """Chọn file XLSX"""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if path:
+            self.xlsx_path = path
+            self.xlsx_entry.delete(0, "end")
+            self.xlsx_entry.insert(0, path)
+            self._load_xlsx()
+
+    def _load_xlsx(self):
+        """Load dữ liệu từ file XLSX"""
+        if not self.xlsx_path or not os.path.exists(self.xlsx_path):
+            return
+
+        try:
+            self.workbook = openpyxl.load_workbook(self.xlsx_path)
+            sheet = self.workbook.active
+
+            self.accounts = []
+            for row_idx, row in enumerate(sheet.iter_rows(min_row=1, values_only=True), start=1):
+                if not row or len(row) < 4:
+                    continue
+
+                # Columns: A=Status, B=FB ID, C=Username, D=Password, E=Email, F=Email Pass
+                account = {
+                    'row': row_idx,
+                    'status': row[0] or '',
+                    'fb_id': str(row[1] or ''),
+                    'username': str(row[2] or ''),
+                    'password': str(row[3] or ''),
+                    'email': str(row[4] or '') if len(row) > 4 else '',
+                    'email_pass': str(row[5] or '') if len(row) > 5 else ''
+                }
+
+                # Skip if no FB ID
+                if account['fb_id']:
+                    self.accounts.append(account)
+
+            self.account_info.configure(text=f"Đã tải {len(self.accounts)} tài khoản")
+            self._render_accounts()
+            self._log(f"📥 Đã import {len(self.accounts)} tài khoản từ file")
+
+        except Exception as e:
+            self._log(f"Lỗi đọc file XLSX: {e}")
+
+    def _render_accounts(self):
+        """Render danh sách tài khoản"""
+        for widget in self.account_scroll.winfo_children():
+            widget.destroy()
+
+        if not self.accounts:
+            ctk.CTkLabel(
+                self.account_scroll,
+                text="Không có tài khoản nào",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(pady=30)
+            return
+
+        for acc in self.accounts[:50]:  # Show first 50
+            status = acc.get('status', '')
+            if status == 'LIVE':
+                color = COLORS["success"]
+            elif status in ['DIE', 'ERROR']:
+                color = COLORS["danger"]
+            else:
+                color = COLORS["text_secondary"]
+
+            text = f"[{status or '?'}] {acc['fb_id'][:15]}... - {acc['username'][:20]}..."
+            ctk.CTkLabel(
+                self.account_scroll,
+                text=text,
+                font=ctk.CTkFont(size=11),
+                text_color=color
+            ).pack(anchor="w", pady=1)
+
+        if len(self.accounts) > 50:
+            ctk.CTkLabel(
+                self.account_scroll,
+                text=f"... và {len(self.accounts) - 50} tài khoản khác",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(anchor="w", pady=5)
+
+    def _update_xlsx_status(self, row: int, status: str):
+        """Cập nhật trạng thái vào file XLSX"""
+        if not self.workbook or not self.save_xlsx_var.get():
+            return
+
+        try:
+            sheet = self.workbook.active
+            sheet.cell(row=row, column=1, value=status)
+            self.workbook.save(self.xlsx_path)
+        except Exception as e:
+            print(f"Error saving XLSX: {e}")
+
+    def _start_login(self):
+        """Bắt đầu đăng nhập"""
+        if self._is_running:
+            return
+
+        selected_profiles = [uuid for uuid, var in self.profile_vars.items() if var.get()]
+        if not selected_profiles:
+            self._log("⚠️ Chưa chọn profile nào")
+            return
+
+        # Get accounts without status (not yet processed)
+        available_accounts = [a for a in self.accounts if not a.get('status')]
+        if not available_accounts:
+            self._log("⚠️ Không có tài khoản nào chưa được xử lý")
+            return
+
+        self._is_running = True
+        self._stop_requested = False
+
+        thread_count = int(self.login_thread_entry.get() or 3)
+        delay = int(self.delay_entry.get() or 5)
+
+        self._log(f"▶️ Bắt đầu login {len(selected_profiles)} profiles với {len(available_accounts)} tài khoản")
+
+        def login_worker(profile_queue: queue.Queue, account_queue: queue.Queue):
+            while not self._stop_requested:
+                try:
+                    uuid = profile_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+                # Get profile info
+                profile = next((p for p in self.profiles if p.get('uuid') == uuid), None)
+                if not profile:
+                    profile_queue.task_done()
+                    continue
+
+                profile_name = profile.get('name', uuid[:8])
+
+                # Get an account
+                try:
+                    account = account_queue.get_nowait()
+                except queue.Empty:
+                    self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Hết tài khoản"))
+                    profile_queue.task_done()
+                    break
+
+                self.after(0, lambda pn=profile_name, fb=account['fb_id'][:10]:
+                    self._log(f"[{pn}] Đang login với {fb}..."))
+
+                try:
+                    success, status = self._login_profile(uuid, account)
+
+                    # Update account status
+                    account['status'] = status
+                    self._update_xlsx_status(account['row'], status)
+
+                    if success:
+                        self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✅ Login thành công"))
+                        self.profile_status[uuid] = {'has_fb': True}
+                    else:
+                        self.after(0, lambda pn=profile_name, s=status: self._log(f"[{pn}] ❌ {s}"))
+
+                        # Delete profile if bad and option enabled
+                        if self.delete_bad_var.get() and status in ['DIE', 'LOCKED']:
+                            # Don't delete profile, just mark as failed
+                            pass
+
+                        # Try next account
+                        profile_queue.put(uuid)
+
+                except Exception as e:
+                    self.after(0, lambda pn=profile_name, err=str(e): self._log(f"[{pn}] Lỗi: {err}"))
+
+                time.sleep(delay)
+                profile_queue.task_done()
+
+        def run_login():
+            profile_q = queue.Queue()
+            account_q = queue.Queue()
+
+            for uuid in selected_profiles:
+                profile_q.put(uuid)
+            for acc in available_accounts:
+                account_q.put(acc)
+
+            threads = []
+            for _ in range(min(thread_count, len(selected_profiles))):
+                t = threading.Thread(target=login_worker, args=(profile_q, account_q))
+                t.start()
+                threads.append(t)
+
+            for t in threads:
+                t.join()
+
+            self.after(0, self._on_login_complete)
+
+        threading.Thread(target=run_login, daemon=True).start()
+
+    def _login_profile(self, uuid: str, account: Dict) -> tuple:
+        """Login FB cho profile"""
+        from automation import CDPHelper
+        import time
+
+        result = api.open_browser(uuid)
+        if result.get('status') != 'successfully':
+            return False, 'ERROR'
+
+        data = result.get('data', {})
+        remote_port = data.get('remote_port')
+        ws_url = data.get('web_socket', '')
+
+        helper = CDPHelper()
+        time.sleep(2)
+
+        if not helper.connect(remote_port=remote_port, ws_url=ws_url):
+            api.close_browser(uuid)
+            return False, 'ERROR'
+
+        try:
+            # Navigate to Facebook login
+            helper.navigate("https://www.facebook.com/login")
+            helper.wait_for_page_ready(timeout_ms=10000)
+            time.sleep(2)
+
+            # Fill login form
+            js_login = f'''
+                (function() {{
+                    let emailInput = document.querySelector('input[name="email"], input#email');
+                    let passInput = document.querySelector('input[name="pass"], input#pass');
+                    let loginBtn = document.querySelector('button[name="login"], button[type="submit"]');
+
+                    if (!emailInput || !passInput) return 'NO_FORM';
+
+                    emailInput.value = '{account["fb_id"]}';
+                    emailInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+
+                    passInput.value = '{account["password"]}';
+                    passInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+
+                    if (loginBtn) {{
+                        setTimeout(() => loginBtn.click(), 500);
+                        return 'CLICKED';
+                    }}
+                    return 'NO_BTN';
+                }})()
+            '''
+
+            result = helper.execute(js_login)
+            if result != 'CLICKED':
+                api.close_browser(uuid)
+                return False, 'ERROR'
+
+            # Wait for login result
+            time.sleep(5)
+            helper.wait_for_page_ready(timeout_ms=15000)
+
+            # Check login result
+            js_check = '''
+                (function() {
+                    let url = window.location.href;
+
+                    // Check for checkpoint/locked
+                    if (url.includes('checkpoint') || url.includes('locked')) {
+                        return 'LOCKED';
+                    }
+
+                    // Check for wrong password
+                    let errorText = document.body.innerText || '';
+                    if (errorText.includes('Sai mật khẩu') || errorText.includes('incorrect') ||
+                        errorText.includes('Wrong') || errorText.includes('không hợp lệ')) {
+                        return 'WRONG_PASS';
+                    }
+
+                    // Check for disabled account
+                    if (errorText.includes('bị vô hiệu hóa') || errorText.includes('disabled')) {
+                        return 'DIE';
+                    }
+
+                    // Check if logged in
+                    let loggedIn = document.querySelector('[aria-label*="Account"], [aria-label*="Tài khoản"], [aria-label*="Messenger"]');
+                    if (loggedIn || url.includes('facebook.com/?') || url === 'https://www.facebook.com/') {
+                        return 'LIVE';
+                    }
+
+                    return 'UNKNOWN';
+                })()
+            '''
+
+            status = helper.execute(js_check) or 'UNKNOWN'
+
+            # Close browser
+            api.close_browser(uuid)
+
+            return status == 'LIVE', status
+
+        except Exception as e:
+            print(f"Login error: {e}")
+            api.close_browser(uuid)
+            return False, 'ERROR'
+
+        finally:
+            helper.close()
+
+    def _stop_login(self):
+        """Dừng login"""
+        self._stop_requested = True
+        self._log("⏹️ Đang dừng...")
+
+    def _on_login_complete(self):
+        """Khi login xong"""
+        self._is_running = False
+        self._render_accounts()
+        self._apply_filter()
+        self._log("✅ Đã hoàn thành login")
+
+    def _log(self, message: str):
+        """Ghi log"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_text.insert("end", f"[{timestamp}] {message}\n")
+        self.log_text.see("end")
+
+        if self.status_callback:
+            self.status_callback(message)

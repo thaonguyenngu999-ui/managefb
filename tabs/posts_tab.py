@@ -774,25 +774,23 @@ class PostsTab(ctk.CTkFrame):
 
             self.after(0, lambda pn=profile_name, p=remote_port: self._log(f"[{pn}] Đã mở, port: {p}"))
 
-            # Kết nối CDP MAX với retry (ưu tiên ws_url để tránh lỗi 403 Forbidden)
+            # Kết nối CDP MAX - đợi browser sẵn sàng
+            time.sleep(1.5)  # Đợi browser khởi động
+
             helper = CDPHelper()
-            max_retries = 3
+            max_retries = 2
             connected = False
 
             for attempt in range(max_retries):
-                wait_time = 2 + attempt * 2  # 2s, 4s, 6s
-                time.sleep(wait_time)
-
-                # Ưu tiên ws_url (bypass Chrome origin check)
                 if helper.connect(remote_port=remote_port, ws_url=ws_url):
                     connected = True
                     break
                 else:
                     if attempt < max_retries - 1:
-                        self.after(0, lambda pn=profile_name, a=attempt+1: self._log(f"[{pn}] Thử kết nối lại ({a}/{max_retries-1})..."))
+                        time.sleep(1)  # Đợi ngắn trước khi thử lại
 
             if not connected:
-                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không kết nối được CDP sau {max_retries} lần thử"))
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không kết nối được CDP"))
                 return False
 
             # Navigate đến bài viết
@@ -800,10 +798,10 @@ class PostsTab(ctk.CTkFrame):
                 self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không navigate được"))
                 return False
 
-            # Đợi page load
-            helper.wait_for_page_ready(timeout_ms=15000)
+            # Đợi page load (giảm timeout)
+            helper.wait_for_page_ready(timeout_ms=8000)
 
-            # Click Like với postcondition verification
+            # Click Like - đã cải thiện selector để click đúng nút
             like_result = helper.click_like_button()
 
             if like_result:
@@ -811,7 +809,7 @@ class PostsTab(ctk.CTkFrame):
             else:
                 self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✗ Không tìm thấy nút Like"))
 
-            time.sleep(random.uniform(1, 2))
+            time.sleep(random.uniform(0.3, 0.8))
 
             return like_result
 
