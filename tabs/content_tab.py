@@ -504,15 +504,25 @@ class ContentTab(ctk.CTkFrame):
             self._set_status("Vui lòng nhập tên mục!", "warning")
             return
 
+        # Lưu category mới
         cat = save_category({'name': name})
         self.new_cat_entry.delete(0, "end")
 
         # Chuyển sang category mới vừa tạo
         self.current_category_id = cat['id']
-        self._load_categories()
-        self.category_var.set(name)  # Update dropdown để hiển thị category mới
-        self._load_contents()  # Load contents của category mới (sẽ trống)
+
+        # Reload categories từ DB
+        self.categories = get_categories()
+        cat_names = [c.get('name', 'Unknown') for c in self.categories]
+
+        # Cập nhật dropdown values và chọn category mới
+        self.category_menu.configure(values=cat_names)
+        self.category_var.set(name)
+
+        # Load contents của category mới (sẽ trống)
+        self._load_contents()
         self._new_content()  # Reset form
+
         self._set_status(f"Đã tạo mục: {name}", "success")
 
     def _delete_category(self):
