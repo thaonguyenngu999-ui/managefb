@@ -84,9 +84,16 @@ class HidemiumAPI:
             data = result['data']
             print(f"[DEBUG API] data type: {type(data)}")
             if isinstance(data, dict) and 'content' in data:
-                profiles = data['content']
-                print(f"[DEBUG API] Found {len(profiles)} profiles in data.content")
-                return profiles
+                content = data['content']
+                print(f"[DEBUG API] content type: {type(content)}")
+                # Nếu content là list -> trả về list
+                if isinstance(content, list):
+                    print(f"[DEBUG API] Found {len(content)} profiles in data.content (list)")
+                    return content
+                # Nếu content là dict (1 profile) -> wrap trong list
+                elif isinstance(content, dict):
+                    print(f"[DEBUG API] Found 1 profile in data.content (dict), wrapping in list")
+                    return [content]
             elif isinstance(data, list):
                 print(f"[DEBUG API] data is list with {len(data)} items")
                 return data
@@ -247,7 +254,7 @@ class HidemiumAPI:
     
     # ============ FOLDER MANAGEMENT ============
     
-    def get_folders(self, limit: int = 100, page: int = 1, is_local: bool = True) -> List:
+    def get_folders(self, limit: int = 100, page: int = 1, is_local: bool = False) -> List:
         """Lấy danh sách folders"""
         result = self._request(
             "GET",
