@@ -263,12 +263,17 @@ class PostsTab(ctk.CTkFrame):
         """Load danh sách folders từ Hidemium"""
         try:
             self.folders = api.get_folders()
-        except:
+            print(f"[DEBUG PostsTab] _load_folders got {len(self.folders)} folders")
+        except Exception as e:
+            print(f"[DEBUG PostsTab] _load_folders error: {e}")
             self.folders = []
 
         folder_options = ["-- Tất cả --"]
         for f in self.folders:
-            folder_options.append(f.get('name', 'Unknown'))
+            name = f.get('name', 'Unknown')
+            folder_options.append(name)
+            print(f"[DEBUG PostsTab] Added folder: {name}")
+        print(f"[DEBUG PostsTab] folder_options: {folder_options}")
         self.folder_menu.configure(values=folder_options)
 
     def _load_profiles(self):
