@@ -145,64 +145,68 @@ class CDPSession:
         self.state = SessionState.CONNECTING
         self.events.emit(CDPEvent(type=EventType.CDP_RECONNECTING, data={'state': 'connecting'}))
 
-        # Use provided ws_url or config ws_url
-        direct_ws_url = ws_url or self.config.ws_url
+        # Determine port - extract from ws_url if needed
+        port = self.config.remote_port
+        browser_ws_url = ws_url or self.config.ws_url
+
+        if not port and browser_ws_url:
+            # Extract port from browser ws_url (e.g., ws://127.0.0.1:40000/devtools/browser/...)
+            import re
+            match = re.search(r':(\d+)/', browser_ws_url)
+            if match:
+                port = int(match.group(1))
+
+        if not port:
+            self.state = SessionState.FAILED
+            return False, FailureReason(
+                code=ReasonCode.CDP_DISCONNECTED,
+                message="No port available for CDP connection",
+                recoverable=False
+            )
 
         for attempt in range(self.config.max_connect_retries):
             try:
-                if direct_ws_url:
-                    # Use direct WebSocket URL (bypasses /json endpoint and origin issues)
-                    self._ws_url = direct_ws_url
-                    self._target_id = None
-                else:
-                    # Fallback: Get page list from /json endpoint
-                    base_url = f"http://127.0.0.1:{self.config.remote_port}"
-                    resp = requests.get(f"{base_url}/json", timeout=10)
-                    pages = resp.json()
+                # Always get page list from /json endpoint to get PAGE WebSocket
+                # (browser WebSocket from API can't navigate, need page WebSocket)
+                base_url = f"http://127.0.0.1:{port}"
+                resp = requests.get(f"{base_url}/json", timeout=10)
+                pages = resp.json()
 
-                    # Find main page
-                    page = None
-                    for p in pages:
-                        url = p.get('url', '')
-                        ptype = p.get('type', '')
-                        if ptype == 'page' and not url.startswith('devtools://'):
-                            page = p
-                            break
+                # Find main page
+                page = None
+                for p in pages:
+                    url = p.get('url', '')
+                    ptype = p.get('type', '')
+                    if ptype == 'page' and not url.startswith('devtools://'):
+                        page = p
+                        break
 
-                    if not page and pages:
-                        page = pages[0]
+                if not page and pages:
+                    page = pages[0]
 
-                    if not page:
-                        raise Exception("No page found in browser")
+                if not page:
+                    raise Exception("No page found in browser")
 
-                    self._ws_url = page.get('webSocketDebuggerUrl', '')
-                    self._target_id = page.get('id')
+                self._ws_url = page.get('webSocketDebuggerUrl', '')
+                self._target_id = page.get('id')
 
-                    if not self._ws_url:
-                        raise Exception("No WebSocket URL in page info")
+                if not self._ws_url:
+                    raise Exception("No WebSocket URL in page info")
 
-                # Connect WebSocket (suppress origin header to bypass Chrome check)
-                if direct_ws_url:
-                    # Use suppress_origin=True to completely skip origin header
+                # Connect WebSocket with suppress_origin to bypass Chrome check
+                try:
                     self._ws = websocket.create_connection(
                         self._ws_url,
                         timeout=self.config.connect_timeout_ms / 1000,
                         suppress_origin=True
                     )
-                else:
-                    # Try with suppress_origin first, then fallback to with origin
-                    try:
-                        self._ws = websocket.create_connection(
-                            self._ws_url,
-                            timeout=self.config.connect_timeout_ms / 1000,
-                            suppress_origin=True
-                        )
-                    except Exception:
-                        self._ws = websocket.create_connection(
-                            self._ws_url,
-                            timeout=self.config.connect_timeout_ms / 1000,
-                            origin=f"http://127.0.0.1:{self.config.remote_port}"
-                        )
+                except Exception:
+                    # Fallback: try with origin header
+                    self._ws = websocket.create_connection(
+                        self._ws_url,
+                        timeout=self.config.connect_timeout_ms / 1000,
+                        origin=f"http://127.0.0.1:{port}"
+                    )
 
                 self.state = SessionState.CONNECTED
 
