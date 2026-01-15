@@ -891,6 +891,7 @@ class LoginTab(ctk.CTkFrame):
             js_check = '''
                 (function() {
                     let url = window.location.href;
+                    let pageText = (document.body.innerText || '').toLowerCase();
 
                     // Check for checkpoint/locked/verify
                     if (url.includes('checkpoint') || url.includes('locked') ||
@@ -904,49 +905,71 @@ class LoginTab(ctk.CTkFrame):
                         return '2FA';
                     }
 
-                    // Check for wrong password
-                    let errorText = (document.body.innerText || '').toLowerCase();
-                    if (errorText.includes('sai mật khẩu') || errorText.includes('incorrect password') ||
-                        errorText.includes('wrong password') || errorText.includes('password is incorrect') ||
-                        errorText.includes('entered is incorrect') || errorText.includes('không hợp lệ')) {
+                    // Check for wrong password - nhiều cách FB hiển thị
+                    // 1. Check error text trực tiếp
+                    let wrongPassPhrases = [
+                        'password that you',
+                        'password you entered',
+                        'incorrect password',
+                        'wrong password',
+                        'sai mật khẩu',
+                        'mật khẩu không đúng',
+                        'mật khẩu bạn nhập',
+                        'forgotten password'
+                    ];
+                    for (let phrase of wrongPassPhrases) {
+                        if (pageText.includes(phrase)) return 'WRONG_PASS';
+                    }
+
+                    // 2. Check error elements
+                    let errorEl = document.querySelector('._9ay7, [data-testid="royal_login_form"] + div, .login_error_box');
+                    if (errorEl && errorEl.innerText.toLowerCase().includes('password')) {
                         return 'WRONG_PASS';
                     }
 
                     // Check for disabled/banned account
-                    if (errorText.includes('bị vô hiệu hóa') || errorText.includes('disabled') ||
-                        errorText.includes('suspended') || errorText.includes('đã bị khóa')) {
-                        return 'DIE';
+                    let diePhrases = ['bị vô hiệu hóa', 'disabled', 'suspended', 'đã bị khóa', 'account has been'];
+                    for (let phrase of diePhrases) {
+                        if (pageText.includes(phrase)) return 'DIE';
                     }
 
                     // Check if logged in
                     let isLoggedIn = document.querySelector('[aria-label*="Account"]') ||
                                      document.querySelector('[aria-label*="Tài khoản"]') ||
                                      document.querySelector('[aria-label*="Messenger"]') ||
-                                     document.querySelector('div[role="navigation"]');
+                                     document.querySelector('div[role="navigation"]') ||
+                                     document.querySelector('[aria-label="Facebook"]');
 
                     if (isLoggedIn || url === 'https://www.facebook.com/' ||
                         url.includes('facebook.com/?sk=') || url.includes('facebook.com/home')) {
                         return 'LIVE';
                     }
 
-                    if (url.includes('/login')) {
+                    // Still on login page after submit = likely wrong credentials
+                    if (url.includes('/login') && document.querySelector('#pass')) {
+                        // Check if there's any visible error indicator
+                        let hasError = document.querySelector('[role="alert"], .uiBoxRed, ._9ay7');
+                        if (hasError) return 'WRONG_PASS';
                         return 'FAILED';
                     }
 
-                    return 'UNKNOWN';
+                    return 'UNKNOWN:' + url.substring(0, 50);
                 })()
             '''
 
             status = evaluate(js_check) or 'UNKNOWN'
+
+            # Normalize status (remove debug info for comparison)
+            status_clean = status.split(':')[0] if ':' in str(status) else status
             self.after(0, lambda s=status: self._log(f"  Login status: {s}"))
 
             ws.close()
 
             # Không đóng browser nếu thành công
-            if status != 'LIVE':
+            if status_clean != 'LIVE':
                 api.close_browser(uuid)
 
-            return status == 'LIVE', status
+            return status_clean == 'LIVE', status_clean
 
         except Exception as e:
             print(f"Login error: {e}")
