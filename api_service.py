@@ -261,13 +261,22 @@ class HidemiumAPI:
             "/v1/folder/list",
             params={"limit": limit, "page": page, "is_local": str(is_local).lower()}
         )
+        print(f"[DEBUG API] get_folders response: {result}")
         # Parse response
         if result and 'data' in result:
             data = result['data']
+            print(f"[DEBUG API] get_folders data type: {type(data)}")
             if isinstance(data, dict) and 'content' in data:
-                return data['content']
+                content = data['content']
+                if isinstance(content, list):
+                    print(f"[DEBUG API] Found {len(content)} folders")
+                    return content
+                elif isinstance(content, dict):
+                    return [content]
             elif isinstance(data, list):
+                print(f"[DEBUG API] get_folders data is list: {len(data)} items")
                 return data
+        print(f"[DEBUG API] get_folders returning empty list")
         return []
     
     def add_profiles_to_folder(self, folder_uuid: str, profile_uuids: List[str], is_local: bool = True) -> Dict:
