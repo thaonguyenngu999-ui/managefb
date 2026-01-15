@@ -290,8 +290,16 @@ class PostsTab(ctk.CTkFrame):
                     self.profiles = api.get_profiles(folder_id=[folder_id], limit=500)
                 else:
                     self.profiles = api.get_profiles(limit=500)
+
+            # Debug: in ra profiles đầu tiên
+            if self.profiles:
+                print(f"[DEBUG] Loaded {len(self.profiles)} profiles")
+                if len(self.profiles) > 0:
+                    print(f"[DEBUG] First profile: {self.profiles[0]}")
         except Exception as e:
             print(f"[ERROR] Load profiles: {e}")
+            import traceback
+            traceback.print_exc()
             self.profiles = []
 
         self.profile_count_label.configure(text=f"{len(self.profiles)} profiles")
@@ -692,26 +700,40 @@ class PostsTab(ctk.CTkFrame):
             return False
 
         try:
-            self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Đang mở browser..."))
+            self.after(0, lambda pn=profile_name, pu=profile_uuid[:8]: self._log(f"[{pn}] ({pu}) Đang mở browser..."))
 
             # Mở browser
             result = api.open_browser(profile_uuid)
+            print(f"[DEBUG] open_browser response: {result}")
+
+            # Kiểm tra lỗi
             if result.get('type') == 'error':
                 err_msg = result.get('message', 'Unknown error')
-                self.after(0, lambda pn=profile_name, e=err_msg: self._log(f"[{pn}] Lỗi mở browser: {e}"))
+                self.after(0, lambda pn=profile_name, e=err_msg: self._log(f"[{pn}] Lỗi: {e}"))
                 return False
 
+            # Lấy data - có thể ở nhiều vị trí khác nhau
             data = result.get('data', {})
-            remote_port = data.get('remote_port')
-            ws_url = data.get('web_socket', '')
+            if not isinstance(data, dict):
+                data = {}
 
+            remote_port = data.get('remote_port') or data.get('port')
+            ws_url = data.get('web_socket', '') or data.get('webSocketDebuggerUrl', '')
+
+            # Thử lấy từ root nếu không có trong data
             if not remote_port:
+                remote_port = result.get('remote_port') or result.get('port')
+            if not ws_url:
+                ws_url = result.get('web_socket', '') or result.get('webSocketDebuggerUrl', '')
+
+            # Parse port từ ws_url
+            if not remote_port and ws_url:
                 match = re.search(r':(\d+)/', ws_url)
                 if match:
                     remote_port = int(match.group(1))
 
             if not remote_port:
-                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không lấy được remote_port"))
+                self.after(0, lambda pn=profile_name, r=str(result)[:200]: self._log(f"[{pn}] Không có port. Response: {r}"))
                 return False
 
             self.after(0, lambda pn=profile_name, p=remote_port: self._log(f"[{pn}] Đã mở, port: {p}"))
