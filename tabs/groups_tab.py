@@ -2453,27 +2453,53 @@ class GroupsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(4, 6))  # Đợi đăng xong
 
-            # Bước 7: Lấy URL bài viết mới từ feed
+            # Bước 7: Refresh trang và lấy URL bài viết mới
+            # Reload để đảm bảo bài mới xuất hiện ở đầu
+            self._cdp_send(ws, "Page.reload", {})
+            time.sleep(random.uniform(3, 5))
+
+            # Đợi page load xong
+            for _ in range(10):
+                ready = self._cdp_evaluate(ws, "document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(random.uniform(1, 2))
+
+            # Tìm bài có timestamp "Vừa xong" hoặc "Just now" hoặc "1 phút"
             get_post_url_js = '''
             (function() {
-                // Đợi và tìm bài viết mới nhất trong feed
-                // Facebook thường hiển thị bài vừa đăng ở đầu feed
+                // Tìm tất cả các post trong feed
+                let posts = document.querySelectorAll('[data-pagelet*="FeedUnit"], [role="article"]');
+
+                for (let post of posts) {
+                    // Kiểm tra timestamp
+                    let timeText = post.innerText || '';
+                    let hasRecentTime = timeText.includes('Vừa xong') ||
+                                       timeText.includes('Just now') ||
+                                       timeText.includes('1 phút') ||
+                                       timeText.includes('2 phút') ||
+                                       timeText.includes('3 phút') ||
+                                       timeText.includes('1 minute') ||
+                                       timeText.includes('2 minutes');
+
+                    if (hasRecentTime) {
+                        // Tìm link trong post này
+                        let links = post.querySelectorAll('a[href*="/posts/"], a[href*="pfbid"], a[href*="permalink"]');
+                        for (let link of links) {
+                            let href = link.href;
+                            if (href && (href.includes('/posts/') || href.includes('pfbid') || href.includes('permalink'))) {
+                                return href;
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: lấy link đầu tiên có /posts/
                 let postLinks = document.querySelectorAll('a[href*="/posts/"]');
                 if (postLinks.length > 0) {
-                    // Lấy link đầu tiên (bài mới nhất)
                     return postLinks[0].href;
-                }
-
-                // Fallback: tìm trong các permalink
-                let permalinks = document.querySelectorAll('a[href*="permalink"]');
-                if (permalinks.length > 0) {
-                    return permalinks[0].href;
-                }
-
-                // Fallback 2: tìm link có pfbid
-                let pfbidLinks = document.querySelectorAll('a[href*="pfbid"]');
-                if (pfbidLinks.length > 0) {
-                    return pfbidLinks[0].href;
                 }
 
                 return null;
@@ -2482,13 +2508,13 @@ class GroupsTab(ctk.CTkFrame):
 
             # Thử lấy URL vài lần
             post_url = None
-            for _ in range(3):
+            for attempt in range(5):
                 post_url = self._cdp_evaluate(ws, get_post_url_js)
-                if post_url and '/posts/' in post_url:
+                if post_url and ('/posts/' in post_url or 'pfbid' in post_url):
                     break
                 time.sleep(1)
 
-            # Nếu không lấy được, tạo URL dựa trên group
+            # Nếu không lấy được, chỉ trả về URL group
             if not post_url:
                 post_url = f"https://www.facebook.com/groups/{group_id}"
 
