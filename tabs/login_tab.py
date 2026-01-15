@@ -848,29 +848,24 @@ class LoginTab(ctk.CTkFrame):
 
             import random
 
-            # Helper: Simulate human typing với CDP Input events
+            # Helper: Simulate human typing với CDP Input.insertText
             def type_text(text, field_selector):
                 """Gõ từng ký tự như người thật"""
-                # Focus vào field
-                evaluate(f"document.querySelector('{field_selector}')?.focus()")
+                # Focus vào field trước
+                evaluate(f'''
+                    (function() {{
+                        let el = document.querySelector('{field_selector}');
+                        if (el) {{
+                            el.focus();
+                            el.value = '';  // Clear existing
+                        }}
+                    }})()
+                ''')
                 time.sleep(random.uniform(0.1, 0.3))
 
+                # Gõ từng ký tự với Input.insertText (chuẩn CDP)
                 for char in text:
-                    # Dispatch keydown + char + keyup events
-                    send_cmd("Input.dispatchKeyEvent", {
-                        "type": "keyDown",
-                        "text": char,
-                        "key": char,
-                        "code": f"Key{char.upper()}" if char.isalpha() else ""
-                    })
-                    send_cmd("Input.dispatchKeyEvent", {
-                        "type": "char",
-                        "text": char
-                    })
-                    send_cmd("Input.dispatchKeyEvent", {
-                        "type": "keyUp",
-                        "key": char
-                    })
+                    send_cmd("Input.insertText", {"text": char})
                     # Random delay giữa các phím (50-150ms như người gõ)
                     time.sleep(random.uniform(0.05, 0.15))
 
