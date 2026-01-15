@@ -744,25 +744,46 @@ class GroupsTab(ctk.CTkFrame):
 
             result = api.open_browser(self.current_profile_uuid)
 
-            if result.get('status') != 'successfully':
-                error = result.get('message', 'Không thể mở browser')
-                self.after(0, lambda e=error: self._set_status(f"Lỗi: {e}", "error"))
-                return []
+            # DEBUG: In ra response để xem format
+            print(f"[DEBUG] open_browser response: {result}")
 
-            # Lấy debugger address để kết nối Selenium
-            debugger_address = result.get('data', {}).get('debugger_address') or result.get('debugger_address')
+            # Kiểm tra nhiều format response khác nhau
+            status = result.get('status') or result.get('type')
+            if status not in ['successfully', 'success', True]:
+                # Nếu browser đã mở sẵn, vẫn có thể tiếp tục
+                if 'already' not in str(result).lower() and 'running' not in str(result).lower():
+                    error = result.get('message') or result.get('title') or str(result)
+                    self.after(0, lambda e=error: self._set_status(f"Lỗi mở browser: {e}", "error"))
+                    return []
+
+            # Lấy debugger address - thử nhiều cách
+            debugger_address = None
+
+            # Cách 1: result.data.debugger_address
+            if result.get('data') and isinstance(result.get('data'), dict):
+                debugger_address = result['data'].get('debugger_address')
+
+            # Cách 2: result.debugger_address
+            if not debugger_address:
+                debugger_address = result.get('debugger_address')
+
+            # Cách 3: result.browser.debugger_address
+            if not debugger_address and result.get('browser'):
+                debugger_address = result['browser'].get('debugger_address')
+
+            # Cách 4: result.content.debugger_address
+            if not debugger_address and result.get('content'):
+                if isinstance(result['content'], dict):
+                    debugger_address = result['content'].get('debugger_address')
+
+            print(f"[DEBUG] debugger_address: {debugger_address}")
 
             if not debugger_address:
-                browser_data = result.get('data', {})
-                if isinstance(browser_data, dict):
-                    debugger_address = browser_data.get('debugger_address')
-
-            if not debugger_address:
-                self.after(0, lambda: self._set_status("Không lấy được debugger address", "error"))
+                self.after(0, lambda r=str(result)[:200]: self._set_status(f"Không có debugger address. Response: {r}", "error"))
                 return []
 
             # ĐỢI BROWSER MỞ HOÀN TOÀN
-            self.after(0, lambda: self._set_status("Đợi browser khởi động...", "info"))
+            self.after(0, lambda addr=debugger_address: self._set_status(f"Browser: {addr}", "info"))
             self.after(0, lambda: self.scan_progress.set(0.1))
             time.sleep(5)  # Đợi 5 giây để browser mở hoàn toàn
 
@@ -770,10 +791,16 @@ class GroupsTab(ctk.CTkFrame):
             self.after(0, lambda: self._set_status("Đang kết nối Selenium...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.15))
 
-            chrome_options = Options()
-            chrome_options.add_experimental_option("debuggerAddress", debugger_address)
+            try:
+                chrome_options = Options()
+                chrome_options.add_experimental_option("debuggerAddress", debugger_address)
 
-            driver = webdriver.Chrome(options=chrome_options)
+                driver = webdriver.Chrome(options=chrome_options)
+                print(f"[DEBUG] Selenium connected successfully")
+            except Exception as selenium_err:
+                print(f"[DEBUG] Selenium connection error: {selenium_err}")
+                self.after(0, lambda e=str(selenium_err): self._set_status(f"Lỗi kết nối Selenium: {e}", "error"))
+                return []
 
             # Đợi kết nối ổn định
             time.sleep(2)
