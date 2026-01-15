@@ -2061,13 +2061,174 @@ class GroupsTab(ctk.CTkFrame):
         })
         return result.get('result', {}).get('result', {}).get('value')
 
-    def _type_like_human(self, ws, text: str):
-        """Gõ từng ký tự như người thật"""
+    def _move_mouse_human(self, ws, target_x: int, target_y: int, steps: int = 20):
+        """Di chuyển chuột theo đường cong như người thật"""
         import time
-        for char in text:
-            # Dispatch keyDown và keyUp cho mỗi ký tự
-            self._cdp_send(ws, "Input.insertText", {"text": char})
-            time.sleep(random.uniform(0.03, 0.12))
+        import math
+
+        # Lấy vị trí hiện tại (giả sử từ góc trên)
+        current_x = random.randint(100, 300)
+        current_y = random.randint(100, 200)
+
+        # Tạo đường cong Bezier đơn giản
+        # Control point ngẫu nhiên để tạo đường cong tự nhiên
+        ctrl_x = (current_x + target_x) / 2 + random.randint(-100, 100)
+        ctrl_y = (current_y + target_y) / 2 + random.randint(-50, 50)
+
+        for i in range(steps + 1):
+            t = i / steps
+            # Quadratic Bezier curve
+            x = int((1-t)**2 * current_x + 2*(1-t)*t * ctrl_x + t**2 * target_x)
+            y = int((1-t)**2 * current_y + 2*(1-t)*t * ctrl_y + t**2 * target_y)
+
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mouseMoved",
+                "x": x,
+                "y": y
+            })
+            # Tốc độ di chuyển không đều
+            time.sleep(random.uniform(0.005, 0.02))
+
+    def _click_at_element(self, ws, selector: str) -> bool:
+        """Click vào element với mouse movement trước"""
+        import time
+
+        # Lấy vị trí element
+        get_pos_js = f'''
+        (function() {{
+            let el = document.querySelector('{selector}');
+            if (!el) return null;
+            let rect = el.getBoundingClientRect();
+            return {{
+                x: rect.left + rect.width / 2 + (Math.random() * 10 - 5),
+                y: rect.top + rect.height / 2 + (Math.random() * 6 - 3)
+            }};
+        }})()
+        '''
+        pos = self._cdp_evaluate(ws, get_pos_js)
+        if not pos:
+            return False
+
+        # Di chuyển chuột đến element
+        self._move_mouse_human(ws, int(pos['x']), int(pos['y']))
+        time.sleep(random.uniform(0.1, 0.3))
+
+        # Click
+        self._cdp_send(ws, "Input.dispatchMouseEvent", {
+            "type": "mousePressed",
+            "x": int(pos['x']),
+            "y": int(pos['y']),
+            "button": "left",
+            "clickCount": 1
+        })
+        time.sleep(random.uniform(0.05, 0.15))
+        self._cdp_send(ws, "Input.dispatchMouseEvent", {
+            "type": "mouseReleased",
+            "x": int(pos['x']),
+            "y": int(pos['y']),
+            "button": "left",
+            "clickCount": 1
+        })
+        return True
+
+    def _scroll_page(self, ws, direction: str = "down", amount: int = None):
+        """Scroll trang như người thật"""
+        import time
+
+        if amount is None:
+            amount = random.randint(200, 500)
+
+        if direction == "up":
+            amount = -amount
+
+        # Scroll từ từ, nhiều bước nhỏ
+        steps = random.randint(3, 6)
+        step_amount = amount // steps
+
+        for _ in range(steps):
+            self._cdp_evaluate(ws, f"window.scrollBy(0, {step_amount})")
+            time.sleep(random.uniform(0.05, 0.15))
+
+        time.sleep(random.uniform(0.3, 0.7))
+
+    def _type_like_human(self, ws, text: str):
+        """Gõ từng ký tự như người thật với typo và pause"""
+        import time
+
+        # Các ký tự hay bị gõ nhầm (adjacent keys)
+        typo_map = {
+            'a': ['s', 'q', 'z'], 'b': ['v', 'n', 'g'], 'c': ['x', 'v', 'd'],
+            'd': ['s', 'f', 'e'], 'e': ['w', 'r', 'd'], 'f': ['d', 'g', 'r'],
+            'g': ['f', 'h', 't'], 'h': ['g', 'j', 'y'], 'i': ['u', 'o', 'k'],
+            'j': ['h', 'k', 'u'], 'k': ['j', 'l', 'i'], 'l': ['k', 'o', 'p'],
+            'm': ['n', 'k'], 'n': ['b', 'm', 'h'], 'o': ['i', 'p', 'l'],
+            'p': ['o', 'l'], 'q': ['w', 'a'], 'r': ['e', 't', 'f'],
+            's': ['a', 'd', 'w'], 't': ['r', 'y', 'g'], 'u': ['y', 'i', 'j'],
+            'v': ['c', 'b', 'f'], 'w': ['q', 'e', 's'], 'x': ['z', 'c', 's'],
+            'y': ['t', 'u', 'h'], 'z': ['x', 'a']
+        }
+
+        # Chia text thành các đoạn (theo dòng hoặc câu)
+        paragraphs = text.split('\n')
+
+        for p_idx, paragraph in enumerate(paragraphs):
+            if not paragraph.strip():
+                # Gõ newline
+                self._cdp_send(ws, "Input.insertText", {"text": "\n"})
+                time.sleep(random.uniform(0.3, 0.8))
+                continue
+
+            # Chia paragraph thành các câu
+            sentences = paragraph.replace('. ', '.|').replace('! ', '!|').replace('? ', '?|').split('|')
+
+            for s_idx, sentence in enumerate(sentences):
+                for i, char in enumerate(sentence):
+                    # Random typo (3% chance cho chữ thường)
+                    if char.lower() in typo_map and random.random() < 0.03:
+                        # Gõ sai
+                        wrong_char = random.choice(typo_map[char.lower()])
+                        self._cdp_send(ws, "Input.insertText", {"text": wrong_char})
+                        time.sleep(random.uniform(0.05, 0.15))
+
+                        # Nhận ra sai, dừng lại
+                        time.sleep(random.uniform(0.2, 0.5))
+
+                        # Xóa (Backspace)
+                        self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                            "type": "keyDown",
+                            "key": "Backspace",
+                            "code": "Backspace"
+                        })
+                        self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                            "type": "keyUp",
+                            "key": "Backspace",
+                            "code": "Backspace"
+                        })
+                        time.sleep(random.uniform(0.1, 0.2))
+
+                    # Gõ ký tự đúng
+                    self._cdp_send(ws, "Input.insertText", {"text": char})
+
+                    # Delay khác nhau tùy ký tự
+                    if char in ' .,!?':
+                        # Sau dấu câu chậm hơn
+                        time.sleep(random.uniform(0.08, 0.2))
+                    elif char.isupper():
+                        # Chữ hoa chậm hơn (phải giữ Shift)
+                        time.sleep(random.uniform(0.06, 0.15))
+                    else:
+                        # Chữ thường nhanh hơn
+                        time.sleep(random.uniform(0.03, 0.1))
+
+                # Pause giữa các câu
+                if s_idx < len(sentences) - 1:
+                    time.sleep(random.uniform(0.3, 0.8))
+
+            # Gõ newline giữa các paragraph
+            if p_idx < len(paragraphs) - 1:
+                self._cdp_send(ws, "Input.insertText", {"text": "\n"})
+                # Pause lâu hơn giữa các đoạn
+                time.sleep(random.uniform(0.5, 1.2))
 
     def _post_to_group_cdp(self, ws, group: Dict, content: str, images: List[str]) -> tuple:
         """Đăng bài vào group qua CDP"""
@@ -2091,32 +2252,67 @@ class GroupsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(1, 2))
 
-            # Bước 2: Click vào "Bạn viết gì đi..." để mở composer
-            click_composer_js = '''
+            # Scroll xuống một chút như người thật đọc trang
+            if random.random() < 0.7:  # 70% scroll
+                self._scroll_page(ws, "down", random.randint(100, 300))
+                time.sleep(random.uniform(0.5, 1.5))
+                # Scroll lên lại để thấy composer
+                self._scroll_page(ws, "up", random.randint(50, 150))
+                time.sleep(random.uniform(0.3, 0.8))
+
+            # Bước 2: Click vào "Bạn viết gì đi..." với mouse movement
+            # Tìm vị trí composer button
+            get_composer_pos_js = '''
             (function() {
-                // Tìm div có text "Bạn viết gì đi..."
                 let divs = document.querySelectorAll('div[tabindex="0"]');
                 for (let div of divs) {
                     if (div.innerText && div.innerText.includes("Bạn viết gì đi")) {
-                        div.click();
-                        return true;
+                        let rect = div.getBoundingClientRect();
+                        return {
+                            x: rect.left + rect.width / 2 + (Math.random() * 20 - 10),
+                            y: rect.top + rect.height / 2 + (Math.random() * 6 - 3)
+                        };
                     }
                 }
-                // Fallback: tìm theo role
+                // Fallback
                 let spans = document.querySelectorAll('span');
                 for (let span of spans) {
                     if (span.innerText && span.innerText.includes("Bạn viết gì đi")) {
-                        span.click();
-                        return true;
+                        let rect = span.getBoundingClientRect();
+                        return {
+                            x: rect.left + rect.width / 2,
+                            y: rect.top + rect.height / 2
+                        };
                     }
                 }
-                return false;
+                return null;
             })()
             '''
-            clicked = self._cdp_evaluate(ws, click_composer_js)
-            if not clicked:
+            composer_pos = self._cdp_evaluate(ws, get_composer_pos_js)
+            if not composer_pos:
                 print(f"[WARN] Không tìm thấy nút tạo bài trong group {group_id}")
                 return (False, "")
+
+            # Di chuyển chuột đến composer và click
+            self._move_mouse_human(ws, int(composer_pos['x']), int(composer_pos['y']))
+            time.sleep(random.uniform(0.1, 0.3))
+
+            # Click với mouse events
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mousePressed",
+                "x": int(composer_pos['x']),
+                "y": int(composer_pos['y']),
+                "button": "left",
+                "clickCount": 1
+            })
+            time.sleep(random.uniform(0.05, 0.12))
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mouseReleased",
+                "x": int(composer_pos['x']),
+                "y": int(composer_pos['y']),
+                "button": "left",
+                "clickCount": 1
+            })
 
             time.sleep(random.uniform(2, 3))  # Đợi popup mở
 
@@ -2202,31 +2398,58 @@ class GroupsTab(ctk.CTkFrame):
 
                 time.sleep(random.uniform(2, 3))  # Đợi upload xong
 
-            # Bước 6: Click nút Đăng
-            click_post_js = '''
+            # Bước 6: Click nút Đăng với mouse movement
+            # Tìm vị trí nút Đăng
+            get_post_btn_pos_js = '''
             (function() {
-                // Tìm nút có innerText = "Đăng"
                 let btns = document.querySelectorAll('[role="button"]');
                 for (let btn of btns) {
                     let text = btn.innerText ? btn.innerText.trim() : '';
                     if (text === "Đăng") {
-                        btn.click();
-                        return true;
+                        let rect = btn.getBoundingClientRect();
+                        return {
+                            x: rect.left + rect.width / 2 + (Math.random() * 10 - 5),
+                            y: rect.top + rect.height / 2 + (Math.random() * 4 - 2)
+                        };
                     }
                 }
                 // Fallback: tìm aria-label
                 let postBtn = document.querySelector('[aria-label="Đăng"]');
                 if (postBtn) {
-                    postBtn.click();
-                    return true;
+                    let rect = postBtn.getBoundingClientRect();
+                    return {
+                        x: rect.left + rect.width / 2,
+                        y: rect.top + rect.height / 2
+                    };
                 }
-                return false;
+                return null;
             })()
             '''
-            posted = self._cdp_evaluate(ws, click_post_js)
-            if not posted:
-                print(f"[WARN] Không click được nút Đăng trong group {group_id}")
+            post_btn_pos = self._cdp_evaluate(ws, get_post_btn_pos_js)
+            if not post_btn_pos:
+                print(f"[WARN] Không tìm thấy nút Đăng trong group {group_id}")
                 return (False, "")
+
+            # Di chuyển chuột đến nút Đăng
+            self._move_mouse_human(ws, int(post_btn_pos['x']), int(post_btn_pos['y']))
+            time.sleep(random.uniform(0.15, 0.4))
+
+            # Click với mouse events
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mousePressed",
+                "x": int(post_btn_pos['x']),
+                "y": int(post_btn_pos['y']),
+                "button": "left",
+                "clickCount": 1
+            })
+            time.sleep(random.uniform(0.05, 0.12))
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mouseReleased",
+                "x": int(post_btn_pos['x']),
+                "y": int(post_btn_pos['y']),
+                "button": "left",
+                "clickCount": 1
+            })
 
             time.sleep(random.uniform(4, 6))  # Đợi đăng xong
 
