@@ -2451,12 +2451,12 @@ class GroupsTab(ctk.CTkFrame):
                 "clickCount": 1
             })
 
-            time.sleep(random.uniform(4, 6))  # Đợi đăng xong
+            time.sleep(random.uniform(5, 8))  # Đợi đăng xong (đợi lâu hơn cho duyệt tự động)
 
             # Bước 7: Refresh trang và lấy URL bài viết mới
             # Reload để đảm bảo bài mới xuất hiện ở đầu
             self._cdp_send(ws, "Page.reload", {})
-            time.sleep(random.uniform(3, 5))
+            time.sleep(random.uniform(4, 6))
 
             # Đợi page load xong
             for _ in range(10):
@@ -2467,22 +2467,30 @@ class GroupsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(1, 2))
 
-            # Tìm bài có timestamp "Vừa xong" hoặc "Just now" hoặc "1 phút"
+            # Tìm bài vừa đăng (bao gồm cả pending)
             get_post_url_js = '''
             (function() {
                 // Tìm tất cả các post trong feed
                 let posts = document.querySelectorAll('[data-pagelet*="FeedUnit"], [role="article"]');
 
                 for (let post of posts) {
-                    // Kiểm tra timestamp
                     let timeText = post.innerText || '';
+
+                    // Kiểm tra bài mới đăng hoặc đang chờ duyệt
                     let hasRecentTime = timeText.includes('Vừa xong') ||
                                        timeText.includes('Just now') ||
                                        timeText.includes('1 phút') ||
                                        timeText.includes('2 phút') ||
                                        timeText.includes('3 phút') ||
+                                       timeText.includes('4 phút') ||
+                                       timeText.includes('5 phút') ||
                                        timeText.includes('1 minute') ||
-                                       timeText.includes('2 minutes');
+                                       timeText.includes('2 minutes') ||
+                                       timeText.includes('3 minutes') ||
+                                       timeText.includes('Đang chờ') ||
+                                       timeText.includes('Pending') ||
+                                       timeText.includes('đang chờ duyệt') ||
+                                       timeText.includes('pending approval');
 
                     if (hasRecentTime) {
                         // Tìm link trong post này
@@ -2506,13 +2514,18 @@ class GroupsTab(ctk.CTkFrame):
             })()
             '''
 
-            # Thử lấy URL vài lần
+            # Thử lấy URL - nếu không tìm thấy, đợi thêm và reload lại
             post_url = None
-            for attempt in range(5):
+            for attempt in range(3):
                 post_url = self._cdp_evaluate(ws, get_post_url_js)
                 if post_url and ('/posts/' in post_url or 'pfbid' in post_url):
                     break
-                time.sleep(1)
+
+                # Đợi thêm và reload lại nếu chưa tìm thấy
+                if attempt < 2:
+                    time.sleep(random.uniform(3, 5))
+                    self._cdp_send(ws, "Page.reload", {})
+                    time.sleep(random.uniform(3, 4))
 
             # Nếu không lấy được, chỉ trả về URL group
             if not post_url:
