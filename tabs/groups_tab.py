@@ -916,41 +916,225 @@ class GroupsTab(ctk.CTkFrame):
 
         self._is_scanning = True
         self.scan_progress.set(0)
+        self._scan_completed_count = 0
+        self._scan_total_count = len(profiles_to_scan)
 
         if len(profiles_to_scan) > 1:
-            self._set_status(f"Đang quét {len(profiles_to_scan)} profiles...", "info")
+            self._set_status(f"Đang mở {len(profiles_to_scan)} profiles song song...", "info")
         else:
             self._set_status("Đang quét nhóm...", "info")
 
-        def do_scan():
-            try:
-                all_groups = []
-                total_profiles = len(profiles_to_scan)
+        def do_parallel_scan():
+            """Quét song song nhiều profiles"""
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
-                for idx, profile_uuid in enumerate(profiles_to_scan):
+            all_groups = []
+            total = len(profiles_to_scan)
+
+            def scan_single_profile(profile_uuid: str) -> List[Dict]:
+                """Quét 1 profile"""
+                try:
+                    return self._execute_group_scan_for_profile(profile_uuid)
+                except Exception as e:
+                    print(f"[ERROR] Scan profile {profile_uuid}: {e}")
+                    return []
+
+            # Chạy song song tất cả profiles
+            with ThreadPoolExecutor(max_workers=min(total, 10)) as executor:
+                # Submit tất cả tasks
+                future_to_uuid = {
+                    executor.submit(scan_single_profile, uuid): uuid
+                    for uuid in profiles_to_scan
+                }
+
+                # Thu thập kết quả khi hoàn thành
+                for future in as_completed(future_to_uuid):
                     if not self._is_scanning:
                         break
 
-                    # Update status
-                    self.after(0, lambda i=idx, t=total_profiles:
-                               self._set_status(f"Quét profile {i+1}/{t}...", "info"))
+                    uuid = future_to_uuid[future]
+                    try:
+                        result = future.result()
+                        all_groups.extend(result)
 
-                    # Set current profile for scanning
-                    self.current_profile_uuid = profile_uuid
+                        # Update progress
+                        self._scan_completed_count += 1
+                        progress = self._scan_completed_count / total
+                        self.after(0, lambda p=progress, c=self._scan_completed_count, t=total:
+                                   self._update_scan_progress(p, c, t))
+                    except Exception as e:
+                        print(f"[ERROR] Future {uuid}: {e}")
 
-                    # Scan this profile
-                    result = self._execute_group_scan()
-                    all_groups.extend(result)
+            self.after(0, lambda: self._on_scan_complete(all_groups))
 
-                    # Update progress
-                    progress = (idx + 1) / total_profiles
-                    self.after(0, lambda p=progress: self.scan_progress.set(p))
+        threading.Thread(target=do_parallel_scan, daemon=True).start()
 
-                self.after(0, lambda: self._on_scan_complete(all_groups))
+    def _update_scan_progress(self, progress: float, completed: int, total: int):
+        """Cập nhật progress khi quét song song"""
+        self.scan_progress.set(progress)
+        self._set_status(f"Hoàn thành {completed}/{total} profiles...", "info")
+
+    def _execute_group_scan_for_profile(self, profile_uuid: str) -> List[Dict]:
+        """Quét nhóm cho 1 profile cụ thể (thread-safe)"""
+        if not BS4_AVAILABLE:
+            return []
+
+        groups_found = []
+
+        try:
+            # Bước 1: Mở browser qua Hidemium API
+            result = api.open_browser(profile_uuid)
+            print(f"[DEBUG] open_browser {profile_uuid[:8]}: {result.get('status', result.get('type', 'unknown'))}")
+
+            # Kiểm tra response
+            status = result.get('status') or result.get('type')
+            if status not in ['successfully', 'success', True]:
+                if 'already' not in str(result).lower() and 'running' not in str(result).lower():
+                    return []
+
+            # Lấy thông tin CDP
+            data = result.get('data', {})
+            remote_port = data.get('remote_port')
+            ws_url = data.get('web_socket', '')
+
+            if not remote_port:
+                match = re.search(r':(\d+)/', ws_url)
+                if match:
+                    remote_port = int(match.group(1))
+
+            if not remote_port:
+                return []
+
+            cdp_base = f"http://127.0.0.1:{remote_port}"
+
+            # Đợi browser khởi động
+            time.sleep(3)
+
+            # Bước 2: Lấy danh sách tabs qua CDP
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                tabs = resp.json()
             except Exception as e:
-                self.after(0, lambda: self._on_scan_error(str(e)))
+                print(f"[DEBUG] CDP error for {profile_uuid[:8]}: {e}")
+                return []
 
-        threading.Thread(target=do_scan, daemon=True).start()
+            # Tìm tab page
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    page_ws = tab.get('webSocketDebuggerUrl')
+                    break
+
+            if not page_ws:
+                return []
+
+            # Bước 3: Kết nối WebSocket
+            import websocket
+            import json as json_module
+
+            ws = None
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+            except:
+                try:
+                    ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
+                except:
+                    try:
+                        ws = websocket.create_connection(page_ws, timeout=30)
+                    except:
+                        return []
+
+            if not ws:
+                return []
+
+            # Navigate đến trang nhóm
+            groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
+            ws.send(json_module.dumps({
+                "id": 1,
+                "method": "Page.navigate",
+                "params": {"url": groups_url}
+            }))
+            ws.recv()
+
+            # Đợi trang load
+            time.sleep(8)
+
+            # Scroll để load nhóm
+            for i in range(10):
+                ws.send(json_module.dumps({
+                    "id": 100 + i,
+                    "method": "Runtime.evaluate",
+                    "params": {"expression": "window.scrollTo(0, document.body.scrollHeight);"}
+                }))
+                ws.recv()
+                time.sleep(2)
+
+            # Lấy HTML content
+            ws.send(json_module.dumps({
+                "id": 200,
+                "method": "Runtime.evaluate",
+                "params": {"expression": "document.documentElement.outerHTML"}
+            }))
+            result = json_module.loads(ws.recv())
+            html_content = result.get('result', {}).get('result', {}).get('value', '')
+
+            ws.close()
+
+            if not html_content:
+                return []
+
+            # Parse HTML
+            soup = BeautifulSoup(html_content, 'html.parser')
+            links = soup.find_all('a', {'aria-label': 'Xem nhóm'})
+
+            for link in links:
+                href = link.get('href', '')
+                if '/groups/' in href:
+                    match = re.search(r'/groups/([^/?]+)', href)
+                    if match:
+                        group_id = match.group(1)
+
+                        if group_id in ['joins', 'feed', 'discover']:
+                            continue
+
+                        group_name = group_id
+
+                        # Tìm tên nhóm
+                        parent = link
+                        for _ in range(10):
+                            parent = parent.find_parent()
+                            if parent is None:
+                                break
+                            spans = parent.find_all(['span', 'div'], recursive=False)
+                            for span in spans:
+                                text = span.get_text(strip=True)
+                                if text and len(text) > 3 and text != "Xem nhóm" and not text.startswith('http'):
+                                    if len(text) < 150:
+                                        group_name = text
+                                        break
+                            if group_name != group_id:
+                                break
+
+                        group_url = f"https://www.facebook.com/groups/{group_id}/"
+
+                        if not any(g['group_id'] == group_id for g in groups_found):
+                            groups_found.append({
+                                'group_id': group_id,
+                                'group_name': group_name,
+                                'group_url': group_url,
+                                'member_count': 0,
+                                'profile_uuid': profile_uuid  # Lưu profile nào quét được
+                            })
+
+            # Lưu vào database cho profile này
+            if groups_found:
+                sync_groups(profile_uuid, groups_found)
+
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Scan {profile_uuid[:8]}: {traceback.format_exc()}")
+
+        return groups_found
 
     def _execute_group_scan(self) -> List[Dict]:
         """Thực hiện quét nhóm từ Facebook sử dụng CDP"""
@@ -1190,10 +1374,17 @@ class GroupsTab(ctk.CTkFrame):
         self.scan_progress.set(1)
 
         if groups:
-            # Lưu vào database
-            sync_groups(self.current_profile_uuid, groups)
+            # Groups đã được lưu trong _execute_group_scan_for_profile cho từng profile
+            # Reload groups cho profile hiện tại hoặc profile đầu tiên
+            if self.multi_profile_var.get() and self.selected_profile_uuids:
+                # Multi-mode: set first profile as current và load groups
+                self.current_profile_uuid = self.selected_profile_uuids[0]
+
             self._load_groups_for_profile()
-            self._set_status(f"Đã quét và lưu {len(groups)} nhóm!", "success")
+
+            # Đếm số nhóm unique và số profiles
+            profile_uuids = set(g.get('profile_uuid', '') for g in groups if g.get('profile_uuid'))
+            self._set_status(f"Đã quét {len(groups)} nhóm từ {len(profile_uuids)} profiles!", "success")
         else:
             self._load_groups_for_profile()
             if not BS4_AVAILABLE:
