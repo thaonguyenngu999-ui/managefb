@@ -1674,22 +1674,43 @@ class GroupsTab(ctk.CTkFrame):
         self._update_stats()
         self._render_scan_list()
 
+    def _get_visible_group_ids(self) -> List[int]:
+        """Lấy danh sách group IDs đang hiển thị (sau khi lọc)"""
+        visible_ids = []
+        for group_id, widget in self.group_checkbox_widgets.items():
+            # Check if widget is currently visible (packed)
+            try:
+                if widget.winfo_ismapped():
+                    visible_ids.append(group_id)
+            except:
+                pass
+        return visible_ids
+
     def _toggle_select_all(self):
-        """Toggle chọn tất cả - tối ưu"""
+        """Toggle chọn tất cả - chỉ chọn các nhóm đang hiển thị"""
         select_all = self.select_all_var.get()
 
-        if select_all:
-            self.selected_group_ids = [g['id'] for g in self.groups]
-            for g in self.groups:
-                update_group_selection(g['id'], 1)
-        else:
-            for gid in self.selected_group_ids:
-                update_group_selection(gid, 0)
-            self.selected_group_ids = []
+        # Lấy danh sách group IDs đang hiển thị (sau filter)
+        visible_group_ids = self._get_visible_group_ids()
 
-        # Sync checkboxes trong post tab (không rebuild)
-        for group_id, var in self.group_checkbox_vars.items():
-            var.set(select_all)
+        if select_all:
+            # Chỉ chọn các nhóm đang hiển thị
+            for gid in visible_group_ids:
+                if gid not in self.selected_group_ids:
+                    self.selected_group_ids.append(gid)
+                update_group_selection(gid, 1)
+                # Sync checkbox
+                if gid in self.group_checkbox_vars:
+                    self.group_checkbox_vars[gid].set(True)
+        else:
+            # Bỏ chọn các nhóm đang hiển thị
+            for gid in visible_group_ids:
+                if gid in self.selected_group_ids:
+                    self.selected_group_ids.remove(gid)
+                update_group_selection(gid, 0)
+                # Sync checkbox
+                if gid in self.group_checkbox_vars:
+                    self.group_checkbox_vars[gid].set(False)
 
         self._render_scan_list()
         self._update_stats()
