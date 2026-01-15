@@ -852,9 +852,16 @@ class LoginTab(ctk.CTkFrame):
                 })
                 return result.get('result', {}).get('result', {}).get('value')
 
+            # Xóa cookies và storage trước khi login (tránh dính session cũ)
+            send_cmd("Network.clearBrowserCookies", {})
+            send_cmd("Storage.clearDataForOrigin", {
+                "origin": "https://www.facebook.com",
+                "storageTypes": "all"
+            })
+
             # Navigate to Facebook login
             send_cmd("Page.navigate", {"url": "https://www.facebook.com/login"})
-            time.sleep(2)  # Đợi page load
+            time.sleep(2.5)  # Đợi page load
 
             import random
 
