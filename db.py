@@ -310,9 +310,16 @@ def get_profile_by_uuid(uuid: str) -> Optional[Dict]:
 
 def save_profile(data: Dict) -> Dict:
     """Lưu profile"""
+    import json as json_module
+
     with get_connection() as conn:
         cursor = conn.cursor()
         now = datetime.now().isoformat()
+
+        # Convert lists to JSON strings
+        tags = data.get('tags', '')
+        if isinstance(tags, list):
+            tags = json_module.dumps(tags, ensure_ascii=False)
 
         existing = get_profile_by_uuid(data.get('uuid', ''))
 
@@ -332,7 +339,7 @@ def save_profile(data: Dict) -> Dict:
                 data.get('status', 'stopped'),
                 data.get('proxy', ''),
                 data.get('note', ''),
-                data.get('tags', ''),
+                tags,
                 data.get('local_notes', existing.get('local_notes', '')),
                 data.get('fb_uid', existing.get('fb_uid', '')),
                 data.get('fb_name', existing.get('fb_name', '')),
@@ -355,7 +362,7 @@ def save_profile(data: Dict) -> Dict:
                 data.get('status', 'stopped'),
                 data.get('proxy', ''),
                 data.get('note', ''),
-                data.get('tags', ''),
+                tags,
                 data.get('local_notes', ''),
                 data.get('fb_uid', ''),
                 data.get('fb_name', ''),
