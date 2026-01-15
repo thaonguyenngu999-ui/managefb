@@ -1,52 +1,298 @@
-# FB Manager Pro
+# 🚀 Facebook Manager Pro
 
-## 🔥 Phần mềm quản lý tài khoản Facebook
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/CustomTkinter-5.2.2-green" alt="CustomTkinter">
+  <img src="https://img.shields.io/badge/Hidemium-API-orange" alt="Hidemium">
+  <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License">
+</p>
 
-Phần mềm desktop tích hợp với **Hidemium Browser API** để quản lý và tự động hóa các tài khoản Facebook.
+**Facebook Manager Pro** là ứng dụng desktop chuyên nghiệp để quản lý nhiều tài khoản Facebook thông qua tích hợp **Hidemium Browser API**. Ứng dụng cho phép quản lý profiles, chạy scripts tự động hóa, và theo dõi các bài đăng.
 
-### ✨ Tính năng chính
+---
 
-1. **📋 Quản lý Profiles**
-   - Xem danh sách tất cả profiles từ Hidemium
-   - Mở/Đóng browser nhanh chóng
-   - Chỉnh sửa tên, ghi chú, proxy
-   - Lọc theo trạng thái (đang chạy/đã dừng)
-   - Xóa nhiều profiles cùng lúc
+## 📋 Mục lục
 
-2. **📜 Kịch bản tự động**
-   - Viết và lưu các kịch bản tự động
-   - Hỗ trợ nhiều loại: Like, Comment, Share, Add Friend, Post
-   - Editor với syntax highlighting
-   - Template có sẵn
-   - Test kịch bản trước khi chạy
+- [Tính năng](#-tính-năng)
+- [Screenshots](#-screenshots)
+- [Yêu cầu hệ thống](#-yêu-cầu-hệ-thống)
+- [Cài đặt](#-cài-đặt)
+- [Cấu hình](#-cấu-hình)
+- [Hướng dẫn sử dụng](#-hướng-dẫn-sử-dụng)
+- [Cấu trúc dự án](#-cấu-trúc-dự-án)
+- [API Reference](#-api-reference)
+- [Build EXE](#-build-exe)
+- [Troubleshooting](#-troubleshooting)
+- [Đóng góp](#-đóng-góp)
+- [License](#-license)
 
-3. **📰 Quản lý Bài đăng**
-   - Thêm URL bài viết Facebook
-   - Tự động Like với nhiều tài khoản
-   - Tự động Comment với nội dung tùy chỉnh
-   - Theo dõi thống kê (likes, comments)
-   - Đẩy bài lên bản tin mới nhất
+---
 
-### 🚀 Cài đặt
+## ✨ Tính năng
 
-1. **Cài đặt Python dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 📋 Tab Profiles - Quản lý Profile
 
-2. **Cấu hình Hidemium:**
-   - Mở file `config.py`
-   - Cập nhật `HIDEMIUM_TOKEN` với token của bạn
-   - (Tùy chọn) Thay đổi `HIDEMIUM_BASE_URL` nếu cần
+| Tính năng | Mô tả |
+|-----------|-------|
+| 🔄 **Auto Refresh** | Tự động cập nhật trạng thái profiles mỗi 5 giây |
+| 🟢 **Real-time Status** | Hiển thị trạng thái Running/Stopped theo thời gian thực |
+| 📂 **Folder Filter** | Lọc profiles theo thư mục (folder) |
+| ▶️ **Open/Close Browser** | Mở/đóng browser Hidemium cho từng profile |
+| ➕ **Create Profile** | Tạo profile mới với đầy đủ tùy chọn OS |
+| 🔍 **Search** | Tìm kiếm profile theo tên |
 
-3. **Chạy ứng dụng:**
-   ```bash
-   python main.py
-   ```
+**Hỗ trợ tạo profile cho các nền tảng:**
+- 🪟 **Windows** (10, 11)
+- 🍎 **macOS** (14.3.0, 13.6.0, 12.7.0, ...)
+- 🐧 **Linux** (Ubuntu 24.04, 22.04, Debian 12, ...)
+- 🤖 **Android** (8.1 → 15)
+- 📱 **iOS** (15.0 → 18.0)
 
-### 📦 Build EXE
+### 📜 Tab Scripts - Quản lý Kịch bản
 
-Để build thành file `.exe`:
+| Tính năng | Mô tả |
+|-----------|-------|
+| ☁️ **Hidemium Scripts** | Đồng bộ scripts từ Hidemium Cloud |
+| 💻 **Local Python Scripts** | Viết và chạy scripts Python tự động hóa |
+| 📝 **Script Templates** | Templates sẵn có: Auto Like, Auto Comment, Auto Scroll |
+| ▶️ **Run Script** | Chạy script trên profile đã chọn |
+| 📊 **Log Output** | Xem kết quả chạy script real-time |
+
+**Templates có sẵn:**
+```python
+# 🎯 Auto Like - Tự động like bài viết
+# 💬 Auto Comment - Tự động comment
+# 📜 Auto Scroll - Tự động scroll newfeed
+# ✏️ Custom Script - Viết script tùy chỉnh
+```
+
+### 📝 Tab Posts - Quản lý Bài đăng
+
+| Tính năng | Mô tả |
+|-----------|-------|
+| 📋 **Post List** | Danh sách các bài đã đăng với URL |
+| ❤️ **Auto Like** | Like bài viết tự động |
+| 💬 **Auto Comment** | Comment bài viết tự động |
+| 📊 **Statistics** | Thống kê tương tác |
+
+---
+
+## 📸 Screenshots
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  🔵 Facebook Manager Pro                              ─ □ ✕    │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐                        │
+│  │📋 Profiles│ │📜 Scripts │ │📝 Posts  │                        │
+│  └──────────┘ └──────────┘ └──────────┘                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  🔍 Search...                    📂 All Folders ▼              │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ Profile Name          │ Status    │ Folder   │ Actions  │   │
+│  ├───────────────────────┼───────────┼──────────┼──────────┤   │
+│  │ FB Account 1          │ 🟢 Running │ Main     │ [Close]  │   │
+│  │ FB Account 2          │ ⚫ Stopped │ Backup   │ [Open]   │   │
+│  │ FB Account 3          │ ⚫ Stopped │ Main     │ [Open]   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  [🔄 Refresh]  [➕ Create Profile]                              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 💻 Yêu cầu hệ thống
+
+| Thành phần | Yêu cầu |
+|------------|---------|
+| **OS** | Windows 10/11 (64-bit) |
+| **Python** | 3.10+ (khuyến nghị 3.12) |
+| **RAM** | 4GB+ |
+| **Hidemium Browser** | Phiên bản mới nhất với API enabled |
+| **Kết nối** | Localhost port 2222 |
+
+---
+
+## 📦 Cài đặt
+
+### 1. Clone repository
+
+```bash
+git clone https://github.com/thaonguyenngu999-ui/managefb.git
+cd managefb
+```
+
+### 2. Tạo môi trường ảo
+
+```bash
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux/macOS
+source venv/bin/activate
+```
+
+### 3. Cài đặt dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Chạy ứng dụng
+
+```bash
+python main.py
+```
+
+---
+
+## ⚙️ Cấu hình
+
+### Hidemium API Configuration
+
+Chỉnh sửa file `config.py`:
+
+```python
+# Hidemium Browser API Configuration
+HIDEMIUM_API_URL = "http://127.0.0.1:2222"
+HIDEMIUM_TOKEN = "Your_API_Token_Here"
+
+# App Settings
+APP_TITLE = "Facebook Manager Pro"
+REFRESH_INTERVAL = 5000  # milliseconds (5 giây)
+```
+
+### Lấy API Token từ Hidemium
+
+1. Mở **Hidemium Browser**
+2. Vào **Settings** → **API**
+3. Enable **API Server**
+4. Copy **API Token**
+5. Dán vào `config.py`
+
+---
+
+## 📖 Hướng dẫn sử dụng
+
+### 1️⃣ Quản lý Profiles
+
+**Xem danh sách profiles:**
+- Mở ứng dụng → Tab "📋 Profiles"
+- Profiles tự động load từ Hidemium
+
+**Mở/Đóng browser:**
+- Click nút **[Open]** để mở browser cho profile
+- Click nút **[Close]** để đóng browser đang chạy
+
+**Lọc theo folder:**
+- Chọn folder từ dropdown "📂 All Folders"
+
+**Tạo profile mới:**
+1. Click **[➕ Create Profile]**
+2. Điền thông tin:
+   - **Name**: Tên profile
+   - **OS**: Chọn hệ điều hành (Windows/macOS/Linux/Android/iOS)
+   - **OS Version**: Chọn phiên bản OS
+   - **Browser Version**: Phiên bản Chrome (mặc định: 143)
+3. Click **[Create]**
+
+### 2️⃣ Chạy Scripts
+
+**Hidemium Scripts:**
+1. Vào Tab "📜 Scripts" → "☁️ Hidemium Scripts"
+2. Click **[🔄 Sync Scripts]** để lấy scripts từ cloud
+3. Chọn script → Chọn profile → Click **[▶️ Run]**
+
+**Local Python Scripts:**
+1. Vào Tab "📜 Scripts" → "💻 Local Scripts"
+2. Chọn template hoặc viết code tùy chỉnh
+3. Click **[💾 Save]** để lưu
+4. Chọn profile → Click **[▶️ Run Script]**
+
+### 3️⃣ Quản lý Posts
+
+1. Vào Tab "📝 Posts"
+2. Thêm URL bài đăng cần theo dõi
+3. Sử dụng các nút Like/Comment để tương tác
+
+---
+
+## 📁 Cấu trúc dự án
+
+```
+managefb/
+├── 📄 main.py              # Entry point - Khởi động ứng dụng
+├── 📄 config.py            # Cấu hình API, settings
+├── 📄 api_service.py       # Hidemium API client
+├── 📄 database.py          # Local JSON database
+├── 📄 widgets.py           # Custom widgets
+├── 📄 requirements.txt     # Python dependencies
+├── 📄 build.spec           # PyInstaller spec file
+├── 📄 README.md            # Tài liệu này
+│
+├── 📁 tabs/                # Các tab UI
+│   ├── 📄 __init__.py
+│   ├── 📄 profiles_tab.py  # Tab quản lý profiles
+│   ├── 📄 scripts_tab.py   # Tab quản lý scripts
+│   └── 📄 posts_tab.py     # Tab quản lý posts
+│
+└── 📁 data/                # Local data storage
+    ├── 📄 profiles.json    # Cache profiles
+    ├── 📄 scripts.json     # Saved scripts
+    └── 📄 settings.json    # App settings
+```
+
+---
+
+## 🔌 API Reference
+
+### Hidemium Browser API Endpoints
+
+| Endpoint | Method | Mô tả |
+|----------|--------|-------|
+| `/api/v2/profiles` | GET | Lấy danh sách profiles |
+| `/api/v2/profiles` | POST | Tạo profile mới |
+| `/api/v2/profiles/{id}` | PUT | Cập nhật profile |
+| `/api/v2/profiles/{id}` | DELETE | Xóa profile |
+| `/api/v2/browser/open/{id}` | GET | Mở browser |
+| `/api/v2/browser/close/{id}` | GET | Đóng browser |
+| `/api/v2/status-profile` | GET | Lấy profiles đang chạy |
+| `/api/v2/folders` | GET | Lấy danh sách folders |
+| `/api/v2/scripts` | GET | Lấy danh sách scripts |
+| `/api/v2/scripts/run` | POST | Chạy script |
+
+### Request Headers
+
+```
+Authorization: Bearer {HIDEMIUM_TOKEN}
+Content-Type: application/json
+```
+
+### Ví dụ API Call
+
+```python
+import requests
+
+API_URL = "http://127.0.0.1:2222"
+TOKEN = "Your_Token"
+
+# Lấy danh sách profiles
+response = requests.get(
+    f"{API_URL}/api/v2/profiles",
+    headers={"Authorization": f"Bearer {TOKEN}"}
+)
+profiles = response.json()
+```
+
+---
+
+## 🏗️ Build EXE
 
 ```bash
 # Cài đặt PyInstaller
