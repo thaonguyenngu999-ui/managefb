@@ -71,7 +71,7 @@ class ContentTab(ctk.CTkFrame):
             text="Xóa mục",
             width=70,
             height=28,
-            fg_color=COLORS["danger"],
+            fg_color=COLORS["error"],
             hover_color="#c0392b",
             corner_radius=5,
             command=self._delete_category
