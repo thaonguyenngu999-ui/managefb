@@ -1917,6 +1917,7 @@ class GroupsTab(ctk.CTkFrame):
             return
 
         cdp_base = f"http://127.0.0.1:{remote_port}"
+        self._posting_port = remote_port  # Lưu để dùng cho tab mới
         time.sleep(2)  # Đợi browser khởi động
 
         # Lấy page websocket
@@ -2453,107 +2454,8 @@ class GroupsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(5, 8))  # Đợi đăng xong (đợi lâu hơn cho duyệt tự động)
 
-            # Bước 7: Đóng composer và tìm URL bài viết (không navigate để tránh dialog)
-            # Nhấn Escape để đóng composer nếu còn mở
-            self._cdp_send(ws, "Input.dispatchKeyEvent", {
-                "type": "keyDown",
-                "key": "Escape",
-                "code": "Escape"
-            })
-            time.sleep(0.3)
-            self._cdp_send(ws, "Input.dispatchKeyEvent", {
-                "type": "keyUp",
-                "key": "Escape",
-                "code": "Escape"
-            })
-            time.sleep(random.uniform(1, 2))
-
-            # Nếu có Facebook modal, click "Rời khỏi Trang"
-            self._cdp_evaluate(ws, '''
-                (function() {
-                    let btns = document.querySelectorAll('[role="button"]');
-                    for (let btn of btns) {
-                        let text = btn.innerText || "";
-                        if (text.includes("Rời khỏi") || text.includes("Leave") || text.includes("Discard")) {
-                            btn.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                })()
-            ''')
-            time.sleep(random.uniform(1, 2))
-
-            # Scroll lên đầu trang để thấy bài mới
-            self._cdp_evaluate(ws, "window.scrollTo(0, 0);")
-            time.sleep(random.uniform(1, 2))
-
-            # Tìm bài vừa đăng (bao gồm cả pending)
-            get_post_url_js = '''
-            (function() {
-                // Tìm tất cả các post trong feed
-                let posts = document.querySelectorAll('[data-pagelet*="FeedUnit"], [role="article"]');
-
-                for (let post of posts) {
-                    let timeText = post.innerText || '';
-
-                    // Kiểm tra bài mới đăng hoặc đang chờ duyệt
-                    let hasRecentTime = timeText.includes('Vừa xong') ||
-                                       timeText.includes('Just now') ||
-                                       timeText.includes('1 phút') ||
-                                       timeText.includes('2 phút') ||
-                                       timeText.includes('3 phút') ||
-                                       timeText.includes('4 phút') ||
-                                       timeText.includes('5 phút') ||
-                                       timeText.includes('1 minute') ||
-                                       timeText.includes('2 minutes') ||
-                                       timeText.includes('3 minutes') ||
-                                       timeText.includes('Đang chờ') ||
-                                       timeText.includes('Pending') ||
-                                       timeText.includes('đang chờ duyệt') ||
-                                       timeText.includes('pending approval');
-
-                    if (hasRecentTime) {
-                        // Tìm link trong post này
-                        let links = post.querySelectorAll('a[href*="/posts/"], a[href*="pfbid"], a[href*="permalink"]');
-                        for (let link of links) {
-                            let href = link.href;
-                            if (href && (href.includes('/posts/') || href.includes('pfbid') || href.includes('permalink'))) {
-                                return href;
-                            }
-                        }
-                    }
-                }
-
-                // Fallback: lấy link đầu tiên có /posts/
-                let postLinks = document.querySelectorAll('a[href*="/posts/"]');
-                if (postLinks.length > 0) {
-                    return postLinks[0].href;
-                }
-
-                return null;
-            })()
-            '''
-
-            # Thử lấy URL - nếu không tìm thấy, đợi thêm và scroll để load thêm
-            post_url = None
-            for attempt in range(3):
-                post_url = self._cdp_evaluate(ws, get_post_url_js)
-                if post_url and ('/posts/' in post_url or 'pfbid' in post_url):
-                    break
-
-                # Đợi thêm, scroll để trigger load thêm bài
-                if attempt < 2:
-                    time.sleep(random.uniform(2, 4))
-                    # Scroll xuống rồi lên để refresh feed
-                    self._cdp_evaluate(ws, "window.scrollBy(0, 300);")
-                    time.sleep(1)
-                    self._cdp_evaluate(ws, "window.scrollTo(0, 0);")
-                    time.sleep(random.uniform(2, 3))
-
-            # Nếu không lấy được, chỉ trả về URL group
-            if not post_url:
-                post_url = f"https://www.facebook.com/groups/{group_id}"
+            # Bước 7: Mở tab mới để lấy URL (tránh dialog leave site)
+            post_url = self._get_post_url_new_tab(ws, group_url, group_id)
 
             print(f"[OK] Đã đăng bài vào group {group_id}: {post_url}")
             return (True, post_url)
@@ -2563,6 +2465,132 @@ class GroupsTab(ctk.CTkFrame):
             import traceback
             traceback.print_exc()
             return (False, "")
+
+    def _get_post_url_new_tab(self, ws, group_url: str, group_id: str) -> str:
+        """Mở tab mới để lấy URL bài viết vừa đăng"""
+        import time
+        import websocket as ws_module
+
+        # Tạo tab mới
+        result = self._cdp_send(ws, "Target.createTarget", {"url": group_url})
+        target_id = result.get('result', {}).get('targetId')
+
+        if not target_id:
+            return f"https://www.facebook.com/groups/{group_id}"
+
+        time.sleep(random.uniform(3, 5))  # Đợi tab mới load
+
+        # Lấy WebSocket của tab mới
+        new_ws_url = None
+        try:
+            cdp_base = f"http://127.0.0.1:{self._posting_port}"
+            resp = requests.get(f"{cdp_base}/json", timeout=10)
+            pages = resp.json()
+            for p in pages:
+                if p.get('id') == target_id:
+                    new_ws_url = p.get('webSocketDebuggerUrl')
+                    break
+        except:
+            pass
+
+        if not new_ws_url:
+            # Đóng tab mới
+            self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+            return f"https://www.facebook.com/groups/{group_id}"
+
+        # Kết nối WebSocket tab mới
+        new_ws = None
+        try:
+            new_ws = ws_module.create_connection(new_ws_url, timeout=30, suppress_origin=True)
+        except:
+            try:
+                new_ws = ws_module.create_connection(new_ws_url, timeout=30)
+            except:
+                self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+                return f"https://www.facebook.com/groups/{group_id}"
+
+        # Đợi page load
+        time.sleep(random.uniform(2, 3))
+
+        # Tìm bài vừa đăng trong tab mới
+        get_post_url_js = '''
+        (function() {
+            let posts = document.querySelectorAll('[data-pagelet*="FeedUnit"], [role="article"]');
+            for (let post of posts) {
+                let timeText = post.innerText || '';
+                let hasRecentTime = timeText.includes('Vừa xong') ||
+                                   timeText.includes('Just now') ||
+                                   timeText.includes('1 phút') ||
+                                   timeText.includes('2 phút') ||
+                                   timeText.includes('3 phút') ||
+                                   timeText.includes('4 phút') ||
+                                   timeText.includes('5 phút') ||
+                                   timeText.includes('1 minute') ||
+                                   timeText.includes('2 minutes') ||
+                                   timeText.includes('Đang chờ') ||
+                                   timeText.includes('Pending');
+                if (hasRecentTime) {
+                    let links = post.querySelectorAll('a[href*="/posts/"], a[href*="pfbid"], a[href*="permalink"]');
+                    for (let link of links) {
+                        if (link.href && (link.href.includes('/posts/') || link.href.includes('pfbid'))) {
+                            return link.href;
+                        }
+                    }
+                }
+            }
+            let postLinks = document.querySelectorAll('a[href*="/posts/"]');
+            return postLinks.length > 0 ? postLinks[0].href : null;
+        })()
+        '''
+
+        # Helper để gửi CDP command đến tab mới
+        def send_new(method, params=None):
+            import json as json_module
+            self._cdp_id += 1
+            msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+            new_ws.send(json_module.dumps(msg))
+            while True:
+                try:
+                    new_ws.settimeout(30)
+                    resp = new_ws.recv()
+                    data = json_module.loads(resp)
+                    if data.get('id') == self._cdp_id:
+                        return data
+                except:
+                    return {}
+
+        def eval_new(expr):
+            result = send_new("Runtime.evaluate", {
+                "expression": expr,
+                "returnByValue": True,
+                "awaitPromise": True
+            })
+            return result.get('result', {}).get('result', {}).get('value')
+
+        # Thử lấy URL trong tab mới
+        post_url = None
+        for attempt in range(3):
+            post_url = eval_new(get_post_url_js)
+            if post_url and ('/posts/' in post_url or 'pfbid' in post_url):
+                break
+
+            if attempt < 2:
+                time.sleep(random.uniform(2, 3))
+                # Reload tab mới
+                send_new("Page.reload", {})
+                time.sleep(random.uniform(3, 4))
+
+        # Đóng tab mới
+        try:
+            new_ws.close()
+        except:
+            pass
+        self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+
+        if not post_url:
+            post_url = f"https://www.facebook.com/groups/{group_id}"
+
+        return post_url
 
     def _on_posting_complete(self, total: int):
         """Hoàn tất đăng bài"""
