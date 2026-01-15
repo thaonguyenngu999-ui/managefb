@@ -175,7 +175,7 @@ class PostsTab(ctk.CTkFrame):
         table_header.pack(fill="x", padx=15, pady=(0, 5))
         table_header.pack_propagate(False)
 
-        headers = [("", 35), ("Link bài viết", 350), ("Mục tiêu", 70), ("Đã like", 70), ("Hoàn thành", 80), ("Lỗi", 50)]
+        headers = [("", 35), ("Link bài viết", 300), ("Mục tiêu", 60), ("Đã like", 60), ("Trạng thái", 110), ("Lỗi", 40)]
         for text, width in headers:
             ctk.CTkLabel(
                 table_header,
@@ -438,8 +438,8 @@ class PostsTab(ctk.CTkFrame):
             # Link (clickable)
             link_label = ctk.CTkLabel(
                 row,
-                text=post_url[:55] + "..." if len(post_url) > 55 else post_url,
-                width=350,
+                text=post_url[:50] + "..." if len(post_url) > 50 else post_url,
+                width=300,
                 font=ctk.CTkFont(size=11),
                 text_color=COLORS["accent"],
                 cursor="hand2",
@@ -452,7 +452,7 @@ class PostsTab(ctk.CTkFrame):
             target_label = ctk.CTkLabel(
                 row,
                 text=str(self.post_status[post_id]['target']),
-                width=70,
+                width=60,
                 font=ctk.CTkFont(size=11),
                 text_color=COLORS["text_primary"]
             )
@@ -462,19 +462,19 @@ class PostsTab(ctk.CTkFrame):
             liked_label = ctk.CTkLabel(
                 row,
                 text=str(self.post_status[post_id]['liked']),
-                width=70,
+                width=60,
                 font=ctk.CTkFont(size=11),
                 text_color=COLORS["success"]
             )
             liked_label.pack(side="left", padx=3)
 
-            # Completed
+            # Status (Completed)
             completed = self.post_status[post_id]['completed']
             completed_label = ctk.CTkLabel(
                 row,
-                text="✓" if completed else "-",
-                width=80,
-                font=ctk.CTkFont(size=11),
+                text="Đã like hôm nay" if completed else "-",
+                width=110,
+                font=ctk.CTkFont(size=10),
                 text_color=COLORS["success"] if completed else COLORS["text_secondary"]
             )
             completed_label.pack(side="left", padx=3)
@@ -484,7 +484,7 @@ class PostsTab(ctk.CTkFrame):
             error_label = ctk.CTkLabel(
                 row,
                 text="✗" if error else "-",
-                width=50,
+                width=40,
                 font=ctk.CTkFont(size=11),
                 text_color=COLORS["danger"] if error else COLORS["text_secondary"]
             )
@@ -527,11 +527,13 @@ class PostsTab(ctk.CTkFrame):
         self.log_textbox.see("end")
         self.log_textbox.configure(state="disabled")
 
-    def _update_post_status(self, post_id, liked=None, completed=None, error=None):
+    def _update_post_status(self, post_id, target=None, liked=None, completed=None, error=None):
         """Cập nhật status của post"""
         if post_id not in self.post_status:
             return
 
+        if target is not None:
+            self.post_status[post_id]['target'] = target
         if liked is not None:
             self.post_status[post_id]['liked'] = liked
         if completed is not None:
@@ -542,13 +544,18 @@ class PostsTab(ctk.CTkFrame):
         # Update UI
         if post_id in self.post_widgets:
             widgets = self.post_widgets[post_id]
+            if target is not None:
+                widgets['target'].configure(text=str(target))
             if liked is not None:
                 widgets['liked'].configure(text=str(liked))
             if completed is not None:
                 widgets['completed'].configure(
-                    text="✓" if completed else "-",
+                    text="Đã like hôm nay" if completed else "-",
                     text_color=COLORS["success"] if completed else COLORS["text_secondary"]
                 )
+                # Đổi màu nền row thành xanh khi hoàn thành
+                if completed:
+                    widgets['row'].configure(fg_color="#1a472a")  # Dark green
             if error is not None:
                 widgets['error'].configure(
                     text="✗" if error else "-",
@@ -603,7 +610,11 @@ class PostsTab(ctk.CTkFrame):
                 self.post_status[post_id]['liked'] = 0
                 self.post_status[post_id]['completed'] = False
                 self.post_status[post_id]['error'] = False
-            self._update_post_status(post_id, liked=0, completed=False, error=False)
+            # Update target in UI as well
+            self._update_post_status(post_id, target=like_count, liked=0, completed=False, error=False)
+            # Reset row color
+            if post_id in self.post_widgets:
+                self.post_widgets[post_id]['row'].configure(fg_color=COLORS["bg_card"])
 
         self._is_running = True
         self._stop_requested = False
