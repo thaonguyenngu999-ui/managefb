@@ -2628,78 +2628,198 @@ class GroupsTab(ctk.CTkFrame):
                 time.sleep(random.uniform(3, 4))
 
         # Like/React nếu được yêu cầu
-        if should_like and post_url and '/posts/' in post_url:
+        if should_like and post_url and ('/posts/' in post_url or 'pfbid' in post_url):
             try:
                 # Navigate đến bài viết
                 send_new("Page.navigate", {"url": post_url})
-                time.sleep(random.uniform(3, 5))
+                time.sleep(random.uniform(4, 6))
 
-                # Map react type to aria-label
-                react_map = {
-                    "👍 Like": "Thích",
-                    "❤️ Yêu thích": "Yêu thích",
-                    "😆 Haha": "Haha",
-                    "😮 Wow": "Wow",
-                    "😢 Buồn": "Buồn",
-                    "😡 Phẫn nộ": "Phẫn nộ"
-                }
-                react_label = react_map.get(react_type, "Thích")
-
-                if react_label == "Thích":
-                    # Click nút Like đơn giản
-                    like_js = '''
-                    (function() {
-                        let likeBtn = document.querySelector('[aria-label="Thích"]');
-                        if (!likeBtn) likeBtn = document.querySelector('[aria-label="Like"]');
-                        if (likeBtn) {
-                            likeBtn.click();
-                            return true;
-                        }
-                        return false;
-                    })()
-                    '''
-                    eval_new(like_js)
-                else:
-                    # Giữ nút Like để hiện reactions, rồi chọn loại
-                    # Tìm nút Like
-                    get_like_pos_js = '''
-                    (function() {
-                        let likeBtn = document.querySelector('[aria-label="Thích"]');
-                        if (!likeBtn) likeBtn = document.querySelector('[aria-label="Like"]');
-                        if (likeBtn) {
-                            let rect = likeBtn.getBoundingClientRect();
-                            return {x: rect.left + rect.width/2, y: rect.top + rect.height/2};
-                        }
-                        return null;
-                    })()
-                    '''
-                    like_pos = eval_new(get_like_pos_js)
-                    if like_pos:
-                        # Hover để hiện reactions
-                        send_new("Input.dispatchMouseEvent", {
-                            "type": "mouseMoved",
-                            "x": int(like_pos['x']),
-                            "y": int(like_pos['y'])
-                        })
-                        time.sleep(2)  # Đợi popup reactions hiện
-
-                        # Click vào reaction cụ thể
-                        click_react_js = f'''
-                        (function() {{
-                            let reacts = document.querySelectorAll('[aria-label="{react_label}"]');
-                            for (let r of reacts) {{
-                                if (r.getAttribute('role') === 'button' || r.tagName === 'DIV') {{
-                                    r.click();
-                                    return true;
-                                }}
-                            }}
-                            return false;
-                        }})()
-                        '''
-                        eval_new(click_react_js)
+                # Đợi page load hoàn toàn
+                for _ in range(10):
+                    ready = eval_new("document.readyState")
+                    if ready == 'complete':
+                        break
+                    time.sleep(1)
 
                 time.sleep(random.uniform(1, 2))
-                print(f"[OK] Đã {react_type} bài viết")
+
+                # Scroll xuống một chút để thấy nút Like
+                eval_new("window.scrollBy(0, 200);")
+                time.sleep(random.uniform(0.5, 1))
+
+                # Map react type to aria-label (cả tiếng Việt và tiếng Anh)
+                react_map = {
+                    "👍 Like": ["Thích", "Like"],
+                    "❤️ Yêu thích": ["Yêu thích", "Love"],
+                    "😆 Haha": ["Haha", "Haha"],
+                    "😮 Wow": ["Wow", "Wow"],
+                    "😢 Buồn": ["Buồn", "Sad"],
+                    "😡 Phẫn nộ": ["Phẫn nộ", "Angry"]
+                }
+                react_labels = react_map.get(react_type, ["Thích", "Like"])
+
+                # Tìm nút Like với nhiều cách
+                find_like_btn_js = '''
+                (function() {
+                    // Cách 1: Tìm theo aria-label
+                    let btn = document.querySelector('[aria-label="Thích"]');
+                    if (!btn) btn = document.querySelector('[aria-label="Like"]');
+
+                    // Cách 2: Tìm theo role và text
+                    if (!btn) {
+                        let buttons = document.querySelectorAll('[role="button"]');
+                        for (let b of buttons) {
+                            let text = b.innerText || b.textContent || '';
+                            if (text.trim() === 'Thích' || text.trim() === 'Like') {
+                                btn = b;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Cách 3: Tìm trong action bar của bài viết
+                    if (!btn) {
+                        let spans = document.querySelectorAll('span');
+                        for (let span of spans) {
+                            let text = span.innerText || '';
+                            if (text === 'Thích' || text === 'Like') {
+                                // Tìm parent có role=button
+                                let parent = span.closest('[role="button"]');
+                                if (parent) {
+                                    btn = parent;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (btn) {
+                        let rect = btn.getBoundingClientRect();
+                        return {
+                            x: rect.left + rect.width/2,
+                            y: rect.top + rect.height/2,
+                            found: true
+                        };
+                    }
+                    return {found: false};
+                })()
+                '''
+                like_info = eval_new(find_like_btn_js)
+                print(f"[DEBUG] Like button info: {like_info}")
+
+                if like_info and like_info.get('found'):
+                    like_x = int(like_info['x'])
+                    like_y = int(like_info['y'])
+
+                    if react_labels[0] == "Thích" or react_labels[1] == "Like":
+                        # Click đơn giản cho Like
+                        # Di chuyển chuột đến nút
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mouseMoved",
+                            "x": like_x,
+                            "y": like_y
+                        })
+                        time.sleep(0.3)
+
+                        # Click
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mousePressed",
+                            "x": like_x,
+                            "y": like_y,
+                            "button": "left",
+                            "clickCount": 1
+                        })
+                        time.sleep(0.1)
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mouseReleased",
+                            "x": like_x,
+                            "y": like_y,
+                            "button": "left",
+                            "clickCount": 1
+                        })
+                        print(f"[OK] Đã click Like tại ({like_x}, {like_y})")
+                    else:
+                        # Hover để hiện reactions popup
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mouseMoved",
+                            "x": like_x,
+                            "y": like_y
+                        })
+                        time.sleep(2.5)  # Đợi popup reactions hiện
+
+                        # Tìm và click reaction cụ thể
+                        react_label_vi = react_labels[0]
+                        react_label_en = react_labels[1]
+                        click_react_js = f'''
+                        (function() {{
+                            // Tìm reaction button trong popup
+                            let reacts = document.querySelectorAll('[aria-label="{react_label_vi}"], [aria-label="{react_label_en}"]');
+                            for (let r of reacts) {{
+                                let rect = r.getBoundingClientRect();
+                                if (rect.width > 0 && rect.height > 0) {{
+                                    return {{
+                                        x: rect.left + rect.width/2,
+                                        y: rect.top + rect.height/2,
+                                        found: true
+                                    }};
+                                }}
+                            }}
+
+                            // Fallback: tìm theo data-testid hoặc title
+                            let allBtns = document.querySelectorAll('[role="button"]');
+                            for (let btn of allBtns) {{
+                                let label = btn.getAttribute('aria-label') || '';
+                                if (label.includes('{react_label_vi}') || label.includes('{react_label_en}')) {{
+                                    let rect = btn.getBoundingClientRect();
+                                    if (rect.width > 0 && rect.height > 0) {{
+                                        return {{
+                                            x: rect.left + rect.width/2,
+                                            y: rect.top + rect.height/2,
+                                            found: true
+                                        }};
+                                    }}
+                                }}
+                            }}
+                            return {{found: false}};
+                        }})()
+                        '''
+                        react_info = eval_new(click_react_js)
+                        print(f"[DEBUG] React button info: {react_info}")
+
+                        if react_info and react_info.get('found'):
+                            react_x = int(react_info['x'])
+                            react_y = int(react_info['y'])
+
+                            # Click vào reaction
+                            send_new("Input.dispatchMouseEvent", {
+                                "type": "mouseMoved",
+                                "x": react_x,
+                                "y": react_y
+                            })
+                            time.sleep(0.3)
+                            send_new("Input.dispatchMouseEvent", {
+                                "type": "mousePressed",
+                                "x": react_x,
+                                "y": react_y,
+                                "button": "left",
+                                "clickCount": 1
+                            })
+                            time.sleep(0.1)
+                            send_new("Input.dispatchMouseEvent", {
+                                "type": "mouseReleased",
+                                "x": react_x,
+                                "y": react_y,
+                                "button": "left",
+                                "clickCount": 1
+                            })
+                            print(f"[OK] Đã click {react_type} tại ({react_x}, {react_y})")
+                        else:
+                            print(f"[WARN] Không tìm thấy nút {react_type}")
+                else:
+                    print(f"[WARN] Không tìm thấy nút Like")
+
+                time.sleep(random.uniform(1, 2))
+                print(f"[OK] Hoàn tất {react_type} bài viết")
             except Exception as e:
                 print(f"[WARN] Không thể like: {e}")
 
