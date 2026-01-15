@@ -851,8 +851,10 @@ class LoginTab(ctk.CTkFrame):
                 })
                 return result.get('result', {}).get('result', {}).get('value')
 
-            # Xóa cookies và storage trước khi login (tránh dính session cũ)
-            send_cmd("Network.clearBrowserCookies", {})
+            # Xóa cookies Facebook trước khi login (tránh dính session cũ)
+            # Chỉ xóa cookies của facebook.com, không ảnh hưởng sites khác
+            send_cmd("Network.deleteCookies", {"domain": ".facebook.com"})
+            send_cmd("Network.deleteCookies", {"domain": "facebook.com"})
             send_cmd("Storage.clearDataForOrigin", {
                 "origin": "https://www.facebook.com",
                 "storageTypes": "all"
