@@ -216,7 +216,7 @@ class LoginTab(ctk.CTkFrame):
 
         ctk.CTkLabel(
             scroll,
-            text="File XLSX có các cột: A(Trạng thái), B(FB ID), C(Username), D(Password), E(Email), F(Email Pass)",
+            text="XLSX: A(Status), B(FB ID), C(User), D(Pass), E(Email), F(Email Pass), G(2FA Secret)",
             font=ctk.CTkFont(size=11),
             text_color=COLORS["text_secondary"],
             wraplength=400
@@ -617,7 +617,7 @@ class LoginTab(ctk.CTkFrame):
                 if not row or len(row) < 4:
                     continue
 
-                # Columns: A=Status, B=FB ID, C=Username, D=Password, E=Email, F=Email Pass
+                # Columns: A=Status, B=FB ID, C=Username, D=Password, E=Email, F=Email Pass, G=2FA Secret
                 account = {
                     'row': row_idx,
                     'status': row[0] or '',
@@ -625,7 +625,8 @@ class LoginTab(ctk.CTkFrame):
                     'username': str(row[2] or ''),
                     'password': str(row[3] or ''),
                     'email': str(row[4] or '') if len(row) > 4 else '',
-                    'email_pass': str(row[5] or '') if len(row) > 5 else ''
+                    'email_pass': str(row[5] or '') if len(row) > 5 else '',
+                    'totp_secret': str(row[6] or '') if len(row) > 6 else ''  # 2FA secret
                 }
 
                 # Skip if no FB ID
@@ -861,13 +862,43 @@ class LoginTab(ctk.CTkFrame):
                         }}
                     }})()
                 ''')
-                time.sleep(random.uniform(0.1, 0.3))
+                time.sleep(random.uniform(0.2, 0.5))
 
                 # Gõ từng ký tự với Input.insertText (chuẩn CDP)
                 for char in text:
                     send_cmd("Input.insertText", {"text": char})
-                    # Random delay giữa các phím (50-150ms như người gõ)
-                    time.sleep(random.uniform(0.05, 0.15))
+                    # Random delay giữa các phím (100-280ms như người gõ thật)
+                    time.sleep(random.uniform(0.10, 0.28))
+
+            # Helper: Generate TOTP code từ secret
+            def generate_totp(secret):
+                """Generate 6-digit TOTP code"""
+                import hmac
+                import hashlib
+                import struct
+
+                # Clean secret (remove spaces, uppercase)
+                secret = secret.replace(' ', '').upper()
+
+                # Base32 decode
+                base32_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+                bits = ''
+                for c in secret:
+                    if c in base32_chars:
+                        bits += bin(base32_chars.index(c))[2:].zfill(5)
+                key = bytes(int(bits[i:i+8], 2) for i in range(0, len(bits) - len(bits) % 8, 8))
+
+                # TOTP với time step 30s
+                counter = int(time.time()) // 30
+                counter_bytes = struct.pack('>Q', counter)
+
+                # HMAC-SHA1
+                hmac_hash = hmac.new(key, counter_bytes, hashlib.sha1).digest()
+
+                # Dynamic truncation
+                offset = hmac_hash[-1] & 0x0F
+                code = struct.unpack('>I', hmac_hash[offset:offset+4])[0] & 0x7FFFFFFF
+                return str(code % 1000000).zfill(6)
 
             # Check form exists
             form_check = evaluate('''
@@ -1002,6 +1033,55 @@ class LoginTab(ctk.CTkFrame):
             # Normalize status (remove debug info for comparison)
             status_clean = status.split(':')[0] if ':' in str(status) else status
             self.after(0, lambda s=status: self._log(f"  Login status: {s}"))
+
+            # Xử lý 2FA nếu có secret key
+            if status_clean == '2FA' and account.get('totp_secret'):
+                try:
+                    totp_code = generate_totp(account['totp_secret'])
+                    self.after(0, lambda c=totp_code: self._log(f"  2FA code: {c}"))
+
+                    # Tìm input 2FA và nhập code
+                    time.sleep(1)
+
+                    # Focus vào input 2FA
+                    evaluate('''
+                        (function() {
+                            let input = document.querySelector('input[name="approvals_code"]') ||
+                                       document.querySelector('input[type="text"]') ||
+                                       document.querySelector('input[type="tel"]');
+                            if (input) {
+                                input.focus();
+                                input.value = '';
+                            }
+                        })()
+                    ''')
+                    time.sleep(0.3)
+
+                    # Gõ từng số của 2FA code
+                    for digit in totp_code:
+                        send_cmd("Input.insertText", {"text": digit})
+                        time.sleep(random.uniform(0.15, 0.35))
+
+                    time.sleep(0.5)
+
+                    # Submit 2FA form
+                    evaluate('''
+                        (function() {
+                            let btn = document.querySelector('button[type="submit"]') ||
+                                     document.querySelector('#checkpointSubmitButton') ||
+                                     document.querySelector('button[name="submit[Continue]"]');
+                            if (btn) btn.click();
+                        })()
+                    ''')
+
+                    # Đợi và check lại
+                    time.sleep(4)
+                    status = evaluate(js_check) or 'UNKNOWN'
+                    status_clean = status.split(':')[0] if ':' in str(status) else status
+                    self.after(0, lambda s=status: self._log(f"  After 2FA: {s}"))
+
+                except Exception as e:
+                    self.after(0, lambda err=str(e): self._log(f"  2FA error: {err}"))
 
             ws.close()
 
