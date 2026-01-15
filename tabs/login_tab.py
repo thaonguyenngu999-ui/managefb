@@ -618,15 +618,24 @@ class LoginTab(ctk.CTkFrame):
                     continue
 
                 # Columns: A=Status, B=FB ID, C=Username, D=Password, E=Email, F=Email Pass, G=2FA Secret
+                # Helper: convert Excel float to clean string (61551817090446.0 -> "61551817090446")
+                def clean_str(val):
+                    if val is None:
+                        return ''
+                    if isinstance(val, float):
+                        # Remove .0 from float numbers
+                        return str(int(val)) if val == int(val) else str(val)
+                    return str(val)
+
                 account = {
                     'row': row_idx,
-                    'status': row[0] or '',
-                    'fb_id': str(row[1] or ''),
-                    'username': str(row[2] or ''),
-                    'password': str(row[3] or ''),
-                    'email': str(row[4] or '') if len(row) > 4 else '',
-                    'email_pass': str(row[5] or '') if len(row) > 5 else '',
-                    'totp_secret': str(row[6] or '') if len(row) > 6 else ''  # 2FA secret
+                    'status': clean_str(row[0]),
+                    'fb_id': clean_str(row[1]),
+                    'username': clean_str(row[2]),
+                    'password': clean_str(row[3]),
+                    'email': clean_str(row[4]) if len(row) > 4 else '',
+                    'email_pass': clean_str(row[5]) if len(row) > 5 else '',
+                    'totp_secret': clean_str(row[6]) if len(row) > 6 else ''  # 2FA secret
                 }
 
                 # Skip if no FB ID
