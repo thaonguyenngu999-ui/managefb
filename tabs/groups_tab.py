@@ -8,12 +8,13 @@ import random
 import os
 import re
 import time
+import unicodedata
 from datetime import datetime, date
 from tkinter import filedialog
 from config import COLORS
 from widgets import ModernButton, ModernEntry
 from db import (
-    get_profiles, get_groups, save_group, delete_group,
+    get_profiles, get_groups, get_groups_for_profiles, save_group, delete_group,
     update_group_selection, get_selected_groups, sync_groups, clear_groups,
     get_contents, get_categories, save_post_history, get_post_history
 )
@@ -814,11 +815,16 @@ class GroupsTab(ctk.CTkFrame):
         if self.multi_profile_var.get():
             self.multi_profile_panel.pack(fill="x", padx=15, pady=(0, 12))
             self.profile_menu.configure(state="disabled")
+            # Reload groups cho các profiles đã chọn
+            if self.selected_profile_uuids:
+                self._load_groups_for_profile()
         else:
             self.multi_profile_panel.pack_forget()
             self.profile_menu.configure(state="normal")
             self.selected_profile_uuids = []
             self._update_selected_profiles_label()
+            # Clear groups khi tắt multi-mode
+            self._load_groups_for_profile()
 
     def _render_profile_list(self):
         """Render danh sách profiles với checkbox"""
@@ -861,6 +867,8 @@ class GroupsTab(ctk.CTkFrame):
             if uuid in self.selected_profile_uuids:
                 self.selected_profile_uuids.remove(uuid)
         self._update_selected_profiles_label()
+        # Reload groups cho các profiles đã chọn
+        self._load_groups_for_profile()
 
     def _update_selected_profiles_label(self):
         """Cập nhật label số profiles đã chọn"""
@@ -1399,11 +1407,15 @@ class GroupsTab(ctk.CTkFrame):
         self._set_status(f"Lỗi: {error}", "error")
 
     def _load_groups_for_profile(self):
-        """Load nhóm của profile"""
-        if not self.current_profile_uuid:
-            self.groups = []
-        else:
+        """Load nhóm của profile - hỗ trợ multi-profile mode"""
+        if self.multi_profile_var.get() and self.selected_profile_uuids:
+            # Multi-profile mode: load groups từ tất cả profiles đã chọn
+            self.groups = get_groups_for_profiles(self.selected_profile_uuids)
+        elif self.current_profile_uuid:
+            # Single-profile mode
             self.groups = get_groups(self.current_profile_uuid)
+        else:
+            self.groups = []
 
         self.selected_group_ids = [g['id'] for g in self.groups if g.get('is_selected')]
         self._render_scan_list()
@@ -1510,15 +1522,46 @@ class GroupsTab(ctk.CTkFrame):
         """Khi filter thay đổi"""
         self._apply_group_filter()
 
+    def _normalize_vietnamese(self, text: str) -> str:
+        """Chuẩn hóa text tiếng Việt để tìm kiếm - bỏ dấu, lowercase"""
+        if not text:
+            return ""
+        # Lowercase
+        text = text.lower()
+        # Normalize unicode
+        text = unicodedata.normalize('NFD', text)
+        # Remove diacritics (combining characters)
+        text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+        # Normalize back
+        text = unicodedata.normalize('NFC', text)
+        # Thay thế đ -> d
+        text = text.replace('đ', 'd').replace('Đ', 'd')
+        return text
+
     def _apply_group_filter(self):
-        """Áp dụng filter cho danh sách nhóm"""
-        filter_text = self.group_filter_var.get().lower().strip()
+        """Áp dụng filter cho danh sách nhóm - hỗ trợ tiếng Việt"""
+        filter_text = self.group_filter_var.get().strip()
+
+        if not filter_text:
+            # Hiển thị tất cả nếu không có filter
+            for widget in self.group_checkbox_widgets.values():
+                widget.pack(fill="x", pady=1)
+            return
+
+        # Chuẩn hóa filter text
+        filter_normalized = self._normalize_vietnamese(filter_text)
+        filter_lower = filter_text.lower()
 
         for group_id, widget in self.group_checkbox_widgets.items():
             group = next((g for g in self.groups if g['id'] == group_id), None)
             if group:
-                group_name = group.get('group_name', '').lower()
-                if filter_text == '' or filter_text in group_name:
+                group_name = group.get('group_name', '')
+                # Kiểm tra cả 2 cách: có dấu và không dấu
+                name_lower = group_name.lower()
+                name_normalized = self._normalize_vietnamese(group_name)
+
+                # Match nếu tìm thấy trong bản gốc hoặc bản không dấu
+                if filter_lower in name_lower or filter_normalized in name_normalized:
                     widget.pack(fill="x", pady=1)
                 else:
                     widget.pack_forget()

@@ -703,6 +703,20 @@ def get_groups(profile_uuid: str = None) -> List[Dict]:
         return rows_to_list(cursor.fetchall())
 
 
+def get_groups_for_profiles(profile_uuids: List[str]) -> List[Dict]:
+    """Lấy danh sách groups từ nhiều profiles"""
+    if not profile_uuids:
+        return []
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join(['?' for _ in profile_uuids])
+        cursor.execute(
+            f"SELECT * FROM groups WHERE profile_uuid IN ({placeholders}) ORDER BY profile_uuid, group_name",
+            profile_uuids
+        )
+        return rows_to_list(cursor.fetchall())
+
+
 def get_group_by_id(group_id: int) -> Optional[Dict]:
     """Lấy group theo ID"""
     with get_connection() as conn:
