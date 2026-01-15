@@ -599,9 +599,10 @@ class PostsTab(ctk.CTkFrame):
         total_posts = len(posts)
         completed_posts = 0
 
-        # Shuffle profiles
-        available_profiles = self.profiles.copy()
-        random.shuffle(available_profiles)
+        # Sắp xếp profiles theo tên (00, 01, 02, ...)
+        available_profiles = sorted(self.profiles, key=lambda p: p.get('name', ''))
+
+        self.after(0, lambda: self._log(f"Có {len(available_profiles)} profiles sẵn sàng"))
 
         for post in posts:
             if self._stop_requested:
@@ -672,13 +673,20 @@ class PostsTab(ctk.CTkFrame):
         import json
 
         profile_uuid = profile.get('uuid', '')
+        profile_name = profile.get('name', 'Unknown')
+
         if not profile_uuid:
+            self.after(0, lambda: self._log(f"[{profile_name}] Không có UUID"))
             return False
 
         try:
+            self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Đang mở browser..."))
+
             # Mở browser
             result = api.open_browser(profile_uuid)
             if result.get('type') == 'error':
+                err_msg = result.get('message', 'Unknown error')
+                self.after(0, lambda pn=profile_name, e=err_msg: self._log(f"[{pn}] Lỗi mở browser: {e}"))
                 return False
 
             data = result.get('data', {})
@@ -691,7 +699,10 @@ class PostsTab(ctk.CTkFrame):
                     remote_port = int(match.group(1))
 
             if not remote_port:
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không lấy được remote_port"))
                 return False
+
+            self.after(0, lambda pn=profile_name, p=remote_port: self._log(f"[{pn}] Đã mở, port: {p}"))
 
             cdp_base = f"http://127.0.0.1:{remote_port}"
             time.sleep(2)
@@ -776,7 +787,12 @@ class PostsTab(ctk.CTkFrame):
                 return false;
             })()
             '''
-            result = cdp_eval(click_like_js)
+            like_result = cdp_eval(click_like_js)
+
+            if like_result:
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✓ Đã like thành công"))
+            else:
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✗ Không tìm thấy nút Like"))
 
             time.sleep(random.uniform(1, 2))
 
@@ -786,10 +802,10 @@ class PostsTab(ctk.CTkFrame):
             except:
                 pass
 
-            return result == True
+            return like_result == True
 
         except Exception as e:
-            print(f"[ERROR] Like với profile {profile_uuid[:8]}: {e}")
+            self.after(0, lambda pn=profile_name, err=str(e): self._log(f"[{pn}] Lỗi: {err}"))
             return False
 
     def _stop_liking(self):
