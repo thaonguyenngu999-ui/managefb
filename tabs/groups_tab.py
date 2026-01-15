@@ -145,7 +145,18 @@ class GroupsTab(ctk.CTkFrame):
             font=ctk.CTkFont(size=11),
             text_color=COLORS["accent"]
         )
-        self.selected_profiles_label.pack(side="left", padx=10)
+        self.selected_profiles_label.pack(side="left", padx=5)
+
+        # Load groups button (for multi-select mode)
+        self.load_groups_btn = ModernButton(
+            header_row2,
+            text="Load nhóm",
+            icon="📥",
+            variant="secondary",
+            command=self._load_groups_for_selected_profiles,
+            width=100
+        )
+        self.load_groups_btn.pack(side="left", padx=5)
 
         # Multi-profile selection panel (hidden by default)
         self.multi_profile_panel = ctk.CTkFrame(header, fg_color=COLORS["bg_card"], corner_radius=8, height=120)
@@ -815,16 +826,16 @@ class GroupsTab(ctk.CTkFrame):
         if self.multi_profile_var.get():
             self.multi_profile_panel.pack(fill="x", padx=15, pady=(0, 12))
             self.profile_menu.configure(state="disabled")
-            # Reload groups cho các profiles đã chọn
-            if self.selected_profile_uuids:
-                self._load_groups_for_profile()
+            # Không auto-load để tránh lag
         else:
             self.multi_profile_panel.pack_forget()
             self.profile_menu.configure(state="normal")
             self.selected_profile_uuids = []
             self._update_selected_profiles_label()
-            # Clear groups khi tắt multi-mode
-            self._load_groups_for_profile()
+            # Clear groups list khi tắt multi-mode
+            self.groups = []
+            self._render_scan_list()
+            self._render_post_groups_list(force_rebuild=True)
 
     def _render_profile_list(self):
         """Render danh sách profiles với checkbox"""
@@ -859,7 +870,7 @@ class GroupsTab(ctk.CTkFrame):
             cb.pack(anchor="w", pady=1)
 
     def _toggle_profile_selection(self, uuid: str, var: ctk.BooleanVar):
-        """Toggle chọn profile"""
+        """Toggle chọn profile - không auto-reload để tránh lag"""
         if var.get():
             if uuid not in self.selected_profile_uuids:
                 self.selected_profile_uuids.append(uuid)
@@ -867,13 +878,46 @@ class GroupsTab(ctk.CTkFrame):
             if uuid in self.selected_profile_uuids:
                 self.selected_profile_uuids.remove(uuid)
         self._update_selected_profiles_label()
-        # Reload groups cho các profiles đã chọn
-        self._load_groups_for_profile()
+        # Không auto-reload để tránh lag - user sẽ bấm nút Load hoặc Quét
 
     def _update_selected_profiles_label(self):
         """Cập nhật label số profiles đã chọn"""
         count = len(self.selected_profile_uuids)
         self.selected_profiles_label.configure(text=f"Đã chọn: {count}")
+
+    def _load_groups_for_selected_profiles(self):
+        """Load groups từ các profiles đã chọn - chạy background"""
+        if not self.selected_profile_uuids and not self.current_profile_uuid:
+            self._set_status("Vui lòng chọn profile trước!", "warning")
+            return
+
+        self._set_status("Đang load nhóm...", "info")
+
+        def do_load():
+            try:
+                # Load groups
+                if self.multi_profile_var.get() and self.selected_profile_uuids:
+                    groups = get_groups_for_profiles(self.selected_profile_uuids)
+                elif self.current_profile_uuid:
+                    groups = get_groups(self.current_profile_uuid)
+                else:
+                    groups = []
+
+                # Update UI on main thread
+                self.after(0, lambda: self._on_groups_loaded(groups))
+            except Exception as e:
+                self.after(0, lambda: self._set_status(f"Lỗi: {e}", "error"))
+
+        threading.Thread(target=do_load, daemon=True).start()
+
+    def _on_groups_loaded(self, groups: List[Dict]):
+        """Callback khi load groups xong"""
+        self.groups = groups
+        self.selected_group_ids = [g['id'] for g in self.groups if g.get('is_selected')]
+        self._render_scan_list()
+        self._render_post_groups_list(force_rebuild=True)
+        self._update_stats()
+        self._set_status(f"Đã load {len(groups)} nhóm!", "success")
 
     def _on_profile_change(self, choice: str):
         """Khi chọn profile khác"""
