@@ -309,18 +309,24 @@ class PostsTab(ctk.CTkFrame):
         else:
             start_date = None
 
-        # Get posts from history
-        all_posts = get_post_history()
+        # Get posts from history (tăng limit để lấy nhiều hơn)
+        all_posts = get_post_history(limit=1000)
 
         if start_date:
             self.posts = []
             for p in all_posts:
-                post_date_str = p.get('posted_at', '')
+                post_date_str = p.get('created_at', '')
                 if post_date_str:
                     try:
                         post_date = datetime.strptime(post_date_str[:10], '%Y-%m-%d').date()
-                        if post_date >= start_date:
-                            self.posts.append(p)
+                        if filter_value == "Hôm qua":
+                            # Chỉ lấy đúng ngày hôm qua
+                            if post_date == start_date:
+                                self.posts.append(p)
+                        else:
+                            # Lấy từ ngày start_date trở đi
+                            if post_date >= start_date:
+                                self.posts.append(p)
                     except:
                         pass
         else:
@@ -342,11 +348,11 @@ class PostsTab(ctk.CTkFrame):
             self._log("Định dạng ngày không hợp lệ (dd/mm/yyyy)")
             return
 
-        all_posts = get_post_history()
+        all_posts = get_post_history(limit=1000)
         self.posts = []
 
         for p in all_posts:
-            post_date_str = p.get('posted_at', '')
+            post_date_str = p.get('created_at', '')
             if post_date_str:
                 try:
                     post_date = datetime.strptime(post_date_str[:10], '%Y-%m-%d').date()
