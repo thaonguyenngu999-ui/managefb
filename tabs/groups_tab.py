@@ -803,7 +803,47 @@ class GroupsTab(ctk.CTkFrame):
             self.after(0, lambda: self._set_status("Đang mở trang nhóm...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.2))
 
-            ws = websocket.create_connection(page_ws, timeout=30)
+            # Kết nối WebSocket - thử nhiều cách để bypass CORS
+            ws = None
+            connection_error = None
+
+            # Cách 1: Không gửi Origin (suppress_origin)
+            try:
+                ws = websocket.create_connection(
+                    page_ws,
+                    timeout=30,
+                    suppress_origin=True
+                )
+                print("[DEBUG] WebSocket connected (suppress_origin)")
+            except Exception as e1:
+                connection_error = str(e1)
+                print(f"[DEBUG] suppress_origin failed: {e1}")
+
+            # Cách 2: Dùng origin parameter
+            if ws is None:
+                try:
+                    ws = websocket.create_connection(
+                        page_ws,
+                        timeout=30,
+                        origin=f"http://127.0.0.1:{remote_port}"
+                    )
+                    print("[DEBUG] WebSocket connected (origin param)")
+                except Exception as e2:
+                    connection_error = str(e2)
+                    print(f"[DEBUG] origin param failed: {e2}")
+
+            # Cách 3: Không có gì đặc biệt
+            if ws is None:
+                try:
+                    ws = websocket.create_connection(page_ws, timeout=30)
+                    print("[DEBUG] WebSocket connected (default)")
+                except Exception as e3:
+                    connection_error = str(e3)
+                    print(f"[DEBUG] default failed: {e3}")
+
+            if ws is None:
+                self.after(0, lambda err=connection_error: self._set_status(f"Lỗi WebSocket: {err}", "error"))
+                return []
 
             # Navigate đến trang nhóm
             groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
