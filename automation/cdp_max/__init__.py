@@ -14,6 +14,14 @@ CDP MAX - Production-grade Chrome DevTools Protocol implementation
 10. Crash/Freeze containment MAX - Watchdog, hard timeout, poisoned context
 11. Performance MAX - Command batching, locator caching
 12. Observability MAX - Machine-readable reason codes
+
+Stealth features (anti-detection):
+- Runtime domain minimization & side-effect mitigation
+- CDP command pattern obfuscation & rate limiting
+- WebRTC & media device leak prevention
+- Service Worker & Fetch interception hardening
+- Memory & DOM leak monitoring
+- Isolated world consistency & world pinning
 """
 
 from .session import CDPSession, SessionState, SessionConfig
@@ -48,6 +56,15 @@ from .observability import (
     StepTrace, JobTrace
 )
 from .client import CDPClientMAX, CDPClientConfig
+from .stealth import (
+    StealthManager,
+    RuntimeDomainManager, RuntimeDomainContext,
+    CommandObfuscator,
+    WebRTCProtection, WebRTCConfig,
+    ServiceWorkerManager, ServiceWorkerInfo,
+    MemoryMonitor, MemoryMetrics, MemoryThresholds,
+    IsolatedWorldManager, ExecutionContext
+)
 
 __all__ = [
     # Session
@@ -83,4 +100,12 @@ __all__ = [
     # Client
     'CDPClientMAX',
     'CDPClientConfig',
+    # Stealth (anti-detection)
+    'StealthManager',
+    'RuntimeDomainManager', 'RuntimeDomainContext',
+    'CommandObfuscator',
+    'WebRTCProtection', 'WebRTCConfig',
+    'ServiceWorkerManager', 'ServiceWorkerInfo',
+    'MemoryMonitor', 'MemoryMetrics', 'MemoryThresholds',
+    'IsolatedWorldManager', 'ExecutionContext',
 ]

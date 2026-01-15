@@ -36,6 +36,7 @@ from .observability import (
     ObservabilityEngine, ReasonCode, FailureReason,
     StepTrace, JobTrace, get_observability
 )
+from .stealth import StealthManager
 
 
 @dataclass
@@ -68,6 +69,12 @@ class CDPClientConfig:
     enable_caching: bool = True
     enable_batching: bool = True
     max_screenshots_per_job: int = 10
+
+    # Stealth (anti-detection)
+    enable_stealth: bool = True
+    enable_webrtc_protection: bool = True
+    enable_memory_monitoring: bool = True
+    memory_monitor_interval_ms: int = 30000
 
 
 class CDPClientMAX:
@@ -117,6 +124,9 @@ class CDPClientMAX:
         self.performance = PerformanceOptimizer(self.session)
         self.observability = get_observability()
 
+        # Stealth manager (anti-detection)
+        self.stealth = StealthManager(self.session) if self.config.enable_stealth else None
+
         # Configure waits
         self.waits.step_timeout_ms = self.config.step_timeout_ms
         self.waits.state_timeout_ms = self.config.state_timeout_ms
@@ -148,10 +158,23 @@ class CDPClientMAX:
                 context_id = f"main_{self.config.remote_port}"
                 self.watchdog.register_context(context_id)
 
+            # Enable stealth features (anti-detection)
+            if self.stealth:
+                stealth_results = self.stealth.enable_all()
+                # Start memory monitoring if enabled
+                if self.config.enable_memory_monitoring:
+                    self.stealth.memory_monitor.start_monitoring(
+                        interval_ms=self.config.memory_monitor_interval_ms
+                    )
+
         return success, reason
 
     def close(self):
         """Close CDP connection"""
+        # Disable stealth features
+        if self.stealth:
+            self.stealth.disable_all()
+
         if self.watchdog:
             self.watchdog.stop()
 
@@ -463,9 +486,58 @@ class CDPClientMAX:
         if self.watchdog:
             health['watchdog'] = self.watchdog.get_status_summary()
 
+        if self.stealth:
+            health['stealth'] = self.stealth.get_stealth_status()
+
         return health
 
     def get_operation_log(self) -> List[Dict]:
         """Get operation log for debugging"""
         # This could aggregate logs from various components
         return []
+
+    # ==================== STEALTH ====================
+
+    def evaluate_stealth(self, expression: str, timeout_ms: int = 5000) -> Any:
+        """
+        Evaluate JavaScript with minimal detection footprint
+        Uses isolated world and minimal Runtime domain exposure
+        """
+        if self.stealth:
+            result = self.stealth.evaluate_stealth(expression, timeout_ms)
+            if result and result.success and result.result:
+                return result.result.get('result', {}).get('value')
+            return None
+        else:
+            # Fallback to regular evaluate
+            return self.evaluate(expression)
+
+    def force_gc(self) -> bool:
+        """Force garbage collection to prevent memory leaks"""
+        if self.stealth:
+            return self.stealth.memory_monitor.force_garbage_collection()
+        return False
+
+    def get_memory_status(self) -> Dict:
+        """Get current memory usage status"""
+        if self.stealth:
+            return self.stealth.memory_monitor.get_summary()
+        return {'error': 'Stealth not enabled'}
+
+    def check_webrtc_leak(self) -> Dict:
+        """Check if WebRTC is leaking real IP"""
+        if self.stealth:
+            return self.stealth.webrtc_protection.check_for_leaks()
+        return {'error': 'Stealth not enabled'}
+
+    def unregister_service_workers(self) -> bool:
+        """Unregister all service workers to bypass cache"""
+        if self.stealth:
+            return self.stealth.service_worker_manager.unregister_all_workers()
+        return False
+
+    def bypass_service_worker_cache(self) -> bool:
+        """Bypass service worker cache for fresh requests"""
+        if self.stealth:
+            return self.stealth.service_worker_manager.bypass_cache()
+        return False

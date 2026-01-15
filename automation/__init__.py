@@ -21,7 +21,14 @@ from .cdp_max import (
     NavigationManager, NavigationResult,
     RecoveryManager, RecoveryLevel,
     Watchdog, WatchdogConfig,
-    ObservabilityEngine, ReasonCode, FailureReason
+    ObservabilityEngine, ReasonCode, FailureReason,
+    # Stealth (anti-detection)
+    StealthManager,
+    RuntimeDomainManager,
+    WebRTCProtection, WebRTCConfig,
+    ServiceWorkerManager,
+    MemoryMonitor, MemoryMetrics, MemoryThresholds,
+    IsolatedWorldManager
 )
 
 __all__ = [
@@ -46,6 +53,13 @@ __all__ = [
     'RecoveryManager', 'RecoveryLevel',
     'Watchdog', 'WatchdogConfig',
     'ObservabilityEngine', 'ReasonCode', 'FailureReason',
+    # Stealth (anti-detection)
+    'StealthManager',
+    'RuntimeDomainManager',
+    'WebRTCProtection', 'WebRTCConfig',
+    'ServiceWorkerManager',
+    'MemoryMonitor', 'MemoryMetrics', 'MemoryThresholds',
+    'IsolatedWorldManager',
     # Artifacts
     'ArtifactCollector',
     'JobArtifact',
