@@ -2453,7 +2453,16 @@ class GroupsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(5, 8))  # Đợi đăng xong (đợi lâu hơn cho duyệt tự động)
 
-            # Bước 7: Navigate lại trang group (không dùng reload để tránh dialog confirm)
+            # Bước 7: Navigate lại trang group
+            # Xóa beforeunload handler để tránh dialog "Leave site?"
+            self._cdp_evaluate(ws, "window.onbeforeunload = null;")
+            self._cdp_evaluate(ws, '''
+                window.addEventListener('beforeunload', function(e) {
+                    e.stopImmediatePropagation();
+                }, true);
+            ''')
+            time.sleep(0.3)
+
             self._cdp_send(ws, "Page.navigate", {"url": group_url})
             time.sleep(random.uniform(4, 6))
 
@@ -2523,6 +2532,9 @@ class GroupsTab(ctk.CTkFrame):
                 # Đợi thêm và navigate lại nếu chưa tìm thấy
                 if attempt < 2:
                     time.sleep(random.uniform(3, 5))
+                    # Xóa beforeunload handler
+                    self._cdp_evaluate(ws, "window.onbeforeunload = null;")
+                    time.sleep(0.2)
                     self._cdp_send(ws, "Page.navigate", {"url": group_url})
                     time.sleep(random.uniform(3, 4))
 
