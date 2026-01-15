@@ -90,10 +90,18 @@ class HidemiumAPI:
                 if isinstance(content, list):
                     print(f"[DEBUG API] Found {len(content)} profiles in data.content (list)")
                     return content
-                # Nếu content là dict (1 profile) -> wrap trong list
+                # Nếu content là dict - kiểm tra có phải error không
                 elif isinstance(content, dict):
-                    print(f"[DEBUG API] Found 1 profile in data.content (dict), wrapping in list")
-                    return [content]
+                    # Kiểm tra error response
+                    if 'code' in content or 'error' in content:
+                        print(f"[DEBUG API] Error in content: {content}")
+                        return []
+                    # Nếu là profile hợp lệ (có uuid) -> wrap trong list
+                    if 'uuid' in content:
+                        print(f"[DEBUG API] Found 1 profile in data.content (dict), wrapping in list")
+                        return [content]
+                    print(f"[DEBUG API] Unknown content format: {content}")
+                    return []
             elif isinstance(data, list):
                 print(f"[DEBUG API] data is list with {len(data)} items")
                 return data

@@ -286,11 +286,12 @@ class PostsTab(ctk.CTkFrame):
                 # Load tất cả profiles từ API
                 self.profiles = api.get_profiles(limit=500)
             else:
-                # Tìm folder_id
+                # Tìm folder_id (API cần numeric id, không phải uuid)
                 folder_id = None
                 for f in self.folders:
                     if f.get('name') == folder_name:
-                        folder_id = f.get('uuid') or f.get('id')
+                        folder_id = f.get('id')  # Dùng numeric id
+                        print(f"[DEBUG] Found folder {folder_name} with id={folder_id}")
                         break
                 if folder_id:
                     self.profiles = api.get_profiles(folder_id=[folder_id], limit=500)
