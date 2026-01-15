@@ -758,23 +758,27 @@ class GroupsTab(ctk.CTkFrame):
 
             # Lấy debugger address - thử nhiều cách
             debugger_address = None
+            data = result.get('data', {})
 
-            # Cách 1: result.data.debugger_address
-            if result.get('data') and isinstance(result.get('data'), dict):
-                debugger_address = result['data'].get('debugger_address')
+            # Cách 1: Từ remote_port (Hidemium format)
+            if data.get('remote_port'):
+                debugger_address = f"127.0.0.1:{data['remote_port']}"
 
-            # Cách 2: result.debugger_address
+            # Cách 2: Parse từ web_socket URL
+            if not debugger_address and data.get('web_socket'):
+                # ws://127.0.0.1:40000/devtools/browser/xxx -> 127.0.0.1:40000
+                ws_url = data['web_socket']
+                match = re.search(r'ws://([^/]+)', ws_url)
+                if match:
+                    debugger_address = match.group(1)
+
+            # Cách 3: result.data.debugger_address
+            if not debugger_address and isinstance(data, dict):
+                debugger_address = data.get('debugger_address')
+
+            # Cách 4: result.debugger_address
             if not debugger_address:
                 debugger_address = result.get('debugger_address')
-
-            # Cách 3: result.browser.debugger_address
-            if not debugger_address and result.get('browser'):
-                debugger_address = result['browser'].get('debugger_address')
-
-            # Cách 4: result.content.debugger_address
-            if not debugger_address and result.get('content'):
-                if isinstance(result['content'], dict):
-                    debugger_address = result['content'].get('debugger_address')
 
             print(f"[DEBUG] debugger_address: {debugger_address}")
 
