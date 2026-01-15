@@ -518,7 +518,7 @@ class GroupsTab(ctk.CTkFrame):
             width=120,
             height=28,
             font=ctk.CTkFont(size=11),
-            fg_color=COLORS["bg_tertiary"],
+            fg_color=COLORS["bg_secondary"],
             button_color=COLORS["accent"]
         )
         self.react_dropdown.pack(side="left")
