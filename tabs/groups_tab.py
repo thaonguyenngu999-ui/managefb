@@ -496,6 +496,33 @@ class GroupsTab(ctk.CTkFrame):
             font=ctk.CTkFont(size=11)
         ).pack(side="left", padx=10)
 
+        # Like/React options
+        react_frame = ctk.CTkFrame(options_frame, fg_color="transparent")
+        react_frame.pack(fill="x", padx=10, pady=(0, 8))
+
+        self.auto_like_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            react_frame,
+            text="Tự động thích bài",
+            variable=self.auto_like_var,
+            fg_color=COLORS["accent"],
+            font=ctk.CTkFont(size=11)
+        ).pack(side="left")
+
+        ctk.CTkLabel(react_frame, text="Loại:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(15, 5))
+        self.react_type_var = ctk.StringVar(value="👍 Like")
+        self.react_dropdown = ctk.CTkOptionMenu(
+            react_frame,
+            variable=self.react_type_var,
+            values=["👍 Like", "❤️ Yêu thích", "😆 Haha", "😮 Wow", "😢 Buồn", "😡 Phẫn nộ"],
+            width=120,
+            height=28,
+            font=ctk.CTkFont(size=11),
+            fg_color=COLORS["bg_tertiary"],
+            button_color=COLORS["accent"]
+        )
+        self.react_dropdown.pack(side="left")
+
         # Post buttons
         post_btn_frame = ctk.CTkFrame(right_scroll, fg_color="transparent")
         post_btn_frame.pack(fill="x", padx=10, pady=10)
@@ -2471,7 +2498,11 @@ class GroupsTab(ctk.CTkFrame):
             time.sleep(random.uniform(5, 8))  # Đợi đăng xong (đợi lâu hơn cho duyệt tự động)
 
             # Bước 7: Mở tab mới để lấy URL (tránh dialog leave site)
-            post_url = self._get_post_url_new_tab(ws, group_url, group_id)
+            # Kiểm tra có cần like không
+            should_like = self.auto_like_var.get()
+            react_type = self.react_type_var.get() if should_like else None
+
+            post_url = self._get_post_url_new_tab(ws, group_url, group_id, should_like, react_type)
 
             print(f"[OK] Đã đăng bài vào group {group_id}: {post_url}")
             return (True, post_url)
@@ -2482,8 +2513,8 @@ class GroupsTab(ctk.CTkFrame):
             traceback.print_exc()
             return (False, "")
 
-    def _get_post_url_new_tab(self, ws, group_url: str, group_id: str) -> str:
-        """Mở tab mới để lấy URL bài viết vừa đăng"""
+    def _get_post_url_new_tab(self, ws, group_url: str, group_id: str, should_like: bool = False, react_type: str = None) -> str:
+        """Mở tab mới để lấy URL bài viết vừa đăng và like nếu cần"""
         import time
         import websocket as ws_module
 
@@ -2595,6 +2626,82 @@ class GroupsTab(ctk.CTkFrame):
                 # Reload tab mới
                 send_new("Page.reload", {})
                 time.sleep(random.uniform(3, 4))
+
+        # Like/React nếu được yêu cầu
+        if should_like and post_url and '/posts/' in post_url:
+            try:
+                # Navigate đến bài viết
+                send_new("Page.navigate", {"url": post_url})
+                time.sleep(random.uniform(3, 5))
+
+                # Map react type to aria-label
+                react_map = {
+                    "👍 Like": "Thích",
+                    "❤️ Yêu thích": "Yêu thích",
+                    "😆 Haha": "Haha",
+                    "😮 Wow": "Wow",
+                    "😢 Buồn": "Buồn",
+                    "😡 Phẫn nộ": "Phẫn nộ"
+                }
+                react_label = react_map.get(react_type, "Thích")
+
+                if react_label == "Thích":
+                    # Click nút Like đơn giản
+                    like_js = '''
+                    (function() {
+                        let likeBtn = document.querySelector('[aria-label="Thích"]');
+                        if (!likeBtn) likeBtn = document.querySelector('[aria-label="Like"]');
+                        if (likeBtn) {
+                            likeBtn.click();
+                            return true;
+                        }
+                        return false;
+                    })()
+                    '''
+                    eval_new(like_js)
+                else:
+                    # Giữ nút Like để hiện reactions, rồi chọn loại
+                    # Tìm nút Like
+                    get_like_pos_js = '''
+                    (function() {
+                        let likeBtn = document.querySelector('[aria-label="Thích"]');
+                        if (!likeBtn) likeBtn = document.querySelector('[aria-label="Like"]');
+                        if (likeBtn) {
+                            let rect = likeBtn.getBoundingClientRect();
+                            return {x: rect.left + rect.width/2, y: rect.top + rect.height/2};
+                        }
+                        return null;
+                    })()
+                    '''
+                    like_pos = eval_new(get_like_pos_js)
+                    if like_pos:
+                        # Hover để hiện reactions
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mouseMoved",
+                            "x": int(like_pos['x']),
+                            "y": int(like_pos['y'])
+                        })
+                        time.sleep(2)  # Đợi popup reactions hiện
+
+                        # Click vào reaction cụ thể
+                        click_react_js = f'''
+                        (function() {{
+                            let reacts = document.querySelectorAll('[aria-label="{react_label}"]');
+                            for (let r of reacts) {{
+                                if (r.getAttribute('role') === 'button' || r.tagName === 'DIV') {{
+                                    r.click();
+                                    return true;
+                                }}
+                            }}
+                            return false;
+                        }})()
+                        '''
+                        eval_new(click_react_js)
+
+                time.sleep(random.uniform(1, 2))
+                print(f"[OK] Đã {react_type} bài viết")
+            except Exception as e:
+                print(f"[WARN] Không thể like: {e}")
 
         # Đóng tab mới
         try:
@@ -2789,10 +2896,84 @@ class GroupsTab(ctk.CTkFrame):
         threading.Thread(target=do_comment, daemon=True).start()
 
     def _execute_commenting(self, posts: List[Dict], comments: List[str]):
-        """Thực hiện bình luận"""
+        """Thực hiện bình luận qua CDP"""
         import time
+        import websocket
 
         total = len(posts)
+        profile_uuid = self.current_profile_uuid
+
+        self.after(0, lambda: self._set_status("Đang kết nối browser...", "info"))
+
+        # Mở browser
+        result = api.open_browser(profile_uuid)
+        if result.get('type') == 'error':
+            self.after(0, lambda: self._on_commenting_error(f"Không mở được browser"))
+            return
+
+        data = result.get('data', {})
+        remote_port = data.get('remote_port')
+        ws_url = data.get('web_socket', '')
+
+        if not remote_port:
+            match = re.search(r':(\d+)/', ws_url)
+            if match:
+                remote_port = int(match.group(1))
+
+        if not remote_port:
+            self.after(0, lambda: self._on_commenting_error("Không lấy được remote_port"))
+            return
+
+        cdp_base = f"http://127.0.0.1:{remote_port}"
+        time.sleep(2)
+
+        # Đóng hết tab cũ
+        try:
+            resp = requests.get(f"{cdp_base}/json", timeout=10)
+            all_pages = resp.json()
+            page_targets = [p for p in all_pages if p.get('type') == 'page']
+            if len(page_targets) > 1:
+                for p in page_targets[1:]:
+                    target_id = p.get('id')
+                    if target_id:
+                        requests.get(f"{cdp_base}/json/close/{target_id}", timeout=5)
+                time.sleep(1)
+        except:
+            pass
+
+        # Lấy page websocket
+        page_ws = None
+        for _ in range(5):
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('type') == 'page':
+                        page_ws = p.get('webSocketDebuggerUrl')
+                        break
+                if page_ws:
+                    break
+            except:
+                time.sleep(1)
+
+        if not page_ws:
+            self.after(0, lambda: self._on_commenting_error("Không kết nối được CDP"))
+            return
+
+        # Kết nối WebSocket
+        ws = None
+        try:
+            ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+        except:
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30)
+            except:
+                self.after(0, lambda: self._on_commenting_error("WebSocket error"))
+                return
+
+        self._commenting_ws = ws
+        self._cdp_id = 1
+        success_count = 0
 
         for i, post in enumerate(posts):
             if not self._is_boosting:
@@ -2808,18 +2989,21 @@ class GroupsTab(ctk.CTkFrame):
             # Random comment
             comment = random.choice(comments)
 
-            # TODO: Implement actual commenting via Hidemium API
-            result = self._comment_on_post(post, comment)
+            # Thực hiện comment qua CDP
+            result = self._comment_on_post_cdp(ws, url, comment)
 
             # Log
             timestamp = datetime.now().strftime('%H:%M:%S')
-            log_text = f"[{timestamp}] {'OK' if result else 'FAIL'}: {url[:50]}... - '{comment[:30]}...'"
+            status = 'OK' if result else 'FAIL'
+            if result:
+                success_count += 1
+            log_text = f"[{timestamp}] {status}: {url[:40]}... - '{comment[:25]}...'"
             self.after(0, lambda t=log_text: self._append_comment_log(t))
 
             # Delay
             if i < total - 1:
                 if self.random_comment_delay_var.get():
-                    delay = random.uniform(1, 5)
+                    delay = random.uniform(2, 6)
                 else:
                     try:
                         delay = float(self.comment_delay_entry.get())
@@ -2827,13 +3011,112 @@ class GroupsTab(ctk.CTkFrame):
                         delay = 3
                 time.sleep(delay)
 
-        self.after(0, lambda: self._on_commenting_complete(total))
+        # Đóng WebSocket
+        try:
+            ws.close()
+        except:
+            pass
+
+        self.after(0, lambda: self._on_commenting_complete(success_count))
 
     def _comment_on_post(self, post: Dict, comment: str) -> bool:
         """Bình luận vào bài - placeholder"""
-        import time
-        time.sleep(0.5)
         return True
+
+    def _comment_on_post_cdp(self, ws, post_url: str, comment: str) -> bool:
+        """Bình luận vào bài qua CDP"""
+        import time
+
+        if not post_url or 'facebook.com' not in post_url:
+            return False
+
+        try:
+            # Navigate đến bài viết
+            self._cdp_send(ws, "Page.navigate", {"url": post_url})
+            time.sleep(random.uniform(3, 5))
+
+            # Đợi page load
+            for _ in range(10):
+                ready = self._cdp_evaluate(ws, "document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(random.uniform(1, 2))
+
+            # Scroll xuống một chút để thấy comment box
+            self._cdp_evaluate(ws, "window.scrollBy(0, 300);")
+            time.sleep(random.uniform(0.5, 1))
+
+            # Tìm và click vào ô comment
+            click_comment_js = '''
+            (function() {
+                // Tìm ô "Viết bình luận..." hoặc "Write a comment..."
+                let placeholders = document.querySelectorAll('[contenteditable="true"]');
+                for (let el of placeholders) {
+                    let placeholder = el.getAttribute('aria-placeholder') || el.getAttribute('placeholder') || '';
+                    if (placeholder.includes('bình luận') || placeholder.includes('comment') ||
+                        placeholder.includes('Viết') || placeholder.includes('Write')) {
+                        el.focus();
+                        el.click();
+                        return true;
+                    }
+                }
+
+                // Fallback: tìm theo aria-label
+                let commentBox = document.querySelector('[aria-label*="bình luận"]');
+                if (!commentBox) commentBox = document.querySelector('[aria-label*="comment"]');
+                if (!commentBox) commentBox = document.querySelector('[aria-label*="Viết"]');
+                if (commentBox) {
+                    commentBox.focus();
+                    commentBox.click();
+                    return true;
+                }
+
+                // Fallback 2: click vào text "Viết bình luận"
+                let spans = document.querySelectorAll('span');
+                for (let span of spans) {
+                    if (span.innerText && (span.innerText.includes('Viết bình luận') ||
+                        span.innerText.includes('Write a comment'))) {
+                        span.click();
+                        return true;
+                    }
+                }
+                return false;
+            })()
+            '''
+            clicked = self._cdp_evaluate(ws, click_comment_js)
+            if not clicked:
+                print(f"[WARN] Không tìm thấy ô comment: {post_url}")
+                return False
+
+            time.sleep(random.uniform(1, 2))
+
+            # Gõ comment từng ký tự
+            self._type_like_human(ws, comment)
+            time.sleep(random.uniform(0.5, 1))
+
+            # Nhấn Enter để gửi comment
+            self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                "type": "keyDown",
+                "key": "Enter",
+                "code": "Enter"
+            })
+            time.sleep(0.1)
+            self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                "type": "keyUp",
+                "key": "Enter",
+                "code": "Enter"
+            })
+
+            time.sleep(random.uniform(2, 3))
+
+            print(f"[OK] Đã comment: {post_url[:50]}")
+            return True
+
+        except Exception as e:
+            print(f"[ERROR] Lỗi comment: {e}")
+            return False
 
     def _on_commenting_complete(self, total: int):
         """Hoàn tất bình luận"""
