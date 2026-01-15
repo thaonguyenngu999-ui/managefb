@@ -2155,71 +2155,50 @@ class GroupsTab(ctk.CTkFrame):
 
             # Bước 5: Upload ảnh nếu có
             if images:
-                # Click nút Ảnh/video
-                click_photo_js = '''
-                (function() {
-                    let photoBtn = document.querySelector('[aria-label="Ảnh/video"]');
-                    if (photoBtn) {
-                        photoBtn.click();
-                        return true;
-                    }
-                    // Fallback
-                    let btns = document.querySelectorAll('[role="button"]');
-                    for (let btn of btns) {
-                        if (btn.innerText && btn.innerText.includes("Ảnh")) {
-                            btn.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                })()
-                '''
-                self._cdp_evaluate(ws, click_photo_js)
-                time.sleep(random.uniform(1, 2))
+                # Tìm và set files trực tiếp vào input (không click nút Ảnh/video để tránh mở dialog)
+                # Đầu tiên get document
+                doc_result = self._cdp_send(ws, "DOM.getDocument", {})
+                root_id = doc_result.get('result', {}).get('root', {}).get('nodeId', 0)
 
-                # Upload từng file qua CDP
-                for img_path in images:
-                    if os.path.exists(img_path):
-                        # Đọc file và encode base64
-                        with open(img_path, 'rb') as f:
-                            file_data = base64.b64encode(f.read()).decode('utf-8')
+                if root_id:
+                    # Tìm tất cả input[type="file"]
+                    query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
+                        "nodeId": root_id,
+                        "selector": 'input[type="file"]'
+                    })
+                    node_ids = query_result.get('result', {}).get('nodeIds', [])
 
-                        # Tìm input file và set files
-                        set_file_js = f'''
-                        (function() {{
-                            let inputs = document.querySelectorAll('input[type="file"]');
-                            // Thường là input thứ 2 hoặc 3
-                            for (let inp of inputs) {{
-                                if (inp.accept && inp.accept.includes('image')) {{
-                                    return true;
-                                }}
-                            }}
-                            return inputs.length > 0;
-                        }})()
-                        '''
-                        has_input = self._cdp_evaluate(ws, set_file_js)
+                    # Thử từng input cho đến khi upload được
+                    uploaded = False
+                    for node_id in node_ids:
+                        if uploaded:
+                            break
+                        try:
+                            # Set tất cả files một lần
+                            self._cdp_send(ws, "DOM.setFileInputFiles", {
+                                "nodeId": node_id,
+                                "files": images
+                            })
+                            time.sleep(1)
 
-                        if has_input:
-                            # Sử dụng DOM.setFileInputFiles
-                            # Đầu tiên get document
-                            doc_result = self._cdp_send(ws, "DOM.getDocument", {})
-                            root_id = doc_result.get('result', {}).get('root', {}).get('nodeId', 0)
+                            # Kiểm tra xem có preview ảnh không
+                            check_preview_js = '''
+                            (function() {
+                                // Tìm preview images
+                                let imgs = document.querySelectorAll('img[src*="blob:"]');
+                                return imgs.length > 0;
+                            })()
+                            '''
+                            has_preview = self._cdp_evaluate(ws, check_preview_js)
+                            if has_preview:
+                                uploaded = True
+                                print(f"[OK] Đã upload {len(images)} ảnh")
+                        except Exception as e:
+                            print(f"[DEBUG] Input {node_id} failed: {e}")
+                            continue
 
-                            if root_id:
-                                # Tìm input file
-                                query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
-                                    "nodeId": root_id,
-                                    "selector": 'input[type="file"][accept*="image"]'
-                                })
-                                node_ids = query_result.get('result', {}).get('nodeIds', [])
-
-                                if node_ids:
-                                    # Set file cho input
-                                    self._cdp_send(ws, "DOM.setFileInputFiles", {
-                                        "nodeId": node_ids[0],
-                                        "files": [img_path]
-                                    })
-                                    time.sleep(random.uniform(1, 2))
+                    if not uploaded:
+                        print(f"[WARN] Không upload được ảnh cho group {group_id}")
 
                 time.sleep(random.uniform(2, 3))  # Đợi upload xong
 
@@ -2249,24 +2228,48 @@ class GroupsTab(ctk.CTkFrame):
                 print(f"[WARN] Không click được nút Đăng trong group {group_id}")
                 return (False, "")
 
-            time.sleep(random.uniform(3, 5))  # Đợi đăng xong
+            time.sleep(random.uniform(4, 6))  # Đợi đăng xong
 
-            # Bước 7: Lấy URL bài viết mới (nếu có)
-            get_url_js = '''
+            # Bước 7: Lấy URL bài viết mới từ feed
+            get_post_url_js = '''
             (function() {
-                // Lấy URL hiện tại sau khi đăng
-                return window.location.href;
+                // Đợi và tìm bài viết mới nhất trong feed
+                // Facebook thường hiển thị bài vừa đăng ở đầu feed
+                let postLinks = document.querySelectorAll('a[href*="/posts/"]');
+                if (postLinks.length > 0) {
+                    // Lấy link đầu tiên (bài mới nhất)
+                    return postLinks[0].href;
+                }
+
+                // Fallback: tìm trong các permalink
+                let permalinks = document.querySelectorAll('a[href*="permalink"]');
+                if (permalinks.length > 0) {
+                    return permalinks[0].href;
+                }
+
+                // Fallback 2: tìm link có pfbid
+                let pfbidLinks = document.querySelectorAll('a[href*="pfbid"]');
+                if (pfbidLinks.length > 0) {
+                    return pfbidLinks[0].href;
+                }
+
+                return null;
             })()
             '''
-            current_url = self._cdp_evaluate(ws, get_url_js) or ""
 
-            # Tạo URL giả nếu không lấy được post ID
-            if group_id in current_url:
-                post_url = current_url
-            else:
-                post_url = f"https://www.facebook.com/groups/{group_id}/posts/{int(time.time())}"
+            # Thử lấy URL vài lần
+            post_url = None
+            for _ in range(3):
+                post_url = self._cdp_evaluate(ws, get_post_url_js)
+                if post_url and '/posts/' in post_url:
+                    break
+                time.sleep(1)
 
-            print(f"[OK] Đã đăng bài vào group {group_id}")
+            # Nếu không lấy được, tạo URL dựa trên group
+            if not post_url:
+                post_url = f"https://www.facebook.com/groups/{group_id}"
+
+            print(f"[OK] Đã đăng bài vào group {group_id}: {post_url}")
             return (True, post_url)
 
         except Exception as e:
@@ -2295,6 +2298,12 @@ class GroupsTab(ctk.CTkFrame):
             self._is_posting = False
             self._set_status("Đã dừng", "warning")
 
+    def _open_url(self, url: str):
+        """Mở URL trong browser mặc định"""
+        import webbrowser
+        if url:
+            webbrowser.open(url)
+
     def _render_posted_urls(self):
         """Render danh sách URLs đã đăng"""
         for widget in self.posted_urls_list.winfo_children():
@@ -2319,12 +2328,15 @@ class GroupsTab(ctk.CTkFrame):
                          font=ctk.CTkFont(size=9), text_color=COLORS["text_primary"],
                          anchor="w").pack(side="left", padx=3)
 
-            url_label = ctk.CTkLabel(row, text=item['post_url'][:40], width=250,
+            url = item['post_url']
+            url_label = ctk.CTkLabel(row, text=url[:45], width=280,
                                      font=ctk.CTkFont(size=9), text_color=COLORS["accent"],
                                      anchor="w", cursor="hand2")
             url_label.pack(side="left", padx=3)
+            # Bind click để mở URL trong browser
+            url_label.bind("<Button-1>", lambda e, u=url: self._open_url(u))
 
-            ctk.CTkLabel(row, text=item['time'], width=80,
+            ctk.CTkLabel(row, text=item['time'], width=60,
                          font=ctk.CTkFont(size=9), text_color=COLORS["text_secondary"]).pack(side="left")
 
     # ==================== BOOST TAB ====================
