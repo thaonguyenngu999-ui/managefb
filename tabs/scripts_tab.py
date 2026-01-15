@@ -351,6 +351,21 @@ class ScriptsTab(ctk.CTkFrame):
             command=self._load_groups_for_folder, width=100
         ).pack(side="right")
 
+        # Group filter/search
+        group_filter_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        group_filter_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(group_filter_frame, text="🔍 Lọc nhóm:", width=80, anchor="w").pack(side="left")
+        self.group_filter_var = ctk.StringVar()
+        self.group_filter_var.trace_add("write", lambda *args: self._filter_groups())
+        self.group_filter_entry = ModernEntry(group_filter_frame, placeholder="Nhập tên nhóm để lọc...", textvariable=self.group_filter_var)
+        self.group_filter_entry.pack(side="left", fill="x", expand=True, padx=5)
+
+        ModernButton(
+            group_filter_frame, text="Xóa", variant="secondary",
+            command=lambda: self.group_filter_var.set(""), width=60
+        ).pack(side="right")
+
         # Group list
         self.group_list_frame = ctk.CTkFrame(editor, fg_color=COLORS["bg_card"], corner_radius=10, height=150)
         self.group_list_frame.pack(fill="x", pady=5)
@@ -730,6 +745,10 @@ class ScriptsTab(ctk.CTkFrame):
         self.group_vars = {}
         for widget in self.group_scroll.winfo_children():
             widget.destroy()
+        self.group_select_all_var.set(False)
+        if hasattr(self, 'group_filter_var'):
+            self.group_filter_var.set("")
+        self._update_group_count()
         self.stats_label.configure(text="Đã đăng: 0 | Thành công: 0 | Lỗi: 0")
         self.last_run_label.configure(text="Lần chạy cuối: Chưa có")
 
@@ -852,8 +871,8 @@ class ScriptsTab(ctk.CTkFrame):
             text_color=COLORS["text_secondary"]
         ).pack(pady=20)
 
-    def _render_groups(self):
-        """Render danh sách nhóm"""
+    def _render_groups(self, filter_text: str = ""):
+        """Render danh sách nhóm (có thể filter)"""
         for widget in self.group_scroll.winfo_children():
             widget.destroy()
 
@@ -866,9 +885,31 @@ class ScriptsTab(ctk.CTkFrame):
             ).pack(pady=20)
             return
 
-        for group in self.groups:
+        # Lưu trạng thái đã chọn trước đó
+        old_selections = {gid: var.get() for gid, var in self.group_vars.items()}
+        self.group_vars = {}
+
+        # Filter groups
+        filter_lower = filter_text.lower().strip()
+        filtered_groups = [
+            g for g in self.groups
+            if not filter_lower or filter_lower in g.get('group_name', '').lower()
+        ]
+
+        if not filtered_groups:
+            ctk.CTkLabel(
+                self.group_scroll,
+                text=f"Không tìm thấy nhóm nào với '{filter_text}'",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(pady=20)
+            return
+
+        for group in filtered_groups:
             group_id = group.get('group_id', '')
-            var = ctk.BooleanVar(value=False)
+            # Khôi phục trạng thái đã chọn trước đó
+            was_selected = old_selections.get(group_id, False)
+            var = ctk.BooleanVar(value=was_selected)
             self.group_vars[group_id] = var
 
             cb = ctk.CTkCheckBox(
@@ -881,6 +922,11 @@ class ScriptsTab(ctk.CTkFrame):
             cb.pack(anchor="w", pady=2)
 
         self._update_group_count()
+
+    def _filter_groups(self):
+        """Lọc danh sách nhóm theo từ khóa"""
+        filter_text = self.group_filter_var.get() if hasattr(self, 'group_filter_var') else ""
+        self._render_groups(filter_text)
 
     def _save_schedule(self):
         """Lưu schedule"""

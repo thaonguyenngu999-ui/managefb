@@ -181,18 +181,28 @@ class CDPSession:
                     if not self._ws_url:
                         raise Exception("No WebSocket URL in page info")
 
-                # Connect WebSocket (skip origin header for direct ws_url)
+                # Connect WebSocket (suppress origin header to bypass Chrome check)
                 if direct_ws_url:
-                    self._ws = websocket.create_connection(
-                        self._ws_url,
-                        timeout=self.config.connect_timeout_ms / 1000
-                    )
-                else:
+                    # Use suppress_origin=True to completely skip origin header
                     self._ws = websocket.create_connection(
                         self._ws_url,
                         timeout=self.config.connect_timeout_ms / 1000,
-                        origin=f"http://127.0.0.1:{self.config.remote_port}"
+                        suppress_origin=True
                     )
+                else:
+                    # Try with suppress_origin first, then fallback to with origin
+                    try:
+                        self._ws = websocket.create_connection(
+                            self._ws_url,
+                            timeout=self.config.connect_timeout_ms / 1000,
+                            suppress_origin=True
+                        )
+                    except Exception:
+                        self._ws = websocket.create_connection(
+                            self._ws_url,
+                            timeout=self.config.connect_timeout_ms / 1000,
+                            origin=f"http://127.0.0.1:{self.config.remote_port}"
+                        )
 
                 self.state = SessionState.CONNECTED
 
