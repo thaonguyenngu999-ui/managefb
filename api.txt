@@ -1,0 +1,171 @@
+Hidemium API Reference – Full & Detailed
+Cập nhật: 15/01/2026
+Dự án: Hidemium Facebook Manager
+Tài liệu tổng hợp toàn bộ endpoint API của Hidemium Browser (local) dựa trên Postman public collection, request thực tế và pattern v1/v2 phổ biến.
+Base URL:
+http://127.0.0.1:2222 (port mặc định local, có thể thay đổi trong config Hidemium)
+Authentication:
+
+Header: Authorization: Bearer {token}
+Ví dụ: Authorization: Bearer 51Qdg9tKvV7Mlp0W5q1GEfCFIetVJTfJ0
+Một số endpoint hỗ trợ Cookie/Session thay Bearer (kiểm tra DevTools khi dùng app)
+
+Common Query Params:
+
+is_local: boolean – true (profile local), false (cloud/remote)
+limit, offset / page: phân trang
+search: tìm kiếm theo tên hoặc keyword
+
+Response Format phổ biến:
+{
+"type": "success" | "error",
+"title": "Thông báo",
+"content": [] | {} | null,
+"meta": { "total": 100, "page": 1, ... }
+}
+
+Profile / Browser Management
+GET /api/v1/profile/list
+Lấy danh sách profiles
+Query: ?limit=500&offset=0&is_local=false
+Response: { "data": { "content": [ {"uuid": "...", "name": "...", ...} ] } }
+Ghi chú: Đang dùng trong dự án
+
+GET /v1/browser/{uuid}
+Lấy chi tiết profile theo UUID
+Query: ?is_local=false
+Response: { "uuid": "...", "name": "...", "status": "running", "config": {...} }
+POST /create-profile-by-default
+Tạo profile từ config mặc định
+Query: ?is_local=false
+Body: { "defaultConfigId": 576 }
+Response: { "uuid": "...", "name": "...", "config": {...} }
+POST /create-profile-custom
+Tạo profile tùy chỉnh fingerprint
+Query: ?is_local=true
+Body: { "os": "win", "browser": "chrome", "version": "121", "resolution": "1280x800", "name": "Test Profile", "navigator": {...}, "canvas": {...}, ... }
+Response: { "type": "success", "content": { "uuid": "new-uuid" } }
+Ghi chú: Hỗ trợ config chi tiết (navigator, canvas, webgl, fonts, webrtc, audio, hardware, etc.)
+DELETE /v1/browser/destroy
+Xóa profile(s)
+Query: ?is_local=false
+Body: { "uuid_browser": ["uuid1", "uuid2"] }
+Response: { "type": "success", "title": "Delete successfully." }
+Ghi chú: Hỗ trợ xóa nhiều profile
+PUT /v1/browser/name/update
+Cập nhật tên profile
+Body: { "uuid": "...", "name": "Tên mới" }
+Response: { "success": true }
+PUT /v1/browser/note/update
+Cập nhật ghi chú
+Body: { "uuid": "...", "note": "Ghi chú mới" }
+Response: { "success": true }
+PUT /v1/browser/status/change
+Thay đổi trạng thái profile
+Body: { "uuid": "...", "status": "active" }
+Response: { "success": true }
+PUT /v1/browser/fingerprint/change
+Thay đổi fingerprint
+Body: { "uuid": "...", "fingerprint": { ... } }
+Response: { "success": true }
+POST /v1/browser/tags/sync
+Đồng bộ tags cho profile
+Body: { "uuid": "...", "tags": ["VIP", "Farm"] }
+Response: { "success": true }
+
+Browser Control (Open / Close)
+GET/POST /v1/browser/open hoặc /api/v1/profile/start
+Mở browser/profile
+Query: ?uuid=...&is_local=false
+Body: { "uuid": "...", "command": "--headless --window-size=1280,800" }
+Response: { "success": true }
+Ghi chú: Đang dùng trong dự án
+
+GET/POST /v1/browser/close hoặc /api/v1/profile/stop
+Đóng browser/profile
+Query: ?uuid=...
+Body: { "uuid": "..." }
+Response: { "success": true }
+Ghi chú: Đang dùng trong dự án
+
+Proxy Management
+PUT /v2/proxy/quick-edit
+Chỉnh sửa proxy nhanh
+Query: ?is_local=true
+Body: { "browser_uuid": "...", "type": "HTTP", "ip": "45.94.47.66", "port": "8110", "user": "...", "pass": "..." }
+Response: { "success": true }
+Ghi chú: Proxy types: HTTP/SOCKS4/SOCKS5/SSH
+
+POST /v2/browser/proxy/update
+Cập nhật proxy cho nhiều profile
+Query: ?is_local=false
+Body: { "browser_update": [ {"uuid": "...", "proxy": "HTTP|1.1.1.1|1234|user|pass"} ] }
+Response: { "type": "success", "title": "Edit successfully" }
+PUT /v1/browser/proxy/remove
+Xóa proxy khỏi profile
+Body: { "uuid": "..." }
+Response: { "success": true }
+
+Folder Management
+GET /v1/folder/list hoặc /v2/folder
+Lấy danh sách folders
+Query: ?limit=100
+Response: { "data": [ {"uuid": "...", "name": "..."} ] }
+
+POST /v1/folder/{folder_uuid}/add-browser
+Thêm profile vào folder
+Query: ?is_local=true
+Body: { "uuid_browser": ["uuid1", "uuid2"] }
+Response: { "success": true }
+
+Campaign & Automation
+GET /automation/campaign
+Lấy danh sách campaigns
+Query: ?search=...&page=1&limit=10
+Response: { "data": [ {"id": 25, "name": "..."} ] }
+
+POST /automation/campaign
+Tạo campaign mới (infer)
+Body: { "name": "Campaign FB", "input_vars": {...} }
+Response: { "id": 26 }
+GET /automation/schedule
+Lấy schedules của campaign
+Query: ?campaign_id=25
+Response: { "data": [...] }
+POST /automation/schedule
+Tạo schedule
+Body: { "campaign_id": 25, "time": "...", ... }
+Response: { "id": 123 }
+PUT /automation/update-schedule-status
+Update status schedule
+Body: { "id": 123, "status": "RUNNING" }
+Response: { "success": true }
+
+Checking & Utility
+GET /v2/default-config
+Lấy config mặc định
+Response: { "user_agent": "...", "resolution": "..." }
+
+GET /v2/status-profile
+Lấy danh sách status profile
+Response: [ "running", "stopped", "error" ]
+GET /v2/tag
+Lấy danh sách tags
+Response: [ {"id": 1, "name": "VIP"} ]
+GET /user-settings/token
+Lấy token / UUID user
+Response: { "token": "..." }
+GET /v2/automation/script
+Lấy danh sách scripts/flows
+Query: ?page=1&limit=10
+Response: { "data": { "content": [ {"key": 2247, "name": "..."} ] } }
+GET /version
+Lấy version Hidemium (infer)
+Response: { "version": "..." }
+Ghi chú cuối:
+
+Một số endpoint infer từ tên chức năng → cần test thực tế bằng DevTools hoặc Postman để confirm path chính xác.
+Campaign là phần mạnh nhất cho automation nhưng collection Postman chưa chi tiết hết.
+Nếu bạn capture request mới từ Hidemium, bổ sung vào đây để cập nhật.
+
+Đây là nội dung đầy đủ, liền mạch, sẵn sàng lưu file api.md. Nếu cần chỉnh sửa hoặc thêm endpoint nào, cứ nói.
