@@ -274,6 +274,7 @@ class PostsTab(ctk.CTkFrame):
     def _load_profiles(self):
         """Load profiles từ Hidemium API"""
         folder_name = self.folder_var.get()
+        print(f"[DEBUG] _load_profiles called, folder: {folder_name}")
 
         try:
             if folder_name == "-- Tất cả --":
@@ -291,11 +292,13 @@ class PostsTab(ctk.CTkFrame):
                 else:
                     self.profiles = api.get_profiles(limit=500)
 
-            # Debug: in ra profiles đầu tiên
-            if self.profiles:
-                print(f"[DEBUG] Loaded {len(self.profiles)} profiles")
-                if len(self.profiles) > 0:
-                    print(f"[DEBUG] First profile: {self.profiles[0]}")
+            # Debug: in ra profiles
+            print(f"[DEBUG] Loaded {len(self.profiles)} profiles")
+            if self.profiles and len(self.profiles) > 0:
+                print(f"[DEBUG] First profile type: {type(self.profiles[0])}")
+                print(f"[DEBUG] First profile: {self.profiles[0]}")
+                if len(self.profiles) > 1:
+                    print(f"[DEBUG] Second profile: {self.profiles[1]}")
         except Exception as e:
             print(f"[ERROR] Load profiles: {e}")
             import traceback
@@ -568,9 +571,15 @@ class PostsTab(ctk.CTkFrame):
             self._log("Vui lòng chọn ít nhất 1 bài để like")
             return
 
+        # Refresh profiles trước khi chạy
+        self._log("Đang tải danh sách profiles...")
+        self._load_profiles()
+
         if not self.profiles:
-            self._log("Không có profile nào để sử dụng")
+            self._log("Không có profile nào để sử dụng. Kiểm tra kết nối Hidemium.")
             return
+
+        self._log(f"Đã tải {len(self.profiles)} profiles")
 
         # Get settings
         try:
@@ -613,7 +622,9 @@ class PostsTab(ctk.CTkFrame):
         # Sắp xếp profiles theo tên (00, 01, 02, ...)
         # Đảm bảo profiles là list of dicts
         available_profiles = []
-        for p in self.profiles:
+        print(f"[DEBUG] Processing {len(self.profiles)} profiles from self.profiles")
+        for i, p in enumerate(self.profiles):
+            print(f"[DEBUG] Profile {i}: type={type(p)}, value={str(p)[:100]}")
             if isinstance(p, dict):
                 available_profiles.append(p)
             elif isinstance(p, str):
@@ -622,6 +633,9 @@ class PostsTab(ctk.CTkFrame):
 
         available_profiles = sorted(available_profiles, key=lambda p: p.get('name', ''))
 
+        # Log profile names
+        profile_names = [p.get('name', 'N/A') for p in available_profiles[:10]]
+        self.after(0, lambda pn=profile_names: self._log(f"Profiles: {', '.join(pn)}{'...' if len(available_profiles) > 10 else ''}"))
         self.after(0, lambda: self._log(f"Có {len(available_profiles)} profiles sẵn sàng"))
 
         for post in posts:
@@ -704,21 +718,33 @@ class PostsTab(ctk.CTkFrame):
 
             # Mở browser
             result = api.open_browser(profile_uuid)
-            print(f"[DEBUG] open_browser response: {result}")
+            print(f"[DEBUG] open_browser response for {profile_name}: {result}")
 
             # Kiểm tra lỗi
             if result.get('type') == 'error':
-                err_msg = result.get('message', 'Unknown error')
+                err_msg = result.get('message') or result.get('title', 'Unknown error')
                 self.after(0, lambda pn=profile_name, e=err_msg: self._log(f"[{pn}] Lỗi: {e}"))
                 return False
+
+            # Kiểm tra status
+            status = result.get('status') or result.get('type')
+            if status not in ['successfully', 'success', True]:
+                # Browser có thể đã mở sẵn
+                if 'already' not in str(result).lower() and 'running' not in str(result).lower():
+                    err_msg = result.get('message') or result.get('title', f'Status: {status}')
+                    self.after(0, lambda pn=profile_name, e=err_msg: self._log(f"[{pn}] Lỗi: {e}"))
+                    return False
 
             # Lấy data - có thể ở nhiều vị trí khác nhau
             data = result.get('data', {})
             if not isinstance(data, dict):
+                print(f"[DEBUG] data is not dict: {type(data)} = {data}")
                 data = {}
 
             remote_port = data.get('remote_port') or data.get('port')
             ws_url = data.get('web_socket', '') or data.get('webSocketDebuggerUrl', '')
+
+            print(f"[DEBUG] From data: remote_port={remote_port}, ws_url={ws_url}")
 
             # Thử lấy từ root nếu không có trong data
             if not remote_port:
@@ -726,14 +752,17 @@ class PostsTab(ctk.CTkFrame):
             if not ws_url:
                 ws_url = result.get('web_socket', '') or result.get('webSocketDebuggerUrl', '')
 
+            print(f"[DEBUG] After root check: remote_port={remote_port}, ws_url={ws_url}")
+
             # Parse port từ ws_url
             if not remote_port and ws_url:
                 match = re.search(r':(\d+)/', ws_url)
                 if match:
                     remote_port = int(match.group(1))
+                    print(f"[DEBUG] Parsed port from ws_url: {remote_port}")
 
             if not remote_port:
-                self.after(0, lambda pn=profile_name, r=str(result)[:200]: self._log(f"[{pn}] Không có port. Response: {r}"))
+                self.after(0, lambda pn=profile_name, r=str(result)[:300]: self._log(f"[{pn}] Không có port. Response: {r}"))
                 return False
 
             self.after(0, lambda pn=profile_name, p=remote_port: self._log(f"[{pn}] Đã mở, port: {p}"))

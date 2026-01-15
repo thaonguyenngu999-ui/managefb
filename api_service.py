@@ -58,7 +58,7 @@ class HidemiumAPI:
     
     # ============ PROFILE MANAGEMENT ============
     
-    def get_profiles(self, limit: int = 100, page: int = 1, is_local: bool = True, 
+    def get_profiles(self, limit: int = 100, page: int = 1, is_local: bool = True,
                      search: str = "", folder_id: List = None, status: str = "") -> List:
         """Lấy danh sách profiles (POST method với body JSON)"""
         body = {
@@ -72,18 +72,25 @@ class HidemiumAPI:
             "folder_id": folder_id or []
         }
         result = self._request(
-            "POST", 
+            "POST",
             "/v1/browser/list",
             params={"is_local": str(is_local).lower()},
             data=body
         )
+        print(f"[DEBUG API] get_profiles response type: {type(result)}")
+        print(f"[DEBUG API] get_profiles result keys: {result.keys() if isinstance(result, dict) else 'not dict'}")
         # Parse response theo cấu trúc thực tế
         if result and 'data' in result:
             data = result['data']
+            print(f"[DEBUG API] data type: {type(data)}")
             if isinstance(data, dict) and 'content' in data:
-                return data['content']
+                profiles = data['content']
+                print(f"[DEBUG API] Found {len(profiles)} profiles in data.content")
+                return profiles
             elif isinstance(data, list):
+                print(f"[DEBUG API] data is list with {len(data)} items")
                 return data
+        print(f"[DEBUG API] No profiles found, returning empty list")
         return []
     
     def get_profile_detail(self, uuid: str, is_local: bool = False) -> Dict:
@@ -199,7 +206,9 @@ class HidemiumAPI:
             params["command"] = command
         if proxy:
             params["proxy"] = proxy
-        return self._get("/openProfile", params=params)
+        result = self._get("/openProfile", params=params)
+        print(f"[DEBUG API] open_browser({uuid[:8]}...) response: {result}")
+        return result
     
     def close_browser(self, uuid: str) -> Dict:
         """Đóng browser/profile - GET /closeProfile"""
