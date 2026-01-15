@@ -6,6 +6,8 @@ from typing import List, Dict, Optional
 import threading
 import random
 import os
+import re
+import time
 from datetime import datetime, date
 from tkinter import filedialog
 from config import COLORS
@@ -16,6 +18,18 @@ from db import (
     get_contents, get_categories, save_post_history, get_post_history
 )
 from api_service import api
+
+# Import for web scraping
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from bs4 import BeautifulSoup
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
 
 
 class GroupsTab(ctk.CTkFrame):
@@ -715,10 +729,139 @@ class GroupsTab(ctk.CTkFrame):
         threading.Thread(target=do_scan, daemon=True).start()
 
     def _execute_group_scan(self) -> List[Dict]:
-        """Thực hiện quét nhóm - placeholder"""
-        import time
-        time.sleep(2)
-        return []
+        """Thực hiện quét nhóm từ Facebook"""
+        if not SELENIUM_AVAILABLE:
+            self.after(0, lambda: self._set_status("Cần cài selenium: pip install selenium beautifulsoup4", "error"))
+            return []
+
+        groups_found = []
+        driver = None
+
+        try:
+            # Bước 1: Mở browser qua Hidemium API
+            self.after(0, lambda: self._set_status("Đang mở browser...", "info"))
+            self.after(0, lambda: self.scan_progress.set(0.1))
+
+            result = api.open_browser(self.current_profile_uuid)
+
+            if result.get('status') != 'successfully':
+                error = result.get('message', 'Không thể mở browser')
+                self.after(0, lambda e=error: self._set_status(f"Lỗi: {e}", "error"))
+                return []
+
+            # Lấy debugger address để kết nối Selenium
+            debugger_address = result.get('data', {}).get('debugger_address') or result.get('debugger_address')
+
+            if not debugger_address:
+                # Thử format khác
+                browser_data = result.get('data', {})
+                if isinstance(browser_data, dict):
+                    debugger_address = browser_data.get('debugger_address')
+
+            if not debugger_address:
+                self.after(0, lambda: self._set_status("Không lấy được debugger address", "error"))
+                return []
+
+            self.after(0, lambda: self._set_status(f"Đang kết nối browser...", "info"))
+            self.after(0, lambda: self.scan_progress.set(0.2))
+
+            # Bước 2: Kết nối Selenium đến browser đang chạy
+            chrome_options = Options()
+            chrome_options.add_experimental_option("debuggerAddress", debugger_address)
+
+            driver = webdriver.Chrome(options=chrome_options)
+
+            # Bước 3: Mở trang danh sách nhóm đã tham gia
+            self.after(0, lambda: self._set_status("Đang mở trang nhóm...", "info"))
+            self.after(0, lambda: self.scan_progress.set(0.3))
+
+            groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
+            driver.get(groups_url)
+
+            # Đợi trang load
+            time.sleep(3)
+
+            # Bước 4: Scroll để load thêm nhóm
+            self.after(0, lambda: self._set_status("Đang scroll load nhóm...", "info"))
+            self.after(0, lambda: self.scan_progress.set(0.4))
+
+            last_height = driver.execute_script("return document.body.scrollHeight")
+            scroll_attempts = 0
+            max_scrolls = 10  # Giới hạn số lần scroll
+
+            while scroll_attempts < max_scrolls:
+                # Scroll xuống cuối trang
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)
+
+                # Kiểm tra có scroll thêm được không
+                new_height = driver.execute_script("return document.body.scrollHeight")
+                if new_height == last_height:
+                    break
+                last_height = new_height
+                scroll_attempts += 1
+
+                progress = 0.4 + (scroll_attempts / max_scrolls) * 0.3
+                self.after(0, lambda p=progress: self.scan_progress.set(p))
+
+            # Bước 5: Parse HTML để lấy danh sách nhóm
+            self.after(0, lambda: self._set_status("Đang phân tích danh sách nhóm...", "info"))
+            self.after(0, lambda: self.scan_progress.set(0.8))
+
+            html_content = driver.page_source
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            # Tìm các link nhóm với aria-label "Xem nhóm"
+            links = soup.find_all('a', {'aria-label': 'Xem nhóm'})
+
+            for link in links:
+                href = link.get('href', '')
+                if '/groups/' in href:
+                    # Extract group ID từ URL
+                    # URL format: /groups/123456789/ hoặc /groups/groupname/
+                    match = re.search(r'/groups/([^/?]+)', href)
+                    if match:
+                        group_id = match.group(1)
+
+                        # Lấy tên nhóm từ parent elements
+                        group_name = "Unknown"
+                        parent = link.find_parent()
+                        if parent:
+                            # Tìm text trong các element gần đó
+                            text_elements = parent.find_all(string=True)
+                            for text in text_elements:
+                                text = text.strip()
+                                if text and len(text) > 3 and text != "Xem nhóm":
+                                    group_name = text[:100]  # Giới hạn độ dài
+                                    break
+
+                        # Tạo full URL
+                        group_url = f"https://www.facebook.com/groups/{group_id}/"
+
+                        # Kiểm tra không trùng lặp
+                        if not any(g['group_id'] == group_id for g in groups_found):
+                            groups_found.append({
+                                'group_id': group_id,
+                                'group_name': group_name,
+                                'group_url': group_url,
+                                'member_count': 0  # Có thể parse thêm nếu cần
+                            })
+
+            self.after(0, lambda: self.scan_progress.set(0.95))
+            self.after(0, lambda n=len(groups_found): self._set_status(f"Tìm thấy {n} nhóm", "info"))
+
+        except Exception as e:
+            self.after(0, lambda err=str(e): self._set_status(f"Lỗi quét: {err}", "error"))
+
+        finally:
+            # Không đóng browser - để user dùng tiếp
+            if driver:
+                try:
+                    driver.quit()
+                except:
+                    pass
+
+        return groups_found
 
     def _on_scan_complete(self, groups: List[Dict]):
         """Xử lý kết quả quét"""
@@ -726,12 +869,16 @@ class GroupsTab(ctk.CTkFrame):
         self.scan_progress.set(1)
 
         if groups:
+            # Lưu vào database
             sync_groups(self.current_profile_uuid, groups)
             self._load_groups_for_profile()
-            self._set_status(f"Đã quét được {len(groups)} nhóm", "success")
+            self._set_status(f"Đã quét và lưu {len(groups)} nhóm!", "success")
         else:
-            self._set_status("Chưa có API quét nhóm. Cần implement script.", "warning")
             self._load_groups_for_profile()
+            if not SELENIUM_AVAILABLE:
+                self._set_status("Cần cài: pip install selenium beautifulsoup4 webdriver-manager", "warning")
+            else:
+                self._set_status("Không tìm thấy nhóm nào hoặc chưa đăng nhập Facebook", "warning")
 
     def _on_scan_error(self, error: str):
         """Xử lý lỗi quét"""
