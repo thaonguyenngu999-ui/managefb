@@ -571,7 +571,7 @@ class LoginTab(ctk.CTkFrame):
                     return !!(profileMenu || messenger || notifications);
                 })()
             '''
-            result = helper.execute(js)
+            result = helper.execute_js(js)
             return result is True
 
         finally:
@@ -877,7 +877,7 @@ class LoginTab(ctk.CTkFrame):
                 }})()
             '''
 
-            result = helper.execute(js_login)
+            result = helper.execute_js(js_login)
             self.after(0, lambda r=result: self._log(f"  Login form result: {r}"))
 
             if result not in ['CLICKED', 'SUBMITTED']:
@@ -909,8 +909,9 @@ class LoginTab(ctk.CTkFrame):
                     let errorText = (document.body.innerText || '').toLowerCase();
                     if (errorText.includes('sai mật khẩu') || errorText.includes('incorrect password') ||
                         errorText.includes('wrong password') || errorText.includes('password is incorrect') ||
+                        errorText.includes('entered is incorrect') || errorText.includes('you\'ve entered is incorrect') ||
                         errorText.includes('mật khẩu bạn đã nhập không chính xác') ||
-                        errorText.includes('không hợp lệ') || errorText.includes('invalid')) {
+                        errorText.includes('không hợp lệ')) {
                         return 'WRONG_PASS';
                     }
 
@@ -945,7 +946,7 @@ class LoginTab(ctk.CTkFrame):
                 })()
             '''
 
-            status = helper.execute(js_check) or 'UNKNOWN'
+            status = helper.execute_js(js_check) or 'UNKNOWN'
             self.after(0, lambda s=status: self._log(f"  Login status: {s}"))
 
             # Không đóng browser nếu thành công, để user verify
