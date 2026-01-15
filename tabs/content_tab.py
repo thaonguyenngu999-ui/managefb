@@ -506,7 +506,13 @@ class ContentTab(ctk.CTkFrame):
 
         cat = save_category({'name': name})
         self.new_cat_entry.delete(0, "end")
+
+        # Chuyển sang category mới vừa tạo
+        self.current_category_id = cat['id']
         self._load_categories()
+        self.category_var.set(name)  # Update dropdown để hiển thị category mới
+        self._load_contents()  # Load contents của category mới (sẽ trống)
+        self._new_content()  # Reset form
         self._set_status(f"Đã tạo mục: {name}", "success")
 
     def _delete_category(self):
@@ -557,15 +563,21 @@ class ContentTab(ctk.CTkFrame):
         self._set_status(f"Đã chọn: {content.get('title', 'Untitled')}", "info")
 
     def _new_content(self):
-        """Tạo content mới"""
+        """Tạo content mới - Reset form về trạng thái ban đầu"""
         self.current_content = None
         self.title_entry.delete(0, "end")
         self.content_editor.delete("1.0", "end")
+
+        # Reset image
         self.img_check_var.set(False)
-        self.img_path_entry.configure(state="disabled")
+        self.img_path_entry.configure(state="normal")  # Enable trước khi xóa
         self.img_path_entry.delete(0, "end")
+        self.img_path_entry.configure(state="disabled")  # Disable lại
+
+        # Reset sticker
         self.sticker_check_var.set(False)
         self.sticker_entry.delete(0, "end")
+
         self._update_line_numbers()
         self._render_content_list()
 
@@ -586,12 +598,13 @@ class ContentTab(ctk.CTkFrame):
             'stickers': self.sticker_entry.get() if self.sticker_check_var.get() else ''
         }
 
+        # Nếu đang edit content cũ thì giữ ID, ngược lại tạo mới
         if self.current_content:
             content_data['id'] = self.current_content['id']
 
         saved = save_content(content_data)
-        self.current_content = saved
-        self._load_contents()
+        self._load_contents()  # Reload danh sách
+        self._new_content()  # Reset form sau khi lưu
         self._set_status(f"Đã lưu: {title}", "success")
 
     def _edit_selected(self):
