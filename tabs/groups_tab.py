@@ -46,53 +46,119 @@ class GroupsTab(ctk.CTkFrame):
         self._is_posting = False
         self._is_boosting = False
 
+        # Multi-profile support
+        self.selected_profile_uuids: List[str] = []
+        self.folders: List[Dict] = []
+        self.profile_checkbox_vars: Dict = {}
+        self.group_checkbox_widgets: Dict = {}
+        self.group_checkbox_vars: Dict = {}
+
         self._create_ui()
         self._load_profiles()
 
     def _create_ui(self):
         """Tạo giao diện"""
-        # ========== HEADER - Profile Selector ==========
+        # ========== HEADER - Profile Selector with Multi-select ==========
         header = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
         header.pack(fill="x", padx=15, pady=(15, 10))
 
-        header_inner = ctk.CTkFrame(header, fg_color="transparent")
-        header_inner.pack(fill="x", padx=15, pady=12)
+        # Row 1: Folder filter & Refresh
+        header_row1 = ctk.CTkFrame(header, fg_color="transparent")
+        header_row1.pack(fill="x", padx=15, pady=(12, 5))
 
         ctk.CTkLabel(
-            header_inner,
-            text="📱 Chọn Profile:",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            header_row1,
+            text="📁 Thư mục:",
+            font=ctk.CTkFont(size=12),
             text_color=COLORS["text_primary"]
         ).pack(side="left")
 
-        self.profile_var = ctk.StringVar(value="-- Chọn profile --")
-        self.profile_menu = ctk.CTkOptionMenu(
-            header_inner,
-            variable=self.profile_var,
-            values=["-- Chọn profile --"],
+        self.folder_var = ctk.StringVar(value="-- Tất cả --")
+        self.folder_menu = ctk.CTkOptionMenu(
+            header_row1,
+            variable=self.folder_var,
+            values=["-- Tất cả --"],
             fg_color=COLORS["bg_card"],
             button_color=COLORS["accent"],
-            width=300,
-            command=self._on_profile_change
+            width=180,
+            command=self._on_folder_change
         )
-        self.profile_menu.pack(side="left", padx=15)
+        self.folder_menu.pack(side="left", padx=10)
 
         ModernButton(
-            header_inner,
+            header_row1,
             text="Làm mới",
             icon="🔄",
             variant="secondary",
             command=self._load_profiles,
             width=100
-        ).pack(side="left")
+        ).pack(side="left", padx=5)
 
         self.profile_status = ctk.CTkLabel(
-            header_inner,
+            header_row1,
             text="",
             font=ctk.CTkFont(size=12),
             text_color=COLORS["text_secondary"]
         )
         self.profile_status.pack(side="right")
+
+        # Row 2: Profile selection
+        header_row2 = ctk.CTkFrame(header, fg_color="transparent")
+        header_row2.pack(fill="x", padx=15, pady=(0, 12))
+
+        ctk.CTkLabel(
+            header_row2,
+            text="📱 Profiles:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        # Profile dropdown for quick single select
+        self.profile_var = ctk.StringVar(value="-- Chọn profile --")
+        self.profile_menu = ctk.CTkOptionMenu(
+            header_row2,
+            variable=self.profile_var,
+            values=["-- Chọn profile --"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=250,
+            command=self._on_profile_change
+        )
+        self.profile_menu.pack(side="left", padx=10)
+
+        # Multi-select toggle
+        self.multi_profile_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            header_row2,
+            text="Multi-select",
+            variable=self.multi_profile_var,
+            fg_color=COLORS["accent"],
+            font=ctk.CTkFont(size=11),
+            command=self._toggle_multi_profile
+        ).pack(side="left", padx=10)
+
+        # Selected profiles count
+        self.selected_profiles_label = ctk.CTkLabel(
+            header_row2,
+            text="Đã chọn: 0",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["accent"]
+        )
+        self.selected_profiles_label.pack(side="left", padx=10)
+
+        # Multi-profile selection panel (hidden by default)
+        self.multi_profile_panel = ctk.CTkFrame(header, fg_color=COLORS["bg_card"], corner_radius=8, height=120)
+        self.multi_profile_panel.pack_propagate(False)
+        # Don't pack initially - will be shown when multi-select is enabled
+
+        # Inner scrollable list
+        self.profile_list_scroll = ctk.CTkScrollableFrame(self.multi_profile_panel, fg_color="transparent", height=100)
+        self.profile_list_scroll.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Store profile checkbox vars
+        self.profile_checkbox_vars = {}
+        self.selected_profile_uuids = []
+        self.folders = []
 
         # ========== TABVIEW - 3 Sub-tabs ==========
         self.tabview = ctk.CTkTabview(
@@ -224,9 +290,30 @@ class GroupsTab(ctk.CTkFrame):
         )
         self.post_stats.pack(anchor="w", padx=10, pady=(0, 5))
 
+        # Search/Filter row
+        filter_row = ctk.CTkFrame(left_panel, fg_color="transparent")
+        filter_row.pack(fill="x", padx=10, pady=(0, 5))
+
+        ctk.CTkLabel(filter_row, text="🔍", width=20).pack(side="left")
+        self.group_filter_var = ctk.StringVar()
+        self.group_filter_var.trace_add("write", self._on_group_filter_change)
+        self.group_filter_entry = ctk.CTkEntry(
+            filter_row,
+            placeholder_text="Lọc theo tên nhóm...",
+            textvariable=self.group_filter_var,
+            fg_color=COLORS["bg_secondary"],
+            width=280,
+            height=28
+        )
+        self.group_filter_entry.pack(side="left", padx=5)
+
         # Groups checkboxes list
         self.post_groups_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
         self.post_groups_list.pack(fill="both", expand=True, padx=5, pady=(0, 10))
+
+        # Store checkbox widgets for optimization
+        self.group_checkbox_widgets = {}
+        self.group_checkbox_vars = {}
 
         self.post_empty_label = ctk.CTkLabel(
             self.post_groups_list,
@@ -657,13 +744,26 @@ class GroupsTab(ctk.CTkFrame):
     # ==================== PROFILE MANAGEMENT ====================
 
     def _load_profiles(self):
-        """Load danh sách profiles"""
+        """Load danh sách profiles và folders"""
         self.profiles = get_profiles()
+
+        # Load folders từ Hidemium
+        try:
+            self.folders = api.get_folders()
+        except:
+            self.folders = []
+
+        # Update folder menu
+        folder_options = ["-- Tất cả --"]
+        for f in self.folders:
+            folder_options.append(f.get('name', 'Unknown'))
+        self.folder_menu.configure(values=folder_options)
 
         if not self.profiles:
             self.profile_menu.configure(values=["-- Chưa có profile --"])
             self.profile_var.set("-- Chưa có profile --")
             self.profile_status.configure(text="Chưa có profile")
+            self._render_profile_list()
             return
 
         profile_options = ["-- Chọn profile --"]
@@ -675,6 +775,97 @@ class GroupsTab(ctk.CTkFrame):
         self.profile_menu.configure(values=profile_options)
         self.profile_var.set("-- Chọn profile --")
         self.profile_status.configure(text=f"Có {len(self.profiles)} profiles")
+        self._render_profile_list()
+
+    def _on_folder_change(self, choice: str):
+        """Khi đổi folder filter"""
+        if choice == "-- Tất cả --":
+            # Load all profiles
+            self.profiles = get_profiles()
+        else:
+            # Load profiles by folder
+            folder_id = None
+            for f in self.folders:
+                if f.get('name') == choice:
+                    folder_id = f.get('uuid') or f.get('id')
+                    break
+            if folder_id:
+                try:
+                    self.profiles = api.get_profiles(folder_id=[folder_id])
+                except:
+                    self.profiles = get_profiles()
+            else:
+                self.profiles = get_profiles()
+
+        # Update dropdown
+        profile_options = ["-- Chọn profile --"]
+        for p in self.profiles:
+            name = p.get('name', 'Unknown')
+            uuid = p.get('uuid', '')[:8]
+            profile_options.append(f"{name} ({uuid})")
+
+        self.profile_menu.configure(values=profile_options)
+        self.profile_var.set("-- Chọn profile --")
+        self.profile_status.configure(text=f"Có {len(self.profiles)} profiles")
+        self._render_profile_list()
+
+    def _toggle_multi_profile(self):
+        """Toggle multi-profile mode"""
+        if self.multi_profile_var.get():
+            self.multi_profile_panel.pack(fill="x", padx=15, pady=(0, 12))
+            self.profile_menu.configure(state="disabled")
+        else:
+            self.multi_profile_panel.pack_forget()
+            self.profile_menu.configure(state="normal")
+            self.selected_profile_uuids = []
+            self._update_selected_profiles_label()
+
+    def _render_profile_list(self):
+        """Render danh sách profiles với checkbox"""
+        for widget in self.profile_list_scroll.winfo_children():
+            widget.destroy()
+        self.profile_checkbox_vars = {}
+
+        if not self.profiles:
+            ctk.CTkLabel(
+                self.profile_list_scroll,
+                text="Không có profile",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(pady=10)
+            return
+
+        for p in self.profiles:
+            uuid = p.get('uuid', '')
+            name = p.get('name', 'Unknown')
+
+            var = ctk.BooleanVar(value=uuid in self.selected_profile_uuids)
+            self.profile_checkbox_vars[uuid] = var
+
+            cb = ctk.CTkCheckBox(
+                self.profile_list_scroll,
+                text=f"{name} ({uuid[:8]})",
+                variable=var,
+                fg_color=COLORS["accent"],
+                font=ctk.CTkFont(size=10),
+                command=lambda u=uuid, v=var: self._toggle_profile_selection(u, v)
+            )
+            cb.pack(anchor="w", pady=1)
+
+    def _toggle_profile_selection(self, uuid: str, var: ctk.BooleanVar):
+        """Toggle chọn profile"""
+        if var.get():
+            if uuid not in self.selected_profile_uuids:
+                self.selected_profile_uuids.append(uuid)
+        else:
+            if uuid in self.selected_profile_uuids:
+                self.selected_profile_uuids.remove(uuid)
+        self._update_selected_profiles_label()
+
+    def _update_selected_profiles_label(self):
+        """Cập nhật label số profiles đã chọn"""
+        count = len(self.selected_profile_uuids)
+        self.selected_profiles_label.configure(text=f"Đã chọn: {count}")
 
     def _on_profile_change(self, choice: str):
         """Khi chọn profile khác"""
@@ -988,7 +1179,7 @@ class GroupsTab(ctk.CTkFrame):
 
         self.selected_group_ids = [g['id'] for g in self.groups if g.get('is_selected')]
         self._render_scan_list()
-        self._render_post_groups_list()
+        self._render_post_groups_list(force_rebuild=True)  # Rebuild khi load profile mới
         self._update_stats()
 
     def _render_scan_list(self):
@@ -1057,8 +1248,11 @@ class GroupsTab(ctk.CTkFrame):
         elif not is_selected and group_id in self.selected_group_ids:
             self.selected_group_ids.remove(group_id)
 
+        # Sync với checkbox trong post tab (không render lại)
+        if group_id in self.group_checkbox_vars:
+            self.group_checkbox_vars[group_id].set(is_selected)
+
         self._update_stats()
-        self._render_post_groups_list()
 
     def _delete_group(self, group_id: int):
         """Xóa group"""
@@ -1084,10 +1278,31 @@ class GroupsTab(ctk.CTkFrame):
 
     # ==================== POST TAB ====================
 
-    def _render_post_groups_list(self):
-        """Render danh sách nhóm với checkbox"""
-        for widget in self.post_groups_list.winfo_children():
-            widget.destroy()
+    def _on_group_filter_change(self, *args):
+        """Khi filter thay đổi"""
+        self._apply_group_filter()
+
+    def _apply_group_filter(self):
+        """Áp dụng filter cho danh sách nhóm"""
+        filter_text = self.group_filter_var.get().lower().strip()
+
+        for group_id, widget in self.group_checkbox_widgets.items():
+            group = next((g for g in self.groups if g['id'] == group_id), None)
+            if group:
+                group_name = group.get('group_name', '').lower()
+                if filter_text == '' or filter_text in group_name:
+                    widget.pack(fill="x", pady=1)
+                else:
+                    widget.pack_forget()
+
+    def _render_post_groups_list(self, force_rebuild=False):
+        """Render danh sách nhóm với checkbox - tối ưu"""
+        # Chỉ rebuild khi cần thiết
+        if force_rebuild or not self.group_checkbox_widgets:
+            for widget in self.post_groups_list.winfo_children():
+                widget.destroy()
+            self.group_checkbox_widgets = {}
+            self.group_checkbox_vars = {}
 
         if not self.groups:
             self.post_empty_label = ctk.CTkLabel(
@@ -1099,25 +1314,40 @@ class GroupsTab(ctk.CTkFrame):
             self.post_empty_label.pack(pady=30)
             return
 
+        # Tạo hoặc cập nhật widgets
         for group in self.groups:
-            row = ctk.CTkFrame(self.post_groups_list, fg_color="transparent", height=30)
-            row.pack(fill="x", pady=1)
-            row.pack_propagate(False)
+            group_id = group['id']
 
-            var = ctk.BooleanVar(value=group['id'] in self.selected_group_ids)
-            cb = ctk.CTkCheckBox(
-                row,
-                text=group.get('group_name', 'Unknown')[:30],
-                variable=var, width=280,
-                checkbox_width=16, checkbox_height=16,
-                fg_color=COLORS["accent"],
-                font=ctk.CTkFont(size=10),
-                command=lambda gid=group['id'], v=var: self._toggle_group_selection_post(gid, v)
-            )
-            cb.pack(side="left", padx=3)
+            if group_id in self.group_checkbox_widgets:
+                # Cập nhật giá trị checkbox
+                self.group_checkbox_vars[group_id].set(group_id in self.selected_group_ids)
+            else:
+                # Tạo mới
+                row = ctk.CTkFrame(self.post_groups_list, fg_color="transparent", height=28)
+                row.pack(fill="x", pady=1)
+                row.pack_propagate(False)
+
+                var = ctk.BooleanVar(value=group_id in self.selected_group_ids)
+                self.group_checkbox_vars[group_id] = var
+
+                cb = ctk.CTkCheckBox(
+                    row,
+                    text=group.get('group_name', 'Unknown')[:35],
+                    variable=var, width=300,
+                    checkbox_width=16, checkbox_height=16,
+                    fg_color=COLORS["accent"],
+                    font=ctk.CTkFont(size=10),
+                    command=lambda gid=group_id, v=var: self._toggle_group_selection_post(gid, v)
+                )
+                cb.pack(side="left", padx=3)
+
+                self.group_checkbox_widgets[group_id] = row
+
+        # Áp dụng filter
+        self._apply_group_filter()
 
     def _toggle_group_selection_post(self, group_id: int, var: ctk.BooleanVar):
-        """Toggle group từ tab Đăng"""
+        """Toggle group từ tab Đăng - không render lại"""
         is_selected = var.get()
         update_group_selection(group_id, 1 if is_selected else 0)
 
@@ -1130,8 +1360,10 @@ class GroupsTab(ctk.CTkFrame):
         self._render_scan_list()
 
     def _toggle_select_all(self):
-        """Toggle chọn tất cả"""
-        if self.select_all_var.get():
+        """Toggle chọn tất cả - tối ưu"""
+        select_all = self.select_all_var.get()
+
+        if select_all:
             self.selected_group_ids = [g['id'] for g in self.groups]
             for g in self.groups:
                 update_group_selection(g['id'], 1)
@@ -1140,8 +1372,11 @@ class GroupsTab(ctk.CTkFrame):
                 update_group_selection(gid, 0)
             self.selected_group_ids = []
 
+        # Sync checkboxes trong post tab (không rebuild)
+        for group_id, var in self.group_checkbox_vars.items():
+            var.set(select_all)
+
         self._render_scan_list()
-        self._render_post_groups_list()
         self._update_stats()
 
     def _load_contents(self):
