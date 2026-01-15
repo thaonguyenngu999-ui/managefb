@@ -1920,6 +1920,22 @@ class GroupsTab(ctk.CTkFrame):
         self._posting_port = remote_port  # Lưu để dùng cho tab mới
         time.sleep(2)  # Đợi browser khởi động
 
+        # Đóng hết tab cũ, chỉ giữ lại 1 tab
+        try:
+            resp = requests.get(f"{cdp_base}/json", timeout=10)
+            all_pages = resp.json()
+            page_targets = [p for p in all_pages if p.get('type') == 'page']
+            # Giữ lại tab đầu tiên, đóng các tab còn lại
+            if len(page_targets) > 1:
+                for p in page_targets[1:]:
+                    target_id = p.get('id')
+                    if target_id:
+                        requests.get(f"{cdp_base}/json/close/{target_id}", timeout=5)
+                time.sleep(1)
+                print(f"[INFO] Đã đóng {len(page_targets) - 1} tab cũ")
+        except Exception as e:
+            print(f"[WARN] Không đóng được tab cũ: {e}")
+
         # Lấy page websocket
         page_ws = None
         for attempt in range(5):
