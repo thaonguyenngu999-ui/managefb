@@ -790,9 +790,10 @@ class LoginTab(ctk.CTkFrame):
         threading.Thread(target=run_login, daemon=True).start()
 
     def _login_profile(self, uuid: str, account: Dict) -> tuple:
-        """Login FB cho profile"""
-        from automation import CDPHelper
-        import time
+        """Login FB cho profile - dùng WebSocket trực tiếp (nhanh hơn)"""
+        import websocket
+        import json as json_module
+        import requests
 
         result = api.open_browser(uuid)
         if result.get('status') != 'successfully':
@@ -800,93 +801,91 @@ class LoginTab(ctk.CTkFrame):
 
         data = result.get('data', {})
         remote_port = data.get('remote_port')
-        ws_url = data.get('web_socket', '')
 
-        helper = CDPHelper()
-        time.sleep(2)
+        if not remote_port:
+            return False, 'NO_PORT'
 
-        if not helper.connect(remote_port=remote_port, ws_url=ws_url):
-            api.close_browser(uuid)
-            return False, 'ERROR'
-
+        ws = None
         try:
+            # Lấy page WebSocket từ /json endpoint
+            time.sleep(1)
+            resp = requests.get(f"http://127.0.0.1:{remote_port}/json", timeout=5)
+            tabs = resp.json()
+
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    page_ws = tab.get('webSocketDebuggerUrl')
+                    break
+
+            if not page_ws:
+                api.close_browser(uuid)
+                return False, 'NO_PAGE'
+
+            # Kết nối WebSocket trực tiếp (nhanh hơn CDPHelper)
+            ws = websocket.create_connection(page_ws, timeout=15, suppress_origin=True)
+
+            # Helper functions
+            msg_id = [0]
+            def send_cmd(method, params=None):
+                msg_id[0] += 1
+                msg = {"id": msg_id[0], "method": method}
+                if params:
+                    msg["params"] = params
+                ws.send(json_module.dumps(msg))
+                return json_module.loads(ws.recv())
+
+            def evaluate(expression):
+                result = send_cmd("Runtime.evaluate", {
+                    "expression": expression,
+                    "returnByValue": True
+                })
+                return result.get('result', {}).get('result', {}).get('value')
+
             # Navigate to Facebook login
-            helper.navigate("https://www.facebook.com/login")
-            helper.wait_for_page_ready(timeout_ms=10000)
-            time.sleep(3)
+            send_cmd("Page.navigate", {"url": "https://www.facebook.com/login"})
+            time.sleep(2)  # Đợi page load
 
-            # Escape special characters in credentials for JS
-            import json
-            fb_id_escaped = json.dumps(account["fb_id"])[1:-1]  # Remove quotes
-            password_escaped = json.dumps(account["password"])[1:-1]
+            # Escape credentials
+            fb_id_escaped = json_module.dumps(account["fb_id"])[1:-1]
+            password_escaped = json_module.dumps(account["password"])[1:-1]
 
-            # Fill login form - sử dụng nhiều selector và simulate typing
+            # Fill login form
             js_login = f'''
                 (function() {{
-                    // Tìm input email/phone
-                    let emailInput = document.querySelector('#email') ||
-                                     document.querySelector('input[name="email"]') ||
-                                     document.querySelector('input[type="email"]') ||
-                                     document.querySelector('input[type="text"]');
+                    let emailInput = document.querySelector('#email');
+                    let passInput = document.querySelector('#pass');
+                    let loginBtn = document.querySelector('#loginbutton');
 
-                    // Tìm input password
-                    let passInput = document.querySelector('#pass') ||
-                                    document.querySelector('input[name="pass"]') ||
-                                    document.querySelector('input[type="password"]');
+                    if (!emailInput || !passInput) return 'NO_FORM';
 
-                    if (!emailInput || !passInput) {{
-                        console.log('Email input:', emailInput);
-                        console.log('Pass input:', passInput);
-                        return 'NO_FORM';
-                    }}
-
-                    // Focus và điền email
                     emailInput.focus();
                     emailInput.value = '{fb_id_escaped}';
                     emailInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    emailInput.dispatchEvent(new Event('change', {{bubbles: true}}));
 
-                    // Focus và điền password
                     passInput.focus();
                     passInput.value = '{password_escaped}';
                     passInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    passInput.dispatchEvent(new Event('change', {{bubbles: true}}));
-
-                    // Tìm nút login
-                    let loginBtn = document.querySelector('#loginbutton') ||
-                                   document.querySelector('button[name="login"]') ||
-                                   document.querySelector('button[type="submit"]') ||
-                                   document.querySelector('button[data-testid="royal_login_button"]') ||
-                                   document.querySelector('input[type="submit"]');
 
                     if (loginBtn) {{
-                        setTimeout(() => {{
-                            loginBtn.click();
-                        }}, 800);
+                        setTimeout(() => loginBtn.click(), 300);
                         return 'CLICKED';
                     }}
-
-                    // Fallback: submit form
-                    let form = emailInput.closest('form');
-                    if (form) {{
-                        setTimeout(() => form.submit(), 800);
-                        return 'SUBMITTED';
-                    }}
-
                     return 'NO_BTN';
                 }})()
             '''
 
-            result = helper.execute_js(js_login)
-            self.after(0, lambda r=result: self._log(f"  Login form result: {r}"))
+            login_result = evaluate(js_login)
+            self.after(0, lambda r=login_result: self._log(f"  Login form: {r}"))
 
-            if result not in ['CLICKED', 'SUBMITTED']:
+            if login_result not in ['CLICKED', 'SUBMITTED']:
+                ws.close()
                 api.close_browser(uuid)
                 return False, 'NO_FORM'
 
-            # Wait for login result
-            time.sleep(6)
-            helper.wait_for_page_ready(timeout_ms=15000)
+            # Wait for login result (với random delay giả người thật)
+            import random
+            time.sleep(3 + random.uniform(0.5, 2))
 
             # Check login result
             js_check = '''
@@ -905,39 +904,31 @@ class LoginTab(ctk.CTkFrame):
                         return '2FA';
                     }
 
-                    // Check for wrong password - nhiều ngôn ngữ
+                    // Check for wrong password
                     let errorText = (document.body.innerText || '').toLowerCase();
                     if (errorText.includes('sai mật khẩu') || errorText.includes('incorrect password') ||
                         errorText.includes('wrong password') || errorText.includes('password is incorrect') ||
-                        errorText.includes('entered is incorrect') || errorText.includes('you\'ve entered is incorrect') ||
-                        errorText.includes('mật khẩu bạn đã nhập không chính xác') ||
-                        errorText.includes('không hợp lệ')) {
+                        errorText.includes('entered is incorrect') || errorText.includes('không hợp lệ')) {
                         return 'WRONG_PASS';
                     }
 
                     // Check for disabled/banned account
                     if (errorText.includes('bị vô hiệu hóa') || errorText.includes('disabled') ||
-                        errorText.includes('suspended') || errorText.includes('đã bị khóa') ||
-                        errorText.includes('tài khoản của bạn đã bị')) {
+                        errorText.includes('suspended') || errorText.includes('đã bị khóa')) {
                         return 'DIE';
                     }
 
-                    // Check if logged in - nhiều indicator
+                    // Check if logged in
                     let isLoggedIn = document.querySelector('[aria-label*="Account"]') ||
                                      document.querySelector('[aria-label*="Tài khoản"]') ||
                                      document.querySelector('[aria-label*="Messenger"]') ||
-                                     document.querySelector('[aria-label*="Menu"]') ||
-                                     document.querySelector('[aria-label*="Facebook"]') ||
-                                     document.querySelector('[data-testid="royal_header"]') ||
                                      document.querySelector('div[role="navigation"]');
 
-                    // Check URL patterns for logged in
                     if (isLoggedIn || url === 'https://www.facebook.com/' ||
                         url.includes('facebook.com/?sk=') || url.includes('facebook.com/home')) {
                         return 'LIVE';
                     }
 
-                    // Still on login page = failed
                     if (url.includes('/login')) {
                         return 'FAILED';
                     }
@@ -946,10 +937,12 @@ class LoginTab(ctk.CTkFrame):
                 })()
             '''
 
-            status = helper.execute_js(js_check) or 'UNKNOWN'
+            status = evaluate(js_check) or 'UNKNOWN'
             self.after(0, lambda s=status: self._log(f"  Login status: {s}"))
 
-            # Không đóng browser nếu thành công, để user verify
+            ws.close()
+
+            # Không đóng browser nếu thành công
             if status != 'LIVE':
                 api.close_browser(uuid)
 
@@ -957,11 +950,13 @@ class LoginTab(ctk.CTkFrame):
 
         except Exception as e:
             print(f"Login error: {e}")
+            if ws:
+                try:
+                    ws.close()
+                except:
+                    pass
             api.close_browser(uuid)
             return False, 'ERROR'
-
-        finally:
-            helper.close()
 
     def _stop_login(self):
         """Dừng login"""
