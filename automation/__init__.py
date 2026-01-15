@@ -57,4 +57,12 @@ __all__ = [
     'HumanBehavior',
     'AntiDetection',
     'WaitStrategy',
+    # CDP Helper
+    'CDPHelper',
+    'CDPHelperResult',
+    'create_cdp_helper',
+    'get_remote_port_from_browser',
 ]
+
+# CDP Helper - High-level automation for tabs
+from .cdp_helper import CDPHelper, CDPHelperResult, create_cdp_helper, get_remote_port_from_browser

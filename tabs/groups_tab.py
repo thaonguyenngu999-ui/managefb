@@ -28,6 +28,13 @@ try:
 except ImportError:
     BS4_AVAILABLE = False
 
+# Import CDP MAX helper (optional, for improved automation)
+try:
+    from automation import CDPHelper
+    CDP_MAX_AVAILABLE = True
+except ImportError:
+    CDP_MAX_AVAILABLE = False
+
 
 class GroupsTab(ctk.CTkFrame):
     """Tab Đăng Nhóm - Quét, đăng bài và đẩy tin vào các nhóm"""

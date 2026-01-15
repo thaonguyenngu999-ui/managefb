@@ -719,9 +719,8 @@ class PostsTab(ctk.CTkFrame):
         self.after(0, lambda: self._log(f"Hoàn tất like {completed_posts}/{total_posts} bài"))
 
     def _like_post_with_profile(self, profile: Dict, post_url: str) -> bool:
-        """Like bài viết với 1 profile qua CDP"""
-        import websocket
-        import json
+        """Like bài viết với 1 profile qua CDP MAX"""
+        from automation import CDPHelper, get_remote_port_from_browser
 
         profile_uuid = profile.get('uuid', '')
         profile_name = profile.get('name', 'Unknown')
@@ -730,12 +729,12 @@ class PostsTab(ctk.CTkFrame):
             self.after(0, lambda: self._log(f"[{profile_name}] Không có UUID"))
             return False
 
+        helper = None
         try:
             self.after(0, lambda pn=profile_name, pu=profile_uuid[:8]: self._log(f"[{pn}] ({pu}) Đang mở browser..."))
 
-            # Mở browser
+            # Mở browser và lấy remote port
             result = api.open_browser(profile_uuid)
-            print(f"[DEBUG] open_browser response for {profile_name}: {result}")
 
             # Kiểm tra lỗi
             if result.get('type') == 'error':
@@ -746,128 +745,52 @@ class PostsTab(ctk.CTkFrame):
             # Kiểm tra status
             status = result.get('status') or result.get('type')
             if status not in ['successfully', 'success', True]:
-                # Browser có thể đã mở sẵn
                 if 'already' not in str(result).lower() and 'running' not in str(result).lower():
                     err_msg = result.get('message') or result.get('title', f'Status: {status}')
                     self.after(0, lambda pn=profile_name, e=err_msg: self._log(f"[{pn}] Lỗi: {e}"))
                     return False
 
-            # Lấy data - có thể ở nhiều vị trí khác nhau
+            # Lấy remote port
             data = result.get('data', {})
             if not isinstance(data, dict):
-                print(f"[DEBUG] data is not dict: {type(data)} = {data}")
                 data = {}
 
             remote_port = data.get('remote_port') or data.get('port')
             ws_url = data.get('web_socket', '') or data.get('webSocketDebuggerUrl', '')
 
-            print(f"[DEBUG] From data: remote_port={remote_port}, ws_url={ws_url}")
-
-            # Thử lấy từ root nếu không có trong data
             if not remote_port:
                 remote_port = result.get('remote_port') or result.get('port')
             if not ws_url:
                 ws_url = result.get('web_socket', '') or result.get('webSocketDebuggerUrl', '')
 
-            print(f"[DEBUG] After root check: remote_port={remote_port}, ws_url={ws_url}")
-
-            # Parse port từ ws_url
             if not remote_port and ws_url:
                 match = re.search(r':(\d+)/', ws_url)
                 if match:
                     remote_port = int(match.group(1))
-                    print(f"[DEBUG] Parsed port from ws_url: {remote_port}")
 
             if not remote_port:
-                self.after(0, lambda pn=profile_name, r=str(result)[:300]: self._log(f"[{pn}] Không có port. Response: {r}"))
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không có port"))
                 return False
 
             self.after(0, lambda pn=profile_name, p=remote_port: self._log(f"[{pn}] Đã mở, port: {p}"))
 
-            cdp_base = f"http://127.0.0.1:{remote_port}"
-            time.sleep(2)
-
-            # Lấy page websocket
-            page_ws = None
-            for _ in range(5):
-                try:
-                    resp = requests.get(f"{cdp_base}/json", timeout=10)
-                    pages = resp.json()
-                    for p in pages:
-                        if p.get('type') == 'page':
-                            page_ws = p.get('webSocketDebuggerUrl')
-                            break
-                    if page_ws:
-                        break
-                except:
-                    time.sleep(1)
-
-            if not page_ws:
+            # Kết nối CDP MAX
+            time.sleep(2)  # Đợi browser khởi động
+            helper = CDPHelper()
+            if not helper.connect(remote_port):
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không kết nối được CDP"))
                 return False
 
-            # Kết nối WebSocket
-            ws = None
-            try:
-                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
-            except:
-                try:
-                    ws = websocket.create_connection(page_ws, timeout=30)
-                except:
-                    return False
-
-            cdp_id = 1
-
-            def cdp_send(method, params=None):
-                nonlocal cdp_id
-                cdp_id += 1
-                msg = {"id": cdp_id, "method": method, "params": params or {}}
-                ws.send(json.dumps(msg))
-                while True:
-                    try:
-                        ws.settimeout(30)
-                        resp = ws.recv()
-                        data = json.loads(resp)
-                        if data.get('id') == cdp_id:
-                            return data
-                    except:
-                        return {}
-
-            def cdp_eval(expr):
-                result = cdp_send("Runtime.evaluate", {
-                    "expression": expr,
-                    "returnByValue": True,
-                    "awaitPromise": True
-                })
-                return result.get('result', {}).get('result', {}).get('value')
-
             # Navigate đến bài viết
-            cdp_send("Page.navigate", {"url": post_url})
-            time.sleep(random.uniform(4, 6))
+            if not helper.navigate(post_url):
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Không navigate được"))
+                return False
 
             # Đợi page load
-            for _ in range(10):
-                ready = cdp_eval("document.readyState")
-                if ready == 'complete':
-                    break
-                time.sleep(1)
+            helper.wait_for_page_ready(timeout_ms=15000)
 
-            time.sleep(random.uniform(1, 2))
-
-            # Click Like
-            click_like_js = '''
-            (function() {
-                let all = document.querySelectorAll('[aria-label="Thích"], [aria-label="Like"]');
-                for (let btn of all) {
-                    let rect = btn.getBoundingClientRect();
-                    if (rect.top > 0 && rect.top < window.innerHeight && rect.width > 0) {
-                        btn.click();
-                        return true;
-                    }
-                }
-                return false;
-            })()
-            '''
-            like_result = cdp_eval(click_like_js)
+            # Click Like với postcondition verification
+            like_result = helper.click_like_button()
 
             if like_result:
                 self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✓ Đã like thành công"))
@@ -876,17 +799,16 @@ class PostsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(1, 2))
 
-            # Đóng WebSocket
-            try:
-                ws.close()
-            except:
-                pass
-
-            return like_result == True
+            return like_result
 
         except Exception as e:
             self.after(0, lambda pn=profile_name, err=str(e): self._log(f"[{pn}] Lỗi: {err}"))
             return False
+
+        finally:
+            # Luôn đóng CDP connection
+            if helper:
+                helper.close()
 
     def _stop_liking(self):
         """Dừng quá trình like"""
