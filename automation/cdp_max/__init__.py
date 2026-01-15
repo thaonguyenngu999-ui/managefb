@@ -47,7 +47,7 @@ from .observability import (
     ObservabilityEngine, ReasonCode, FailureReason,
     StepTrace, JobTrace
 )
-from .client import CDPClientMAX
+from .client import CDPClientMAX, CDPClientConfig
 
 __all__ = [
     # Session
@@ -82,4 +82,5 @@ __all__ = [
     'StepTrace', 'JobTrace',
     # Client
     'CDPClientMAX',
+    'CDPClientConfig',
 ]
