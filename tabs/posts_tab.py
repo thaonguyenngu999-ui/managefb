@@ -600,7 +600,16 @@ class PostsTab(ctk.CTkFrame):
         completed_posts = 0
 
         # Sắp xếp profiles theo tên (00, 01, 02, ...)
-        available_profiles = sorted(self.profiles, key=lambda p: p.get('name', ''))
+        # Đảm bảo profiles là list of dicts
+        available_profiles = []
+        for p in self.profiles:
+            if isinstance(p, dict):
+                available_profiles.append(p)
+            elif isinstance(p, str):
+                # Nếu là string (uuid), tạo dict với uuid
+                available_profiles.append({'uuid': p, 'name': p[:8]})
+
+        available_profiles = sorted(available_profiles, key=lambda p: p.get('name', ''))
 
         self.after(0, lambda: self._log(f"Có {len(available_profiles)} profiles sẵn sàng"))
 
