@@ -846,36 +846,82 @@ class LoginTab(ctk.CTkFrame):
             send_cmd("Page.navigate", {"url": "https://www.facebook.com/login"})
             time.sleep(2)  # Đợi page load
 
-            # Escape credentials
-            fb_id_escaped = json_module.dumps(account["fb_id"])[1:-1]
-            password_escaped = json_module.dumps(account["password"])[1:-1]
+            import random
 
-            # Fill login form
-            js_login = f'''
-                (function() {{
-                    let emailInput = document.querySelector('#email');
-                    let passInput = document.querySelector('#pass');
-                    let loginBtn = document.querySelector('#loginbutton');
+            # Helper: Simulate human typing với CDP Input events
+            def type_text(text, field_selector):
+                """Gõ từng ký tự như người thật"""
+                # Focus vào field
+                evaluate(f"document.querySelector('{field_selector}')?.focus()")
+                time.sleep(random.uniform(0.1, 0.3))
 
-                    if (!emailInput || !passInput) return 'NO_FORM';
+                for char in text:
+                    # Dispatch keydown + char + keyup events
+                    send_cmd("Input.dispatchKeyEvent", {
+                        "type": "keyDown",
+                        "text": char,
+                        "key": char,
+                        "code": f"Key{char.upper()}" if char.isalpha() else ""
+                    })
+                    send_cmd("Input.dispatchKeyEvent", {
+                        "type": "char",
+                        "text": char
+                    })
+                    send_cmd("Input.dispatchKeyEvent", {
+                        "type": "keyUp",
+                        "key": char
+                    })
+                    # Random delay giữa các phím (50-150ms như người gõ)
+                    time.sleep(random.uniform(0.05, 0.15))
 
-                    emailInput.focus();
-                    emailInput.value = '{fb_id_escaped}';
-                    emailInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+            # Check form exists
+            form_check = evaluate('''
+                (function() {
+                    let email = document.querySelector('#email');
+                    let pass = document.querySelector('#pass');
+                    return email && pass ? 'OK' : 'NO_FORM';
+                })()
+            ''')
 
-                    passInput.focus();
-                    passInput.value = '{password_escaped}';
-                    passInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+            if form_check != 'OK':
+                ws.close()
+                api.close_browser(uuid)
+                return False, 'NO_FORM'
 
-                    if (loginBtn) {{
-                        setTimeout(() => loginBtn.click(), 300);
+            # Type email/phone (giả lập gõ từng ký tự)
+            self.after(0, lambda: self._log(f"  Typing email..."))
+            type_text(account["fb_id"], "#email")
+
+            # Pause như người chuyển field
+            time.sleep(random.uniform(0.3, 0.7))
+
+            # Type password
+            self.after(0, lambda: self._log(f"  Typing password..."))
+            type_text(account["password"], "#pass")
+
+            # Pause trước khi click
+            time.sleep(random.uniform(0.5, 1.0))
+
+            # Click login button
+            login_result = evaluate('''
+                (function() {
+                    let loginBtn = document.querySelector('#loginbutton') ||
+                                   document.querySelector('button[name="login"]') ||
+                                   document.querySelector('button[type="submit"]');
+                    if (loginBtn) {
+                        loginBtn.click();
                         return 'CLICKED';
-                    }}
+                    }
+                    // Fallback: submit form
+                    let form = document.querySelector('#email')?.closest('form');
+                    if (form) {
+                        form.submit();
+                        return 'SUBMITTED';
+                    }
                     return 'NO_BTN';
-                }})()
-            '''
+                })()
+            ''')
 
-            login_result = evaluate(js_login)
             self.after(0, lambda r=login_result: self._log(f"  Login form: {r}"))
 
             if login_result not in ['CLICKED', 'SUBMITTED']:
@@ -883,8 +929,7 @@ class LoginTab(ctk.CTkFrame):
                 api.close_browser(uuid)
                 return False, 'NO_FORM'
 
-            # Wait for login result (với random delay giả người thật)
-            import random
+            # Wait for login result
             time.sleep(3 + random.uniform(0.5, 2))
 
             # Check login result
