@@ -2453,9 +2453,8 @@ class GroupsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(5, 8))  # Đợi đăng xong (đợi lâu hơn cho duyệt tự động)
 
-            # Bước 7: Refresh trang và lấy URL bài viết mới
-            # Reload để đảm bảo bài mới xuất hiện ở đầu
-            self._cdp_send(ws, "Page.reload", {})
+            # Bước 7: Navigate lại trang group (không dùng reload để tránh dialog confirm)
+            self._cdp_send(ws, "Page.navigate", {"url": group_url})
             time.sleep(random.uniform(4, 6))
 
             # Đợi page load xong
@@ -2521,10 +2520,10 @@ class GroupsTab(ctk.CTkFrame):
                 if post_url and ('/posts/' in post_url or 'pfbid' in post_url):
                     break
 
-                # Đợi thêm và reload lại nếu chưa tìm thấy
+                # Đợi thêm và navigate lại nếu chưa tìm thấy
                 if attempt < 2:
                     time.sleep(random.uniform(3, 5))
-                    self._cdp_send(ws, "Page.reload", {})
+                    self._cdp_send(ws, "Page.navigate", {"url": group_url})
                     time.sleep(random.uniform(3, 4))
 
             # Nếu không lấy được, chỉ trả về URL group
