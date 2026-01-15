@@ -373,7 +373,7 @@ class SettingsDialog(ctk.CTkToplevel):
     
     def _save_settings(self):
         """Lưu cài đặt"""
-        from database import save_settings
+        from db import save_settings
         
         settings = {
             'api_url': self.api_url.get(),

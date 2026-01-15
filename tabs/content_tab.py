@@ -10,7 +10,7 @@ import random
 from datetime import datetime
 from config import COLORS
 from widgets import ModernButton, ModernEntry, ModernTextbox
-from database import (
+from db import (
     get_categories, save_category, delete_category,
     get_contents, get_content_by_id, save_content, delete_content
 )

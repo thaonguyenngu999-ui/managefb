@@ -6,7 +6,7 @@ from typing import List, Dict
 import webbrowser
 from config import COLORS
 from widgets import ModernCard, ModernButton, ModernEntry, ModernTextbox, PostCard, SearchBar
-from database import get_posts, save_post, delete_post, update_post_stats
+from db import get_posts, save_post, delete_post, update_post_stats
 
 
 class PostsTab(ctk.CTkFrame):
