@@ -136,13 +136,18 @@ class WindowManager:
         if slot_id < 0:
             return (0, 0, display_width, display_height)
 
+        # Dùng MAX_COLS/MAX_ROWS trực tiếp để đảm bảo đúng giá trị
+        cols = self.MAX_COLS
+        rows = self.MAX_ROWS
+
         # Tính row và col từ slot_id
-        col = slot_id % self._cols
-        row = (slot_id // self._cols) % self._rows
+        col = slot_id % cols
+        row = (slot_id // cols) % rows
 
         x = self.LEFT_OFFSET + col * (display_width + self.MARGIN)
         y = self.TOP_OFFSET + row * (display_height + self.MARGIN)
 
+        print(f"[WindowManager] get_bounds: slot={slot_id}, col={col}, row={row}, x={x}, y={y}")
         return (x, y, display_width, display_height)
 
     def get_grid_info(self) -> Dict:
