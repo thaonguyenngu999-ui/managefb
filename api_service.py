@@ -214,27 +214,40 @@ class HidemiumAPI:
     
     # ============ BROWSER CONTROL ============
     
-    def open_browser(self, uuid: str, command: str = "", proxy: str = "", auto_resize: bool = True) -> Dict:
-        """Mở browser/profile - GET /openProfile"""
+    def open_browser(self, uuid: str, command: str = "", proxy: str = "",
+                     auto_resize: bool = True, scale_factor: float = 0.5) -> Dict:
+        """
+        Mở browser/profile - GET /openProfile
+
+        scale_factor: Tỷ lệ thu phóng toàn bộ browser (0.5 = 50% size)
+                     Sử dụng --force-device-scale-factor để scale cả UI
+        """
         params = {"uuid": uuid}
+
+        # Add scale factor flag to scale entire browser (including chrome UI)
+        scale_flag = f"--force-device-scale-factor={scale_factor}"
         if command:
-            params["command"] = command
+            params["command"] = f"{command} {scale_flag}"
+        else:
+            params["command"] = scale_flag
+
         if proxy:
             params["proxy"] = proxy
+
+        print(f"[DEBUG API] open_browser command: {params.get('command')}")
         result = self._get("/openProfile", params=params)
         print(f"[DEBUG API] open_browser({uuid[:8]}...) response: {result}")
 
-        # Auto resize window if successful
+        # Auto resize window position if successful
         if auto_resize and result.get('status') == 'successfully':
             self._auto_resize_browser_window(result)
 
         return result
 
-    def _auto_resize_browser_window(self, open_result: Dict, zoom_percent: int = 50):
+    def _auto_resize_browser_window(self, open_result: Dict):
         """
-        Tự động resize và sắp xếp cửa sổ browser
-
-        zoom_percent: Tỷ lệ thu phóng (50 = 50% = cửa sổ nhỏ, nội dung vẫn đầy đủ)
+        Tự động sắp xếp vị trí cửa sổ browser theo grid
+        (Scale được xử lý qua --force-device-scale-factor khi mở browser)
         """
         import time
         try:
@@ -288,34 +301,22 @@ class HidemiumAPI:
             x, y, w, h = get_window_bounds(slot_id)
             print(f"[API] Target window: x={x}, y={y}, w={w}, h={h}")
 
-            # Calculate zoom factor
-            zoom_factor = zoom_percent / 100.0  # 0.5 for 50%
-
-            print(f"[API] Zoom: {zoom_percent}% (factor={zoom_factor})")
-
-            # Step 1: Set window position and size
+            # Set window position and size
             win_result = send_cmd("Browser.getWindowForTarget", {})
             print(f"[API] getWindowForTarget: {win_result}")
 
             if win_result and 'result' in win_result and 'windowId' in win_result['result']:
                 window_id = win_result['result']['windowId']
 
-                # Set window bounds
+                # Set window bounds (position only - scaling done via --force-device-scale-factor)
                 bounds_result = send_cmd("Browser.setWindowBounds", {
                     "windowId": window_id,
                     "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}
                 })
                 print(f"[API] setWindowBounds: {bounds_result}")
 
-                # Step 2: Set page scale factor (actual zoom)
-                # This is the key command that makes content smaller/zoomed out
-                scale_result = send_cmd("Emulation.setPageScaleFactor", {
-                    "pageScaleFactor": zoom_factor
-                })
-                print(f"[API] setPageScaleFactor({zoom_factor}): {scale_result}")
-
                 if 'error' not in bounds_result:
-                    print(f"[API] ✓ Window resized with {zoom_percent}% zoom!")
+                    print(f"[API] ✓ Window positioned at ({x}, {y})")
                 else:
                     print(f"[API] ERROR: {bounds_result.get('error')}")
 
