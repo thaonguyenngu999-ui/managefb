@@ -302,6 +302,23 @@ class LoginTab(ctk.CTkFrame):
             fg_color=COLORS["accent"]
         ).pack(side="left", padx=20)
 
+        # Folder đích khi login thành công
+        dest_folder_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        dest_folder_frame.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(dest_folder_frame, text="📁 Folder đích (LIVE):", width=130, anchor="w").pack(side="left")
+        self.dest_folder_var = ctk.StringVar(value="-- Không chuyển --")
+        self.dest_folder_menu = ctk.CTkOptionMenu(
+            dest_folder_frame,
+            variable=self.dest_folder_var,
+            values=["-- Không chuyển --"],
+            width=200,
+            fg_color=COLORS["bg_tertiary"],
+            button_color=COLORS["accent"],
+            dropdown_fg_color=COLORS["bg_secondary"]
+        )
+        self.dest_folder_menu.pack(side="left", padx=5)
+
         # Action buttons
         btn_frame = ctk.CTkFrame(scroll, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(20, 10))
@@ -356,20 +373,25 @@ class LoginTab(ctk.CTkFrame):
             folder_names = ["-- Chọn --"] + [f.get('name', '') for f in self.folders if f.get('name')]
             self.folder_menu.configure(values=folder_names)
             self.folder_var.set("-- Chọn --")
+
+            # Cập nhật dropdown folder đích
+            dest_folder_names = ["-- Không chuyển --"] + [f.get('name', '') for f in self.folders if f.get('name')]
+            self.dest_folder_menu.configure(values=dest_folder_names)
         except Exception as e:
             self._log(f"Lỗi tải folders: {e}")
 
-    def _get_fb_ok_folder_uuid(self):
-        """Tìm folder 'FB OK' và trả về uuid"""
+    def _get_dest_folder_uuid(self):
+        """Lấy uuid của folder đích đã chọn"""
         try:
-            folders = api.get_folders() or []
-            for f in folders:
-                name = f.get('name', '').strip()
-                if name.upper() == 'FB OK' or name.upper() == 'FBOK':
-                    # Trả về uuid hoặc id
+            dest_name = self.dest_folder_var.get()
+            if dest_name == "-- Không chuyển --":
+                return None
+
+            for f in self.folders:
+                if f.get('name', '').strip() == dest_name:
                     return f.get('uuid') or f.get('id')
         except Exception as e:
-            print(f"Error getting FB OK folder: {e}")
+            print(f"Error getting dest folder: {e}")
         return None
 
     def _on_folder_change(self, choice):
@@ -773,12 +795,13 @@ class LoginTab(ctk.CTkFrame):
                         self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✅ Login thành công"))
                         self.profile_status[uuid] = {'has_fb': True}
 
-                        # Move profile vào folder "FB OK"
+                        # Move profile vào folder đã chọn
                         try:
-                            fb_ok_folder = self._get_fb_ok_folder_uuid()
-                            if fb_ok_folder:
-                                move_result = api.add_profiles_to_folder(fb_ok_folder, [uuid])
-                                self.after(0, lambda: self._log(f"[{profile_name}] 📁 Moved to FB OK"))
+                            dest_folder = self._get_dest_folder_uuid()
+                            dest_name = self.dest_folder_var.get()
+                            if dest_folder:
+                                move_result = api.add_profiles_to_folder(dest_folder, [uuid])
+                                self.after(0, lambda dn=dest_name: self._log(f"[{profile_name}] 📁 Moved to {dn}"))
                         except Exception as e:
                             self.after(0, lambda err=str(e): self._log(f"  Move folder error: {err}"))
                     else:

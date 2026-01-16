@@ -371,43 +371,62 @@ class CDPHelper:
         # Specific JS to find and click the MAIN post's Like button (not comment likes)
         js_click_like = '''
             (function() {
-                // Find the main post's action bar (contains Thích, Bình luận, Chia sẻ)
-                // The main Like button is usually the first one in the action bar
+                // Method 1: Tìm nút Like theo aria-label
+                let likeButtons = document.querySelectorAll('[role="button"][aria-label*="Thích"], [role="button"][aria-label*="Like"]');
 
-                // Method 1: Find by action bar structure
-                let actionBars = document.querySelectorAll('[role="button"][aria-label*="Thích"], [role="button"][aria-label*="Like"]');
+                for (let btn of likeButtons) {
+                    let label = btn.getAttribute('aria-label') || '';
+                    // Bỏ qua nút đã like (Bỏ thích/Unlike)
+                    if (label.includes('Bỏ thích') || label.includes('Unlike')) continue;
 
-                for (let btn of actionBars) {
-                    // Skip if it's a comment like (usually smaller or nested deeper)
                     let rect = btn.getBoundingClientRect();
+                    // Nút Like chính thường lớn và trong viewport
+                    if (rect.width > 20 && rect.height > 15 && rect.top > 0 && rect.top < window.innerHeight) {
+                        btn.click();
+                        return 'clicked_aria';
+                    }
+                }
 
-                    // Main post Like button is usually larger and in view
-                    if (rect.width < 20 || rect.height < 20) continue;
-                    if (rect.top < 0 || rect.top > window.innerHeight) continue;
-
-                    // Check if it's in the main action bar (has siblings like Comment, Share)
-                    let parent = btn.closest('[role="group"], [class*="action"]') || btn.parentElement?.parentElement;
-                    if (parent) {
-                        let siblingText = parent.innerText || '';
-                        // Main action bar has Comment/Bình luận and Share/Chia sẻ nearby
-                        if (siblingText.includes('Bình luận') || siblingText.includes('Comment') ||
-                            siblingText.includes('Chia sẻ') || siblingText.includes('Share')) {
-                            btn.click();
-                            return 'clicked';
+                // Method 2: Tìm theo text "Thích" trong action bar
+                let spans = document.querySelectorAll('span');
+                for (let span of spans) {
+                    let text = (span.innerText || '').trim();
+                    if (text === 'Thích' || text === 'Like') {
+                        // Tìm button parent
+                        let btn = span.closest('[role="button"]') || span.closest('div[tabindex]');
+                        if (btn) {
+                            let rect = btn.getBoundingClientRect();
+                            if (rect.top > 0 && rect.top < window.innerHeight) {
+                                btn.click();
+                                return 'clicked_text';
+                            }
                         }
                     }
                 }
 
-                // Method 2: Find first visible Like button that's not already liked
-                for (let btn of actionBars) {
-                    let label = btn.getAttribute('aria-label') || '';
-                    // Skip "Unlike" or "Bỏ thích" buttons
-                    if (label.includes('Bỏ thích') || label.includes('Unlike')) continue;
+                // Method 3: Tìm theo data-testid
+                let testIdBtn = document.querySelector('[data-testid*="like"]') ||
+                               document.querySelector('[data-testid*="reaction"]');
+                if (testIdBtn) {
+                    testIdBtn.click();
+                    return 'clicked_testid';
+                }
 
-                    let rect = btn.getBoundingClientRect();
-                    if (rect.width > 30 && rect.height > 20 && rect.top > 0 && rect.top < window.innerHeight) {
-                        btn.click();
-                        return 'clicked';
+                // Method 4: Tìm trong action bar (chứa Bình luận, Chia sẻ)
+                let divs = document.querySelectorAll('div[role="button"]');
+                for (let div of divs) {
+                    let parent = div.parentElement?.parentElement;
+                    if (parent) {
+                        let parentText = parent.innerText || '';
+                        if ((parentText.includes('Bình luận') || parentText.includes('Comment')) &&
+                            (parentText.includes('Chia sẻ') || parentText.includes('Share'))) {
+                            // Đây là action bar, click div đầu tiên (thường là Like)
+                            let text = (div.innerText || '').trim();
+                            if (text === 'Thích' || text === 'Like' || text === '') {
+                                div.click();
+                                return 'clicked_actionbar';
+                            }
+                        }
                     }
                 }
 
@@ -416,7 +435,7 @@ class CDPHelper:
         '''
 
         result = self._client.execute(js_click_like)
-        if result == 'clicked':
+        if result and 'clicked' in str(result):
             HumanBehavior.random_delay(0.3, 0.6)
             return True
 

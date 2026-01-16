@@ -821,6 +821,11 @@ class PostsTab(ctk.CTkFrame):
             # Luôn đóng CDP connection
             if helper:
                 helper.close()
+            # Đóng browser sau khi like xong
+            try:
+                api.close_browser(profile_uuid)
+            except:
+                pass
 
     def _stop_liking(self):
         """Dừng quá trình like"""
