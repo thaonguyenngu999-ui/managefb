@@ -1086,10 +1086,46 @@ class LoginTab(ctk.CTkFrame):
                     totp_code = generate_totp(account['totp_secret'])
                     self.after(0, lambda c=totp_code: self._log(f"  2FA code: {c}"))
 
-                    # Tìm input 2FA và nhập code
+                    # Bước 1: Click vào "Ứng dụng xác thực" nếu đang ở màn chọn phương thức
                     time.sleep(1)
+                    evaluate('''
+                        (function() {
+                            // Tìm và click vào option "Ứng dụng xác thực" / "Authentication app"
+                            let labels = document.querySelectorAll('span, div, label');
+                            for (let el of labels) {
+                                let text = el.innerText || '';
+                                if (text.includes('Ứng dụng xác thực') || text.includes('Authentication app') ||
+                                    text.includes('authenticator') || text.includes('xác thực')) {
+                                    // Click vào parent có role radio hoặc chính element
+                                    let clickTarget = el.closest('[role="radio"]') ||
+                                                     el.closest('[role="button"]') ||
+                                                     el.closest('label') || el;
+                                    clickTarget.click();
+                                    return 'clicked_auth_app';
+                                }
+                            }
+                            return 'no_auth_option';
+                        })()
+                    ''')
+                    time.sleep(1.5)
 
-                    # Focus vào input 2FA (selector mới cho FB React)
+                    # Bước 2: Click nút "Tiếp tục" sau khi chọn phương thức
+                    evaluate('''
+                        (function() {
+                            let btns = document.querySelectorAll('div[role="button"], button');
+                            for (let btn of btns) {
+                                let text = btn.innerText || '';
+                                if (text.includes('Tiếp tục') || text.includes('Continue') || text.includes('Next')) {
+                                    btn.click();
+                                    return 'clicked_continue';
+                                }
+                            }
+                            return 'no_continue';
+                        })()
+                    ''')
+                    time.sleep(2)
+
+                    # Bước 3: Focus vào input 2FA (selector mới cho FB React)
                     evaluate('''
                         (function() {
                             let input = document.querySelector('input[id^="_r_"]') ||
