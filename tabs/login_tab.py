@@ -851,36 +851,16 @@ class LoginTab(ctk.CTkFrame):
                 })
                 return result.get('result', {}).get('result', {}).get('value')
 
-            # Enable Network domain trước khi xóa cookies (CDP yêu cầu)
-            send_cmd("Network.enable")
-
             # Xóa cookies Facebook trước khi login (tránh dính session cũ)
-            # Xóa tất cả các domain Facebook để đảm bảo sạch hoàn toàn
-            fb_domains = [".facebook.com", "facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com"]
-            for domain in fb_domains:
+            for domain in [".facebook.com", "facebook.com", "www.facebook.com", "m.facebook.com"]:
                 send_cmd("Network.deleteCookies", {"domain": domain})
-
-            # Xóa storage của cả desktop và mobile Facebook
-            send_cmd("Storage.clearDataForOrigin", {
-                "origin": "https://www.facebook.com",
-                "storageTypes": "all"
-            })
-            send_cmd("Storage.clearDataForOrigin", {
-                "origin": "https://www.facebook.com",
-                "storageTypes": "cookies,local_storage,session_storage,indexeddb,websql,cache_storage"
-            })
-            send_cmd("Storage.clearDataForOrigin", {
-                "origin": "https://m.facebook.com",
-                "storageTypes": "all"
-            })
-            send_cmd("Storage.clearDataForOrigin", {
-                "origin": "https://web.facebook.com",
-                "storageTypes": "all"
-            })
+            # Xóa storage
+            for origin in ["https://www.facebook.com", "https://m.facebook.com"]:
+                send_cmd("Storage.clearDataForOrigin", {"origin": origin, "storageTypes": "all"})
 
             # Navigate to Facebook login
             send_cmd("Page.navigate", {"url": "https://www.facebook.com/login"})
-            time.sleep(5)  # Đợi page load
+            time.sleep(2.5)  # Đợi page load
 
             import random
 
@@ -935,20 +915,14 @@ class LoginTab(ctk.CTkFrame):
                 code = struct.unpack('>I', hmac_hash[offset:offset+4])[0] & 0x7FFFFFFF
                 return str(code % 1000000).zfill(6)
 
-            # Check form exists với retry
-            form_check = None
-            for retry in range(5):
-                form_check = evaluate('''
-                    (function() {
-                        var email = document.querySelector('#email');
-                        var pass = document.querySelector('#pass');
-                        return email && pass ? 'OK' : 'NO_FORM';
-                    })()
-                ''')
-                self.after(0, lambda r=form_check, i=retry: self._log(f"  Form check [{i+1}]: {r}"))
-                if form_check == 'OK':
-                    break
-                time.sleep(1)
+            # Check form exists
+            form_check = evaluate('''
+                (function() {
+                    let email = document.querySelector('#email');
+                    let pass = document.querySelector('#pass');
+                    return email && pass ? 'OK' : 'NO_FORM';
+                })()
+            ''')
 
             if form_check != 'OK':
                 ws.close()
@@ -974,16 +948,13 @@ class LoginTab(ctk.CTkFrame):
                 (function() {
                     let loginBtn = document.querySelector('#loginbutton') ||
                                    document.querySelector('button[name="login"]') ||
-                                   document.querySelector('button[type="submit"]') ||
-                                   document.querySelector('button[data-testid="royal_login_button"]') ||
-                                   document.querySelector('div[role="button"][tabindex="0"]');
+                                   document.querySelector('button[type="submit"]');
                     if (loginBtn) {
                         loginBtn.click();
                         return 'CLICKED';
                     }
                     // Fallback: submit form
-                    let emailEl = document.querySelector('#email') || document.querySelector('input[name="email"]');
-                    let form = emailEl?.closest('form');
+                    let form = document.querySelector('#email')?.closest('form');
                     if (form) {
                         form.submit();
                         return 'SUBMITTED';
@@ -1200,54 +1171,24 @@ class LoginTab(ctk.CTkFrame):
 
                     time.sleep(0.8)
 
-                    # Submit 2FA form - tìm theo text để click đúng nút
+                    # Submit 2FA form - tìm theo text
                     evaluate('''
                         (function() {
-                            // Tìm tất cả buttons
-                            let btns = document.querySelectorAll('div[role="button"], button[type="submit"], button');
-                            let submitBtn = null;
-
-                            // Ưu tiên tìm nút theo text "Tiếp tục", "Gửi", "Continue", "Submit"
+                            let btns = document.querySelectorAll('div[role="button"], button');
                             for (let btn of btns) {
-                                let text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-                                // Bỏ qua các nút không phải submit
-                                if (text.includes('thử cách khác') || text.includes('try another') ||
-                                    text.includes('hủy') || text.includes('cancel') ||
-                                    text.includes('quay lại') || text.includes('back')) {
-                                    continue;
-                                }
-                                // Tìm nút submit
+                                let text = (btn.innerText || '').toLowerCase();
                                 if (text.includes('tiếp tục') || text.includes('continue') ||
-                                    text.includes('gửi') || text.includes('submit') ||
-                                    text.includes('xác nhận') || text.includes('confirm') ||
-                                    text.includes('xong') || text.includes('done')) {
-                                    submitBtn = btn;
-                                    break;
+                                    text.includes('gửi') || text.includes('submit')) {
+                                    btn.click();
+                                    return 'clicked';
                                 }
                             }
-
-                            // Fallback: tìm theo aria-label
-                            if (!submitBtn) {
-                                submitBtn = document.querySelector('div[aria-label*="Tiếp"]') ||
-                                           document.querySelector('div[aria-label*="Continue"]') ||
-                                           document.querySelector('button[type="submit"]');
-                            }
-
-                            if (submitBtn) {
-                                submitBtn.click();
-                                return 'clicked_submit: ' + (submitBtn.innerText || '').substring(0, 20);
-                            }
-
-                            // Fallback cuối: click button cuối trong form
-                            let form = document.querySelector('form');
-                            if (form) {
-                                let formBtns = form.querySelectorAll('div[role="button"], button');
-                                if (formBtns.length > 0) {
-                                    formBtns[formBtns.length - 1].click();
-                                    return 'clicked_form_last';
-                                }
-                            }
-                            return 'no_submit_btn';
+                            // Fallback: aria-label
+                            let btn = document.querySelector('div[aria-label*="Tiếp"]') ||
+                                     document.querySelector('div[aria-label*="Continue"]') ||
+                                     document.querySelector('button[type="submit"]');
+                            if (btn) { btn.click(); return 'clicked_fallback'; }
+                            return 'no_btn';
                         })()
                     ''')
 
