@@ -35,11 +35,11 @@ class WindowManager:
     SCREEN_HEIGHT = 1440
 
     # Kích thước cửa sổ mặc định (trước khi scale)
-    # Scale 40% => hiển thị 400x600 trên màn hình
+    # Scale 50% => hiển thị 500x750 trên màn hình
     WINDOW_WIDTH = 1000
     WINDOW_HEIGHT = 1500
-    MARGIN = 10
-    SCALE_FACTOR = 0.4  # 40%
+    MARGIN = 15
+    SCALE_FACTOR = 0.5  # 50%
 
     # Offset để tránh taskbar
     TOP_OFFSET = 0
