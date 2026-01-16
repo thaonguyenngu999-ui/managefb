@@ -360,20 +360,17 @@ class PagesTab(ctk.CTkFrame):
             # Load tất cả profiles từ database
             self.profiles = get_profiles()
         else:
-            # Tìm folder_id và load profiles theo folder từ API
+            # Tìm folder_id và load profiles theo folder từ API (giống login_tab)
             folder_id = None
             for f in self.folders:
-                fname = f.get('name') or f.get('folderName') or ''
-                if fname == folder_name:
-                    folder_id = f.get('uuid') or f.get('id')
+                if f.get('name') == folder_name:
+                    folder_id = f.get('id')
                     break
 
             if folder_id:
                 try:
                     # Load profiles từ API với folder filter
-                    self.profiles = api.get_profiles(folder_id=[folder_id])
-                    if not isinstance(self.profiles, list):
-                        self.profiles = []
+                    self.profiles = api.get_profiles(folder_id=[folder_id]) or []
                 except:
                     self.profiles = get_profiles()
             else:
