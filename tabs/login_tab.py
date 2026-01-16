@@ -1255,18 +1255,19 @@ class LoginTab(ctk.CTkFrame):
 
             ws.close()
 
+            # Đóng browser TRƯỚC khi xóa profile
+            if status_clean != 'LIVE':
+                api.close_browser(uuid)
+                time.sleep(0.5)  # Đợi browser đóng xong
+
             # Xóa profile nếu login thất bại (không phải LIVE) và option được bật
             if status_clean != 'LIVE' and self.delete_bad_var.get():
                 try:
                     self.after(0, lambda s=status_clean: self._log(f"  🗑️ Xóa profile ({s})..."))
                     delete_result = api.delete_profiles([uuid], is_local=False)
-                    self.after(0, lambda r=delete_result: self._log(f"  Delete: {r}"))
+                    self.after(0, lambda r=delete_result: self._log(f"  Delete result: {delete_result}"))
                 except Exception as e:
                     self.after(0, lambda err=str(e): self._log(f"  Delete error: {err}"))
-
-            # Đóng browser nếu không phải LIVE
-            if status_clean != 'LIVE':
-                api.close_browser(uuid)
 
             return status_clean == 'LIVE', status_clean
 
@@ -1277,6 +1278,9 @@ class LoginTab(ctk.CTkFrame):
                     ws.close()
                 except:
                     pass
+            # Đóng browser trước
+            api.close_browser(uuid)
+            time.sleep(0.5)
             # Xóa profile khi có lỗi
             if self.delete_bad_var.get():
                 try:
@@ -1284,7 +1288,6 @@ class LoginTab(ctk.CTkFrame):
                     api.delete_profiles([uuid], is_local=False)
                 except:
                     pass
-            api.close_browser(uuid)
             return False, 'ERROR'
 
     def _stop_login(self):
