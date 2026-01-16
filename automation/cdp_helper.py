@@ -361,6 +361,71 @@ class CDPHelper:
             return None
         return self._client.take_screenshot(reason=reason)
 
+    # ==================== WINDOW MANAGEMENT ====================
+
+    def set_window_bounds(self, x: int, y: int, width: int, height: int) -> bool:
+        """
+        Set browser window position and size using CDP Browser domain
+
+        Args:
+            x: Window left position
+            y: Window top position
+            width: Window width
+            height: Window height
+        """
+        if not self.is_connected:
+            return False
+
+        try:
+            # Get window ID for current target
+            result = self._client.session.send_command('Browser.getWindowForTarget', {})
+            if not result or 'windowId' not in result:
+                print("[CDP] Failed to get window ID")
+                return False
+
+            window_id = result['windowId']
+
+            # Set window bounds
+            bounds = {
+                'left': x,
+                'top': y,
+                'width': width,
+                'height': height,
+                'windowState': 'normal'
+            }
+
+            self._client.session.send_command('Browser.setWindowBounds', {
+                'windowId': window_id,
+                'bounds': bounds
+            })
+
+            return True
+
+        except Exception as e:
+            print(f"[CDP] set_window_bounds error: {e}")
+            return False
+
+    def get_window_bounds(self) -> Optional[Dict]:
+        """Get current window bounds"""
+        if not self.is_connected:
+            return None
+
+        try:
+            result = self._client.session.send_command('Browser.getWindowForTarget', {})
+            if not result or 'windowId' not in result:
+                return None
+
+            window_id = result['windowId']
+            bounds_result = self._client.session.send_command('Browser.getWindowBounds', {
+                'windowId': window_id
+            })
+
+            return bounds_result.get('bounds')
+
+        except Exception as e:
+            print(f"[CDP] get_window_bounds error: {e}")
+            return None
+
     # ==================== HIGH-LEVEL ACTIONS ====================
 
     def click_like_button(self) -> bool:

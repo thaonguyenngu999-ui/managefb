@@ -13,6 +13,7 @@ from config import COLORS
 from widgets import ModernButton, ModernEntry
 from db import get_post_history
 from api_service import api
+from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
 
 
 class PostsTab(ctk.CTkFrame):
@@ -721,6 +722,8 @@ class PostsTab(ctk.CTkFrame):
     def _like_post_with_profile(self, profile: Dict, post_url: str) -> bool:
         """Like bài viết với 1 profile qua CDP MAX"""
         from automation import CDPHelper, get_remote_port_from_browser
+        import websocket
+        import json as json_module
 
         profile_uuid = profile.get('uuid', '')
         profile_name = profile.get('name', 'Unknown')
@@ -729,6 +732,8 @@ class PostsTab(ctk.CTkFrame):
             self.after(0, lambda: self._log(f"[{profile_name}] Không có UUID"))
             return False
 
+        # Acquire window slot for positioning
+        slot_id = acquire_window_slot()
         helper = None
         try:
             self.after(0, lambda pn=profile_name, pu=profile_uuid[:8]: self._log(f"[{pn}] ({pu}) Đang mở browser..."))
@@ -774,8 +779,34 @@ class PostsTab(ctk.CTkFrame):
 
             self.after(0, lambda pn=profile_name, p=remote_port: self._log(f"[{pn}] Đã mở, port: {p}"))
 
+            # Set window bounds - thu nhỏ và sắp xếp cửa sổ
+            try:
+                time.sleep(0.5)
+                resp = requests.get(f"http://127.0.0.1:{remote_port}/json", timeout=5)
+                tabs = resp.json()
+                page_ws = None
+                for tab in tabs:
+                    if tab.get('type') == 'page':
+                        page_ws = tab.get('webSocketDebuggerUrl')
+                        break
+                if page_ws:
+                    ws_tmp = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
+                    x, y, w, h = get_window_bounds(slot_id)
+                    ws_tmp.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
+                    win_res = json_module.loads(ws_tmp.recv())
+                    if win_res and 'result' in win_res and 'windowId' in win_res['result']:
+                        window_id = win_res['result']['windowId']
+                        ws_tmp.send(json_module.dumps({
+                            "id": 2, "method": "Browser.setWindowBounds",
+                            "params": {"windowId": window_id, "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}}
+                        }))
+                        ws_tmp.recv()
+                    ws_tmp.close()
+            except Exception as e:
+                print(f"[Posts] Window bounds error: {e}")
+
             # Kết nối CDP MAX - đợi browser sẵn sàng
-            time.sleep(1.5)  # Đợi browser khởi động
+            time.sleep(1.0)  # Đợi browser khởi động
 
             helper = CDPHelper()
             max_retries = 2
@@ -826,6 +857,8 @@ class PostsTab(ctk.CTkFrame):
                 api.close_browser(profile_uuid)
             except:
                 pass
+            # Release window slot
+            release_window_slot(slot_id)
 
     def _stop_liking(self):
         """Dừng quá trình like"""

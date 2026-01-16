@@ -19,6 +19,7 @@ from db import (
     get_contents, get_categories, save_post_history, get_post_history
 )
 from api_service import api
+from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
 
 # Import for web scraping
 import requests
@@ -1066,6 +1067,7 @@ class GroupsTab(ctk.CTkFrame):
             return []
 
         groups_found = []
+        slot_id = acquire_window_slot()
 
         try:
             # Bước 1: Mở browser qua Hidemium API
@@ -1076,6 +1078,7 @@ class GroupsTab(ctk.CTkFrame):
             status = result.get('status') or result.get('type')
             if status not in ['successfully', 'success', True]:
                 if 'already' not in str(result).lower() and 'running' not in str(result).lower():
+                    release_window_slot(slot_id)
                     return []
 
             # Lấy thông tin CDP
@@ -1089,12 +1092,42 @@ class GroupsTab(ctk.CTkFrame):
                     remote_port = int(match.group(1))
 
             if not remote_port:
+                release_window_slot(slot_id)
                 return []
 
             cdp_base = f"http://127.0.0.1:{remote_port}"
 
             # Đợi browser khởi động
-            time.sleep(3)
+            time.sleep(1)
+
+            # Set window bounds - thu nhỏ và sắp xếp cửa sổ
+            try:
+                import websocket
+                import json as json_module
+                resp = requests.get(f"{cdp_base}/json", timeout=5)
+                tabs = resp.json()
+                page_ws = None
+                for tab in tabs:
+                    if tab.get('type') == 'page':
+                        page_ws = tab.get('webSocketDebuggerUrl')
+                        break
+                if page_ws:
+                    ws_tmp = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
+                    x, y, w, h = get_window_bounds(slot_id)
+                    ws_tmp.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
+                    win_res = json_module.loads(ws_tmp.recv())
+                    if win_res and 'result' in win_res and 'windowId' in win_res['result']:
+                        window_id = win_res['result']['windowId']
+                        ws_tmp.send(json_module.dumps({
+                            "id": 2, "method": "Browser.setWindowBounds",
+                            "params": {"windowId": window_id, "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}}
+                        }))
+                        ws_tmp.recv()
+                    ws_tmp.close()
+            except Exception as e:
+                print(f"[Groups] Window bounds error: {e}")
+
+            time.sleep(2)
 
             # Bước 2: Lấy danh sách tabs qua CDP
             try:
@@ -1219,6 +1252,8 @@ class GroupsTab(ctk.CTkFrame):
         except Exception as e:
             import traceback
             print(f"[ERROR] Scan {profile_uuid[:8]}: {traceback.format_exc()}")
+        finally:
+            release_window_slot(slot_id)
 
         return groups_found
 

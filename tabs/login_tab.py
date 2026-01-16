@@ -11,6 +11,7 @@ from datetime import datetime
 from config import COLORS
 from widgets import ModernCard, ModernButton, ModernEntry
 from api_service import api
+from automation.window_manager import get_window_manager, acquire_window_slot, release_window_slot, get_window_bounds
 
 # Optional: openpyxl for XLSX support
 try:
@@ -533,6 +534,7 @@ class LoginTab(ctk.CTkFrame):
                 except queue.Empty:
                     break
 
+                slot_id = acquire_window_slot()
                 try:
                     # Mở browser và check xem có FB không
                     result = api.open_browser(uuid)
@@ -540,6 +542,9 @@ class LoginTab(ctk.CTkFrame):
                         data = result.get('data', {})
                         remote_port = data.get('remote_port')
                         ws_url = data.get('web_socket', '')
+
+                        # Set window bounds
+                        self._set_browser_window_bounds(remote_port, slot_id)
 
                         # Kết nối CDP và check
                         has_fb = self._check_profile_has_fb(remote_port, ws_url)
@@ -554,6 +559,8 @@ class LoginTab(ctk.CTkFrame):
 
                 except Exception as e:
                     self.after(0, lambda u=uuid, err=str(e): self._log(f"[{u[:8]}] Lỗi: {err}"))
+                finally:
+                    release_window_slot(slot_id)
 
                 profile_queue.task_done()
 
@@ -574,6 +581,53 @@ class LoginTab(ctk.CTkFrame):
             self.after(0, self._on_check_complete)
 
         threading.Thread(target=run_check, daemon=True).start()
+
+    def _set_browser_window_bounds(self, remote_port: int, slot_id: int):
+        """Set browser window position and size based on slot"""
+        import requests
+        import websocket
+        import json as json_module
+
+        try:
+            # Get page websocket
+            resp = requests.get(f"http://127.0.0.1:{remote_port}/json", timeout=5)
+            tabs = resp.json()
+
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    page_ws = tab.get('webSocketDebuggerUrl')
+                    break
+
+            if not page_ws:
+                return
+
+            # Connect and set bounds
+            ws = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
+
+            x, y, w, h = get_window_bounds(slot_id)
+
+            # Get window ID
+            ws.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
+            result = json_module.loads(ws.recv())
+
+            if result and 'result' in result and 'windowId' in result['result']:
+                window_id = result['result']['windowId']
+                # Set bounds
+                ws.send(json_module.dumps({
+                    "id": 2,
+                    "method": "Browser.setWindowBounds",
+                    "params": {
+                        "windowId": window_id,
+                        "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}
+                    }
+                }))
+                ws.recv()  # Wait for response
+
+            ws.close()
+
+        except Exception as e:
+            print(f"[Login] Set window bounds error: {e}")
 
     def _check_profile_has_fb(self, remote_port: int, ws_url: str) -> bool:
         """Check if browser has FB logged in"""
@@ -846,14 +900,19 @@ class LoginTab(ctk.CTkFrame):
         import json as json_module
         import requests
 
+        # Acquire window slot for positioning
+        slot_id = acquire_window_slot()
+
         result = api.open_browser(uuid)
         if result.get('status') != 'successfully':
+            release_window_slot(slot_id)
             return False, 'ERROR'
 
         data = result.get('data', {})
         remote_port = data.get('remote_port')
 
         if not remote_port:
+            release_window_slot(slot_id)
             return False, 'NO_PORT'
 
         ws = None
@@ -871,6 +930,7 @@ class LoginTab(ctk.CTkFrame):
 
             if not page_ws:
                 api.close_browser(uuid)
+                release_window_slot(slot_id)
                 return False, 'NO_PAGE'
 
             # Kết nối WebSocket trực tiếp (nhanh hơn CDPHelper)
@@ -892,6 +952,21 @@ class LoginTab(ctk.CTkFrame):
                     "returnByValue": True
                 })
                 return result.get('result', {}).get('result', {}).get('value')
+
+            # Set window bounds theo slot - thu nhỏ cửa sổ và sắp xếp không chồng lên nhau
+            try:
+                x, y, w, h = get_window_bounds(slot_id)
+                # Get window ID
+                win_result = send_cmd("Browser.getWindowForTarget", {})
+                if win_result and 'result' in win_result and 'windowId' in win_result['result']:
+                    window_id = win_result['result']['windowId']
+                    # Set bounds
+                    send_cmd("Browser.setWindowBounds", {
+                        "windowId": window_id,
+                        "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}
+                    })
+            except Exception as e:
+                print(f"[Login] Window bounds error: {e}")
 
             # Xóa cookies Facebook trước khi login (tránh dính session cũ)
             for domain in [".facebook.com", "facebook.com", "www.facebook.com", "m.facebook.com"]:
@@ -1307,6 +1382,7 @@ class LoginTab(ctk.CTkFrame):
             # Đóng browser TRƯỚC khi xóa profile
             if status_clean != 'LIVE':
                 api.close_browser(uuid)
+                release_window_slot(slot_id)  # Release window slot
                 time.sleep(0.5)  # Đợi browser đóng xong
 
             # Xóa profile nếu login thất bại (không phải LIVE) và option được bật
@@ -1323,6 +1399,10 @@ class LoginTab(ctk.CTkFrame):
                 except Exception as e:
                     self.after(0, lambda err=str(e): self._log(f"  Delete error: {err}"))
 
+            # Release slot if LIVE (browser stays open)
+            if status_clean == 'LIVE':
+                release_window_slot(slot_id)
+
             return status_clean == 'LIVE', status_clean
 
         except Exception as e:
@@ -1334,6 +1414,7 @@ class LoginTab(ctk.CTkFrame):
                     pass
             # Đóng browser trước
             api.close_browser(uuid)
+            release_window_slot(slot_id)  # Release window slot
             time.sleep(0.5)
             # Xóa profile khi có lỗi
             if self.delete_bad_var.get():

@@ -76,7 +76,26 @@ __all__ = [
     'CDPHelperResult',
     'create_cdp_helper',
     'get_remote_port_from_browser',
+    # Window Manager
+    'WindowManager',
+    'get_window_manager',
+    'acquire_window_slot',
+    'release_window_slot',
+    'get_window_bounds',
+    'configure_window_size',
+    'configure_screen_size',
 ]
 
 # CDP Helper - High-level automation for tabs
 from .cdp_helper import CDPHelper, CDPHelperResult, create_cdp_helper, get_remote_port_from_browser
+
+# Window Manager - Window sizing and positioning
+from .window_manager import (
+    WindowManager,
+    get_window_manager,
+    acquire_window_slot,
+    release_window_slot,
+    get_window_bounds,
+    configure_window_size,
+    configure_screen_size
+)

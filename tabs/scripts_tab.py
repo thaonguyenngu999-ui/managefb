@@ -19,6 +19,7 @@ from db import (
 )
 from api_service import api
 from automation import CDPHelper
+from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
 
 
 class ScriptsTab(ctk.CTkFrame):
@@ -1100,10 +1101,14 @@ class ScriptsTab(ctk.CTkFrame):
 
             self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Đang mở browser..."))
 
+            # Acquire window slot for positioning
+            slot_id = acquire_window_slot()
+
             # Mở browser
             result = api.open_browser(profile_uuid)
             if result.get('type') == 'error':
                 self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ❌ Không mở được browser"))
+                release_window_slot(slot_id)
                 errors += 1
                 continue
 
@@ -1118,16 +1123,48 @@ class ScriptsTab(ctk.CTkFrame):
 
             if not remote_port:
                 self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ❌ Không lấy được port"))
+                release_window_slot(slot_id)
                 errors += 1
                 continue
 
-            time.sleep(2)  # Đợi browser khởi động
+            time.sleep(1)  # Đợi browser khởi động
+
+            # Set window bounds - thu nhỏ và sắp xếp cửa sổ
+            try:
+                import websocket
+                import json as json_module
+                import requests
+                resp = requests.get(f"http://127.0.0.1:{remote_port}/json", timeout=5)
+                tabs = resp.json()
+                page_ws = None
+                for tab in tabs:
+                    if tab.get('type') == 'page':
+                        page_ws = tab.get('webSocketDebuggerUrl')
+                        break
+                if page_ws:
+                    ws_tmp = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
+                    x, y, w, h = get_window_bounds(slot_id)
+                    ws_tmp.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
+                    win_res = json_module.loads(ws_tmp.recv())
+                    if win_res and 'result' in win_res and 'windowId' in win_res['result']:
+                        window_id = win_res['result']['windowId']
+                        ws_tmp.send(json_module.dumps({
+                            "id": 2, "method": "Browser.setWindowBounds",
+                            "params": {"windowId": window_id, "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}}
+                        }))
+                        ws_tmp.recv()
+                    ws_tmp.close()
+            except Exception as e:
+                print(f"[Scripts] Window bounds error: {e}")
+
+            time.sleep(1)
 
             # Kết nối CDP
             helper = CDPHelper()
             if not helper.connect(remote_port=remote_port, ws_url=ws_url):
                 self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ❌ Không kết nối được CDP"))
                 api.close_browser(profile_uuid)
+                release_window_slot(slot_id)
                 errors += 1
                 continue
 
@@ -1172,6 +1209,7 @@ class ScriptsTab(ctk.CTkFrame):
             # Đóng kết nối và browser
             helper.close()
             api.close_browser(profile_uuid)
+            release_window_slot(slot_id)
 
             self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✓ Hoàn thành"))
 
