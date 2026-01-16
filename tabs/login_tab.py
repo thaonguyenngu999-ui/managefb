@@ -880,11 +880,12 @@ class LoginTab(ctk.CTkFrame):
 
             # Navigate to Facebook login
             send_cmd("Page.navigate", {"url": "https://www.facebook.com/login"})
+            time.sleep(3)  # Đợi navigation bắt đầu
 
             import random
 
-            # Đợi page load hoàn tất (max 15s)
-            for _ in range(15):
+            # Đợi page load hoàn tất (max 10s)
+            for _ in range(10):
                 ready_state = evaluate('document.readyState')
                 if ready_state == 'complete':
                     break
@@ -976,20 +977,16 @@ class LoginTab(ctk.CTkFrame):
                 api.close_browser(uuid)
                 return False, 'NO_FORM'
 
-            # Định nghĩa selectors linh hoạt cho form elements
-            email_selectors = '#email, input[name="email"], input[type="email"], input[autocomplete="username"]'
-            pass_selectors = '#pass, input[name="pass"], input[type="password"], input[autocomplete="current-password"]'
-
             # Type email/phone (giả lập gõ từng ký tự)
             self.after(0, lambda: self._log(f"  Typing email..."))
-            type_text(account["fb_id"], email_selectors)
+            type_text(account["fb_id"], "#email")
 
             # Pause như người chuyển field
             time.sleep(random.uniform(0.3, 0.7))
 
             # Type password
             self.after(0, lambda: self._log(f"  Typing password..."))
-            type_text(account["password"], pass_selectors)
+            type_text(account["password"], "#pass")
 
             # Pause trước khi click
             time.sleep(random.uniform(0.5, 1.0))
