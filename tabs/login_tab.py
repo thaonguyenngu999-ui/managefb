@@ -972,8 +972,17 @@ class LoginTab(ctk.CTkFrame):
                 api.close_browser(uuid)
                 return False, 'NO_FORM'
 
-            # Wait for login result
-            time.sleep(3 + random.uniform(0.5, 2))
+            # Wait for login result - đợi page load xong
+            time.sleep(2)
+
+            # Đợi page load hoàn tất (max 10s)
+            for _ in range(10):
+                ready_state = evaluate('document.readyState')
+                if ready_state == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(1 + random.uniform(0.5, 1.5))
 
             # Check login result
             js_check = '''
@@ -1054,10 +1063,21 @@ class LoginTab(ctk.CTkFrame):
                 })()
             '''
 
-            status = evaluate(js_check) or 'UNKNOWN'
+            # Retry check status (đợi nếu UNKNOWN)
+            status = 'UNKNOWN'
+            status_clean = 'UNKNOWN'
+            for attempt in range(3):
+                status = evaluate(js_check) or 'UNKNOWN'
+                status_clean = status.split(':')[0] if ':' in str(status) else status
 
-            # Normalize status (remove debug info for comparison)
-            status_clean = status.split(':')[0] if ':' in str(status) else status
+                # Nếu có kết quả rõ ràng thì dừng
+                if status_clean in ['LIVE', 'DIE', 'WRONG_PASS', 'LOCKED', '2FA']:
+                    break
+
+                # Chờ thêm nếu UNKNOWN/FAILED
+                if attempt < 2:
+                    time.sleep(2)
+
             self.after(0, lambda s=status: self._log(f"  Login status: {s}"))
 
             # Xử lý 2FA nếu có secret key
@@ -1134,8 +1154,11 @@ class LoginTab(ctk.CTkFrame):
                 except Exception as e:
                     self.after(0, lambda err=str(e): self._log(f"  Delete error: {err}"))
 
-            # Không đóng browser nếu thành công
-            if status_clean != 'LIVE':
+            # Chỉ đóng browser nếu có lỗi rõ ràng (không đóng nếu UNKNOWN/LIVE)
+            # LIVE: giữ browser để user xác nhận
+            # UNKNOWN: có thể chưa load xong, để user check
+            close_statuses = ['DIE', 'WRONG_PASS', 'LOCKED', 'NO_FORM', 'FAILED']
+            if status_clean in close_statuses:
                 api.close_browser(uuid)
 
             return status_clean == 'LIVE', status_clean
