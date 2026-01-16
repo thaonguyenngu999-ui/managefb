@@ -34,9 +34,9 @@ class WindowManager:
     SCREEN_WIDTH = 5120  # Default cho ultrawide
     SCREEN_HEIGHT = 1440
 
-    # Kích thước cửa sổ mặc định - nhỏ hơn để fit nhiều cửa sổ
-    WINDOW_WIDTH = 480
-    WINDOW_HEIGHT = 400
+    # Kích thước cửa sổ mặc định (trước khi scale)
+    WINDOW_WIDTH = 1000
+    WINDOW_HEIGHT = 2000
     MARGIN = 10
 
     # Offset để tránh taskbar

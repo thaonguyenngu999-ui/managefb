@@ -215,11 +215,11 @@ class HidemiumAPI:
     # ============ BROWSER CONTROL ============
     
     def open_browser(self, uuid: str, command: str = "", proxy: str = "",
-                     auto_resize: bool = True, scale_factor: float = 0.5) -> Dict:
+                     auto_resize: bool = True, scale_factor: float = 0.4) -> Dict:
         """
         Mở browser/profile - GET /openProfile
 
-        scale_factor: Tỷ lệ thu phóng toàn bộ browser (0.5 = 50% size)
+        scale_factor: Tỷ lệ thu phóng toàn bộ browser (0.4 = 40% size)
                      Sử dụng --force-device-scale-factor để scale cả UI
         """
         params = {"uuid": uuid}
