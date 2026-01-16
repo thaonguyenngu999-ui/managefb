@@ -34,10 +34,12 @@ class WindowManager:
     SCREEN_WIDTH = 5120  # Default cho ultrawide
     SCREEN_HEIGHT = 1440
 
-    # Kích thước cửa sổ mặc định
+    # Kích thước cửa sổ mặc định (trước khi scale)
+    # Scale 40% => hiển thị 400x600 trên màn hình
     WINDOW_WIDTH = 1000
-    WINDOW_HEIGHT = 1400
+    WINDOW_HEIGHT = 1500
     MARGIN = 10
+    SCALE_FACTOR = 0.4  # 40%
 
     # Offset để tránh taskbar
     TOP_OFFSET = 0
@@ -84,8 +86,12 @@ class WindowManager:
         usable_width = self.SCREEN_WIDTH - self.LEFT_OFFSET
         usable_height = self.SCREEN_HEIGHT - self.TOP_OFFSET - 40  # Trừ taskbar
 
-        self._cols = max(1, usable_width // (self.WINDOW_WIDTH + self.MARGIN))
-        self._rows = max(1, usable_height // (self.WINDOW_HEIGHT + self.MARGIN))
+        # Kích thước hiển thị thực tế sau khi scale
+        display_width = int(self.WINDOW_WIDTH * self.SCALE_FACTOR)
+        display_height = int(self.WINDOW_HEIGHT * self.SCALE_FACTOR)
+
+        self._cols = max(1, usable_width // (display_width + self.MARGIN))
+        self._rows = max(1, usable_height // (display_height + self.MARGIN))
         self._max_slots = self._cols * self._rows
 
         # Initialize slots
@@ -132,19 +138,23 @@ class WindowManager:
         """
         Tính toán vị trí và kích thước cho slot
 
-        Returns: (x, y, width, height)
+        Returns: (x, y, width, height) - kích thước đã scale
         """
+        # Kích thước hiển thị thực tế sau khi scale
+        display_width = int(self.WINDOW_WIDTH * self.SCALE_FACTOR)
+        display_height = int(self.WINDOW_HEIGHT * self.SCALE_FACTOR)
+
         if slot_id < 0:
-            return (0, 0, self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
+            return (0, 0, display_width, display_height)
 
         # Tính row và col từ slot_id
         col = slot_id % self._cols
         row = (slot_id // self._cols) % self._rows
 
-        x = self.LEFT_OFFSET + col * (self.WINDOW_WIDTH + self.MARGIN)
-        y = self.TOP_OFFSET + row * (self.WINDOW_HEIGHT + self.MARGIN)
+        x = self.LEFT_OFFSET + col * (display_width + self.MARGIN)
+        y = self.TOP_OFFSET + row * (display_height + self.MARGIN)
 
-        return (x, y, self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
+        return (x, y, display_width, display_height)
 
     def get_grid_info(self) -> Dict:
         """Lấy thông tin grid hiện tại"""

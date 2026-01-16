@@ -220,8 +220,18 @@ class HidemiumAPI:
         Mở browser/profile - GET /openProfile
         """
         params = {"uuid": uuid}
+
+        # Thêm --force-device-scale-factor để scale browser
+        from automation.window_manager import WindowManager
+        scale_factor = WindowManager.SCALE_FACTOR
+        scale_flag = f"--force-device-scale-factor={scale_factor}"
+
         if command:
-            params["command"] = command
+            # Append scale flag to existing command
+            params["command"] = f"{command} {scale_flag}"
+        else:
+            params["command"] = scale_flag
+
         if proxy:
             params["proxy"] = proxy
         result = self._get("/openProfile", params=params)
