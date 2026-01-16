@@ -26,9 +26,9 @@ class WindowManager:
     SCREEN_HEIGHT = 1440
 
     # Kích thước cửa sổ mặc định (trước khi scale)
-    # Scale 45% => hiển thị 450x900 trên màn hình
+    # Scale 45% => hiển thị 450x450 trên màn hình
     WINDOW_WIDTH = 1000
-    WINDOW_HEIGHT = 2000
+    WINDOW_HEIGHT = 1000
     MARGIN = 15
     SCALE_FACTOR = 0.45  # 45%
 
