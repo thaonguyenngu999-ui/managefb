@@ -127,6 +127,25 @@ def init_database():
             )
         """)
 
+        # ============ PAGES TABLE ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_uuid TEXT NOT NULL,
+                page_id TEXT NOT NULL,
+                page_name TEXT,
+                page_url TEXT,
+                category TEXT,
+                follower_count INTEGER DEFAULT 0,
+                role TEXT DEFAULT 'admin',
+                note TEXT,
+                is_selected INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(profile_uuid, page_id)
+            )
+        """)
+
         # ============ GROUPS TABLE ============
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS groups (
@@ -193,6 +212,7 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contents_category ON contents(category_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_profiles_uuid ON profiles(uuid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scripts_type ON scripts(type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pages_profile ON pages(profile_uuid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_groups_profile ON groups(profile_uuid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_profile ON post_history(profile_uuid)")
 
@@ -708,6 +728,155 @@ def migrate_from_json():
 
             except Exception as e:
                 print(f"Error migrating {name}: {e}")
+
+
+# ==================== PAGES ====================
+
+def get_pages(profile_uuid: str = None) -> List[Dict]:
+    """Lấy danh sách pages, có thể lọc theo profile"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if profile_uuid:
+            cursor.execute(
+                "SELECT * FROM pages WHERE profile_uuid = ? ORDER BY page_name",
+                (profile_uuid,)
+            )
+        else:
+            cursor.execute("SELECT * FROM pages ORDER BY page_name")
+        return rows_to_list(cursor.fetchall())
+
+
+def get_pages_for_profiles(profile_uuids: List[str]) -> List[Dict]:
+    """Lấy danh sách pages từ nhiều profiles"""
+    if not profile_uuids:
+        return []
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join(['?' for _ in profile_uuids])
+        cursor.execute(
+            f"SELECT * FROM pages WHERE profile_uuid IN ({placeholders}) ORDER BY profile_uuid, page_name",
+            profile_uuids
+        )
+        return rows_to_list(cursor.fetchall())
+
+
+def get_page_by_id(page_id: int) -> Optional[Dict]:
+    """Lấy page theo ID"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM pages WHERE id = ?", (page_id,))
+        return row_to_dict(cursor.fetchone())
+
+
+def save_page(data: Dict) -> Dict:
+    """Lưu page (tạo mới hoặc cập nhật)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        # Check if page already exists for this profile
+        cursor.execute(
+            "SELECT id FROM pages WHERE profile_uuid = ? AND page_id = ?",
+            (data.get('profile_uuid'), data.get('page_id'))
+        )
+        existing = cursor.fetchone()
+
+        if existing:
+            # Update
+            cursor.execute("""
+                UPDATE pages
+                SET page_name = ?, page_url = ?, category = ?, follower_count = ?,
+                    role = ?, note = ?, is_selected = ?, updated_at = ?
+                WHERE id = ?
+            """, (
+                data.get('page_name', ''),
+                data.get('page_url', ''),
+                data.get('category', ''),
+                data.get('follower_count', 0),
+                data.get('role', 'admin'),
+                data.get('note', ''),
+                data.get('is_selected', 0),
+                now,
+                existing['id']
+            ))
+            data['id'] = existing['id']
+        else:
+            # Insert
+            cursor.execute("""
+                INSERT INTO pages (profile_uuid, page_id, page_name, page_url, category,
+                    follower_count, role, note, is_selected, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get('profile_uuid', ''),
+                data.get('page_id', ''),
+                data.get('page_name', ''),
+                data.get('page_url', ''),
+                data.get('category', ''),
+                data.get('follower_count', 0),
+                data.get('role', 'admin'),
+                data.get('note', ''),
+                data.get('is_selected', 0),
+                now, now
+            ))
+            data['id'] = cursor.lastrowid
+
+        return data
+
+
+def delete_page(page_id: int) -> bool:
+    """Xóa page"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM pages WHERE id = ?", (page_id,))
+        return cursor.rowcount > 0
+
+
+def delete_pages_bulk(page_ids: List[int]) -> int:
+    """Xóa nhiều pages"""
+    if not page_ids:
+        return 0
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join(['?' for _ in page_ids])
+        cursor.execute(f"DELETE FROM pages WHERE id IN ({placeholders})", page_ids)
+        return cursor.rowcount
+
+
+def update_page_selection(page_id: int, is_selected: int) -> bool:
+    """Cập nhật trạng thái chọn page"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            UPDATE pages SET is_selected = ?, updated_at = ? WHERE id = ?
+        """, (is_selected, now, page_id))
+        return cursor.rowcount > 0
+
+
+def sync_pages(profile_uuid: str, pages_from_scan: List[Dict]):
+    """Đồng bộ pages từ scan vào database"""
+    for page in pages_from_scan:
+        page['profile_uuid'] = profile_uuid
+        save_page(page)
+
+
+def clear_pages(profile_uuid: str) -> bool:
+    """Xóa tất cả pages của profile"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM pages WHERE profile_uuid = ?", (profile_uuid,))
+        return cursor.rowcount > 0
+
+
+def get_pages_count(profile_uuid: str = None) -> int:
+    """Đếm số pages"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if profile_uuid:
+            cursor.execute("SELECT COUNT(*) FROM pages WHERE profile_uuid = ?", (profile_uuid,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM pages")
+        return cursor.fetchone()[0]
 
 
 # ==================== GROUPS ====================
