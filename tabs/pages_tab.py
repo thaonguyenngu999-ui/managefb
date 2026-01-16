@@ -12,7 +12,7 @@ from datetime import datetime
 from config import COLORS
 from widgets import ModernButton, ModernEntry
 from db import (
-    get_pages, get_pages_for_profiles, save_page, delete_page, delete_pages_bulk,
+    get_profiles, get_pages, get_pages_for_profiles, save_page, delete_page, delete_pages_bulk,
     update_page_selection, sync_pages, clear_pages, get_pages_count
 )
 from api_service import api
@@ -272,79 +272,47 @@ class PagesTab(ctk.CTkFrame):
         self.empty_label.pack(pady=50)
 
     def _load_profiles(self):
-        """Load danh sách profiles và folders từ Hidemium"""
-        def load():
-            try:
-                # Load profiles - trả về list trực tiếp
-                profiles = api.get_profiles()
-                if not isinstance(profiles, list):
-                    profiles = []
+        """Load danh sách profiles và folders từ database"""
+        # Load profiles từ database (giống groups_tab)
+        self.profiles = get_profiles()
 
-                # Load folders riêng
-                try:
-                    folders = api.get_folders()
-                    if not isinstance(folders, list):
-                        folders = []
-                except:
-                    folders = []
+        # Load folders từ Hidemium API
+        try:
+            self.folders = api.get_folders()
+            if not isinstance(self.folders, list):
+                self.folders = []
+        except:
+            self.folders = []
 
-                self.after(0, lambda: self._update_profiles(profiles, folders))
-
-            except Exception as e:
-                import traceback
-                print(f"[Pages] Load profiles error: {traceback.format_exc()}")
-                self.after(0, lambda: self._set_status(f"Lỗi: {e}", "error"))
-
-        threading.Thread(target=load, daemon=True).start()
-
-    def _update_profiles(self, profiles: List[Dict], folders: List[Dict]):
-        """Cập nhật danh sách profiles"""
-        self.profiles = profiles
-        self.folders = folders
-
-        # Update folder menu - lấy name từ folder object
+        # Update folder menu
         folder_names = ["-- Tất cả --"]
-        for f in folders:
+        for f in self.folders:
             fname = f.get('name') or f.get('folderName') or 'Unknown'
             folder_names.append(fname)
         self.folder_menu.configure(values=folder_names)
 
         # Render profiles
         self._render_profiles()
-        self._set_status(f"Đã load {len(profiles)} profiles, {len(folders)} thư mục", "success")
+        self._set_status(f"Đã load {len(self.profiles)} profiles, {len(self.folders)} thư mục", "success")
 
-    def _render_profiles(self, filter_folder: str = None):
+    def _render_profiles(self):
         """Render danh sách profiles"""
         # Clear existing
         for widget in self.profile_list.winfo_children():
             widget.destroy()
         self.profile_checkbox_vars.clear()
 
-        # Filter by folder
-        profiles_to_show = self.profiles
-        if filter_folder and filter_folder != "-- Tất cả --":
-            # Tìm folder_id từ folder name
-            folder_id = None
-            for f in self.folders:
-                fname = f.get('name') or f.get('folderName') or ''
-                if fname == filter_folder:
-                    folder_id = f.get('uuid') or f.get('id') or f.get('folderId')
-                    break
+        if not self.profiles:
+            ctk.CTkLabel(
+                self.profile_list,
+                text="Không có profile",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(pady=10)
+            self._update_profile_stats()
+            return
 
-            if folder_id:
-                # Filter theo folder_id
-                profiles_to_show = [
-                    p for p in self.profiles
-                    if p.get('folderId') == folder_id or p.get('folder_id') == folder_id
-                ]
-            else:
-                # Fallback: filter theo folder_name
-                profiles_to_show = [
-                    p for p in self.profiles
-                    if p.get('folderName') == filter_folder or p.get('folder_name') == filter_folder
-                ]
-
-        for profile in profiles_to_show:
+        for profile in self.profiles:
             uuid = profile.get('uuid', '')
             name = profile.get('name', 'Unknown')
             status = profile.get('status', 'stopped')
@@ -388,7 +356,30 @@ class PagesTab(ctk.CTkFrame):
 
     def _on_folder_change(self, folder_name: str):
         """Khi thay đổi thư mục"""
-        self._render_profiles(folder_name if folder_name != "-- Tất cả --" else None)
+        if folder_name == "-- Tất cả --":
+            # Load tất cả profiles từ database
+            self.profiles = get_profiles()
+        else:
+            # Tìm folder_id và load profiles theo folder từ API
+            folder_id = None
+            for f in self.folders:
+                fname = f.get('name') or f.get('folderName') or ''
+                if fname == folder_name:
+                    folder_id = f.get('uuid') or f.get('id')
+                    break
+
+            if folder_id:
+                try:
+                    # Load profiles từ API với folder filter
+                    self.profiles = api.get_profiles(folder_id=[folder_id])
+                    if not isinstance(self.profiles, list):
+                        self.profiles = []
+                except:
+                    self.profiles = get_profiles()
+            else:
+                self.profiles = get_profiles()
+
+        self._render_profiles()
 
     def _on_profile_select(self, uuid: str):
         """Khi chọn/bỏ chọn profile"""
