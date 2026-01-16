@@ -26,11 +26,11 @@ class WindowManager:
     SCREEN_HEIGHT = 1440
 
     # Kích thước cửa sổ mặc định (trước khi scale)
-    # Scale 45% => hiển thị 450x450 trên màn hình
+    # Scale 40% => hiển thị 400x800 trên màn hình
     WINDOW_WIDTH = 1000
-    WINDOW_HEIGHT = 1000
-    MARGIN = 15
-    SCALE_FACTOR = 0.45  # 45%
+    WINDOW_HEIGHT = 2000
+    MARGIN = 20
+    SCALE_FACTOR = 0.40  # 40%
 
     # Giới hạn số cột/hàng
     MAX_COLS = 6   # 6 cửa sổ mỗi hàng
