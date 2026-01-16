@@ -34,10 +34,12 @@ class WindowManager:
     SCREEN_WIDTH = 5120  # Default cho ultrawide
     SCREEN_HEIGHT = 1440
 
-    # Kích thước cửa sổ mặc định (trước khi scale)
-    WINDOW_WIDTH = 1000
-    WINDOW_HEIGHT = 1400  # Phải nhỏ hơn screen height (1440)
-    MARGIN = 10
+    # Kích thước cửa sổ mặc định (kích thước thực tế trên màn hình)
+    # Vì --force-device-scale-factor không hoạt động với Hidemium
+    # Đặt kích thước nhỏ trực tiếp
+    WINDOW_WIDTH = 400
+    WINDOW_HEIGHT = 600
+    MARGIN = 5
 
     # Offset để tránh taskbar
     TOP_OFFSET = 0

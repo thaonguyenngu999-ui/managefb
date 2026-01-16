@@ -215,26 +215,15 @@ class HidemiumAPI:
     # ============ BROWSER CONTROL ============
     
     def open_browser(self, uuid: str, command: str = "", proxy: str = "",
-                     auto_resize: bool = True, scale_factor: float = 0.4) -> Dict:
+                     auto_resize: bool = True) -> Dict:
         """
         Mở browser/profile - GET /openProfile
-
-        scale_factor: Tỷ lệ thu phóng toàn bộ browser (0.4 = 40% size)
-                     Sử dụng --force-device-scale-factor để scale cả UI
         """
         params = {"uuid": uuid}
-
-        # Add scale factor flag to scale entire browser (including chrome UI)
-        scale_flag = f"--force-device-scale-factor={scale_factor}"
         if command:
-            params["command"] = f"{command} {scale_flag}"
-        else:
-            params["command"] = scale_flag
-
+            params["command"] = command
         if proxy:
             params["proxy"] = proxy
-
-        print(f"[DEBUG API] open_browser command: {params.get('command')}")
         result = self._get("/openProfile", params=params)
         print(f"[DEBUG API] open_browser({uuid[:8]}...) response: {result}")
 
