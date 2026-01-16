@@ -1207,6 +1207,36 @@ class CreatePageDialog(ctk.CTkToplevel):
             # Đợi trang load
             time.sleep(6)
 
+            # DEBUG: Dump tất cả inputs trên trang
+            js_debug = '''
+            (function() {
+                var result = [];
+                var inputs = document.querySelectorAll('input, textarea, div[contenteditable="true"], span[contenteditable="true"]');
+                for (var i = 0; i < inputs.length; i++) {
+                    var el = inputs[i];
+                    var info = {
+                        idx: i,
+                        tag: el.tagName,
+                        type: el.getAttribute('type') || '',
+                        label: el.getAttribute('aria-label') || '',
+                        placeholder: el.getAttribute('placeholder') || '',
+                        name: el.getAttribute('name') || '',
+                        visible: el.offsetParent !== null
+                    };
+                    result.push(info);
+                }
+                return JSON.stringify(result, null, 2);
+            })();
+            '''
+            ws.send(json_module.dumps({
+                "id": 5,
+                "method": "Runtime.evaluate",
+                "params": {"expression": js_debug}
+            }))
+            debug_result = json_module.loads(ws.recv())
+            debug_val = debug_result.get('result', {}).get('result', {}).get('value', '[]')
+            print(f"[CreatePage] DEBUG - All inputs on page:\n{debug_val}")
+
             # Nhập tên Page - Facebook dùng placeholder "Tên Trang (bắt buộc)"
             js_fill_name = f'''
             (function() {{
@@ -1281,7 +1311,8 @@ class CreatePageDialog(ctk.CTkToplevel):
                 "params": {"expression": js_fill_name}
             }))
             name_result = json_module.loads(ws.recv())
-            print(f"[CreatePage] Fill name result: {{name_result.get('result', {{}}).get('result', {{}}).get('value', '')}}")
+            name_val = name_result.get('result', {}).get('result', {}).get('value', 'N/A')
+            print(f"[CreatePage] Fill name result: {name_val}")
             time.sleep(1)
 
             # Nhập category - Facebook dùng "Hạng mục (Bắt buộc)"
@@ -1367,7 +1398,8 @@ class CreatePageDialog(ctk.CTkToplevel):
                 "params": {"expression": js_fill_category}
             }))
             cat_result = json_module.loads(ws.recv())
-            print(f"[CreatePage] Fill category result: {{cat_result.get('result', {{}}).get('result', {{}}).get('value', '')}}")
+            cat_val = cat_result.get('result', {}).get('result', {}).get('value', 'N/A')
+            print(f"[CreatePage] Fill category result: {cat_val}")
             time.sleep(2)
 
             # Click vào suggestion đầu tiên của category dropdown
