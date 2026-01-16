@@ -313,7 +313,7 @@ class LoginTab(ctk.CTkFrame):
             variable=self.dest_folder_var,
             values=["-- Không chuyển --"],
             width=200,
-            fg_color=COLORS["bg_tertiary"],
+            fg_color=COLORS["bg_card"],
             button_color=COLORS["accent"],
             dropdown_fg_color=COLORS["bg_secondary"]
         )
