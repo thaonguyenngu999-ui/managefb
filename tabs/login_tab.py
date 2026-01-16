@@ -1084,8 +1084,39 @@ class LoginTab(ctk.CTkFrame):
                     totp_code = generate_totp(account['totp_secret'])
                     self.after(0, lambda c=totp_code: self._log(f"  2FA code: {c}"))
 
-                    # Bước 1: Click vào "Ứng dụng xác thực" nếu đang ở màn chọn phương thức
                     time.sleep(1)
+
+                    # Bước 0: Kiểm tra có input 2FA không, nếu không thì click "Thử cách khác"
+                    has_input = evaluate('''
+                        (function() {
+                            let input = document.querySelector('input[id^="_r_"]') ||
+                                       document.querySelector('input[autocomplete="off"][type="text"]') ||
+                                       document.querySelector('input[name="approvals_code"]');
+                            return input ? 'YES' : 'NO';
+                        })()
+                    ''')
+                    self.after(0, lambda h=has_input: self._log(f"  2FA input found: {h}"))
+
+                    if has_input != 'YES':
+                        # Click "Thử cách khác" / "Try another way"
+                        self.after(0, lambda: self._log(f"  Clicking 'Thử cách khác'..."))
+                        evaluate('''
+                            (function() {
+                                let btns = document.querySelectorAll('div[role="button"], button, a, span');
+                                for (let btn of btns) {
+                                    let text = (btn.innerText || btn.textContent || '').trim();
+                                    if (text.includes('Thử cách khác') || text.includes('Try another') ||
+                                        text.includes('other way') || text.includes('cách khác')) {
+                                        btn.click();
+                                        return 'clicked_try_another';
+                                    }
+                                }
+                                return 'no_try_another';
+                            })()
+                        ''')
+                        time.sleep(2)
+
+                    # Bước 1: Click vào "Ứng dụng xác thực" nếu đang ở màn chọn phương thức
                     evaluate('''
                         (function() {
                             // Method 1: Click radio input value="1" (authentication app)
