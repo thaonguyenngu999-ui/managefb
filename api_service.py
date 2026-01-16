@@ -230,8 +230,12 @@ class HidemiumAPI:
 
         return result
 
-    def _auto_resize_browser_window(self, open_result: Dict):
-        """Tự động resize và sắp xếp cửa sổ browser"""
+    def _auto_resize_browser_window(self, open_result: Dict, zoom_percent: int = 50):
+        """
+        Tự động resize và sắp xếp cửa sổ browser
+
+        zoom_percent: Tỷ lệ thu phóng (50 = 50% = cửa sổ nhỏ, nội dung vẫn đầy đủ)
+        """
         import time
         try:
             from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
@@ -268,33 +272,57 @@ class HidemiumAPI:
                 release_window_slot(slot_id)
                 return
 
-            # Connect and set bounds
+            # Connect WebSocket
             ws = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
+            msg_id = [0]
 
+            def send_cmd(method, params=None):
+                msg_id[0] += 1
+                msg = {"id": msg_id[0], "method": method}
+                if params:
+                    msg["params"] = params
+                ws.send(json_module.dumps(msg))
+                return json_module.loads(ws.recv())
+
+            # Get window bounds from slot
             x, y, w, h = get_window_bounds(slot_id)
-            print(f"[API] Setting window bounds: x={x}, y={y}, w={w}, h={h}")
+            print(f"[API] Target window: x={x}, y={y}, w={w}, h={h}")
 
-            # Get window ID
-            ws.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
-            win_result = json_module.loads(ws.recv())
+            # Calculate zoom and viewport
+            # Cửa sổ nhỏ nhưng viewport lớn hơn
+            zoom_factor = zoom_percent / 100.0  # 0.5 for 50%
+            viewport_width = int(w / zoom_factor)  # e.g., 480 / 0.5 = 960
+            viewport_height = int(h / zoom_factor)  # e.g., 400 / 0.5 = 800
+
+            print(f"[API] Zoom: {zoom_percent}%, Viewport: {viewport_width}x{viewport_height}")
+
+            # Step 1: Set window position and size
+            win_result = send_cmd("Browser.getWindowForTarget", {})
             print(f"[API] getWindowForTarget: {win_result}")
 
             if win_result and 'result' in win_result and 'windowId' in win_result['result']:
                 window_id = win_result['result']['windowId']
-                # Set bounds
-                ws.send(json_module.dumps({
-                    "id": 2,
-                    "method": "Browser.setWindowBounds",
-                    "params": {
-                        "windowId": window_id,
-                        "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}
-                    }
-                }))
-                bounds_result = json_module.loads(ws.recv())
+
+                # Set window bounds
+                bounds_result = send_cmd("Browser.setWindowBounds", {
+                    "windowId": window_id,
+                    "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}
+                })
                 print(f"[API] setWindowBounds: {bounds_result}")
 
+                # Step 2: Set device metrics to emulate larger viewport with scale
+                # This makes the page think viewport is larger, but renders smaller
+                metrics_result = send_cmd("Emulation.setDeviceMetricsOverride", {
+                    "width": viewport_width,
+                    "height": viewport_height,
+                    "deviceScaleFactor": 1,
+                    "mobile": False,
+                    "scale": zoom_factor  # This scales the visual output
+                })
+                print(f"[API] setDeviceMetricsOverride: {metrics_result}")
+
                 if 'error' not in bounds_result:
-                    print(f"[API] ✓ Window resized successfully!")
+                    print(f"[API] ✓ Window resized with {zoom_percent}% zoom!")
                 else:
                     print(f"[API] ERROR: {bounds_result.get('error')}")
 
