@@ -4,15 +4,6 @@ Sắp xếp các cửa sổ theo grid, không chồng lên nhau
 """
 import threading
 from typing import Dict, Tuple, Optional, List
-from dataclasses import dataclass
-
-
-@dataclass
-class WindowConfig:
-    """Cấu hình cửa sổ"""
-    width: int = 400
-    height: int = 300
-    margin: int = 5  # Khoảng cách giữa các cửa sổ
 
 
 class WindowManager:
