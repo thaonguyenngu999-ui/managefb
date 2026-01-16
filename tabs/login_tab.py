@@ -1090,18 +1090,40 @@ class LoginTab(ctk.CTkFrame):
                     time.sleep(1)
                     evaluate('''
                         (function() {
-                            // Tìm và click vào option "Ứng dụng xác thực" / "Authentication app"
-                            let labels = document.querySelectorAll('span, div, label');
-                            for (let el of labels) {
-                                let text = el.innerText || '';
-                                if (text.includes('Ứng dụng xác thực') || text.includes('Authentication app') ||
-                                    text.includes('authenticator') || text.includes('xác thực')) {
-                                    // Click vào parent có role radio hoặc chính element
-                                    let clickTarget = el.closest('[role="radio"]') ||
-                                                     el.closest('[role="button"]') ||
-                                                     el.closest('label') || el;
-                                    clickTarget.click();
-                                    return 'clicked_auth_app';
+                            // Method 1: Click radio input value="1" (authentication app)
+                            let radio = document.querySelector('input[type="radio"][value="1"]');
+                            if (radio) {
+                                // Click parent container to trigger selection
+                                let container = radio;
+                                for (let i = 0; i < 8; i++) {
+                                    container = container.parentElement;
+                                    if (!container) break;
+                                }
+                                if (container) container.click();
+                                radio.click();
+                                radio.checked = true;
+                                radio.dispatchEvent(new Event('change', {bubbles: true}));
+                                return 'clicked_radio_v1';
+                            }
+
+                            // Method 2: Find by text "Ứng dụng xác thực"
+                            let allEls = document.querySelectorAll('div, span');
+                            for (let el of allEls) {
+                                let text = (el.innerText || el.textContent || '').trim();
+                                if (text === 'Ứng dụng xác thực' || text === 'Authentication app') {
+                                    // Walk up to find clickable parent with radio
+                                    let parent = el;
+                                    for (let i = 0; i < 10; i++) {
+                                        parent = parent.parentElement;
+                                        if (!parent) break;
+                                        let radio = parent.querySelector('input[type="radio"]');
+                                        if (radio) {
+                                            parent.click();
+                                            radio.click();
+                                            radio.checked = true;
+                                            return 'clicked_radio_v2';
+                                        }
+                                    }
                                 }
                             }
                             return 'no_auth_option';
@@ -1114,7 +1136,9 @@ class LoginTab(ctk.CTkFrame):
                         (function() {
                             let btns = document.querySelectorAll('div[role="button"], button');
                             for (let btn of btns) {
-                                let text = btn.innerText || '';
+                                let text = (btn.innerText || '').trim();
+                                // Tránh click "Thử cách khác"
+                                if (text.includes('Thử cách khác') || text.includes('Try another')) continue;
                                 if (text.includes('Tiếp tục') || text.includes('Continue') || text.includes('Next')) {
                                     btn.click();
                                     return 'clicked_continue';
