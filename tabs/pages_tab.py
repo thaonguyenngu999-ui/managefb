@@ -1207,49 +1207,72 @@ class CreatePageDialog(ctk.CTkToplevel):
             # Đợi trang load
             time.sleep(6)
 
-            # Nhập tên Page - Facebook mới dùng label hoặc placeholder khác
+            # Nhập tên Page - Facebook dùng placeholder "Tên Trang (bắt buộc)"
             js_fill_name = f'''
             (function() {{
                 var pageName = "{name}";
-                // Tìm tất cả input text
-                var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+                console.log('[CreatePage] Looking for name input...');
+
+                // Tìm tất cả input và textarea
+                var inputs = document.querySelectorAll('input, textarea, div[contenteditable="true"], span[contenteditable="true"]');
+                console.log('[CreatePage] Found ' + inputs.length + ' inputs');
+
                 for (var i = 0; i < inputs.length; i++) {{
                     var input = inputs[i];
-                    var label = input.getAttribute('aria-label') || '';
-                    var placeholder = input.getAttribute('placeholder') || '';
-                    var labelText = '';
-                    // Tìm label element
-                    var labelEl = input.closest('label') || document.querySelector('label[for="' + input.id + '"]');
-                    if (labelEl) labelText = labelEl.innerText || '';
+                    var label = (input.getAttribute('aria-label') || '').toLowerCase();
+                    var placeholder = (input.getAttribute('placeholder') || '').toLowerCase();
+                    var parentText = '';
 
-                    // Check nếu là input tên page (thường là input đầu tiên hoặc có label "Page name"/"Tên Trang")
-                    if (label.toLowerCase().includes('page name') ||
-                        label.toLowerCase().includes('tên trang') ||
-                        label.toLowerCase().includes('tên page') ||
-                        placeholder.toLowerCase().includes('page name') ||
-                        placeholder.toLowerCase().includes('tên') ||
-                        labelText.toLowerCase().includes('page name') ||
-                        labelText.toLowerCase().includes('tên trang')) {{
+                    // Tìm text trong parent elements
+                    var parent = input.parentElement;
+                    for (var j = 0; j < 5 && parent; j++) {{
+                        parentText += ' ' + (parent.innerText || '').toLowerCase();
+                        parent = parent.parentElement;
+                    }}
+
+                    console.log('[CreatePage] Input ' + i + ': label=' + label + ', placeholder=' + placeholder);
+
+                    // Check nếu là input tên page
+                    if (label.includes('tên trang') || label.includes('page name') ||
+                        placeholder.includes('tên trang') || placeholder.includes('page name') ||
+                        (parentText.includes('tên trang') && !parentText.includes('hạng mục'))) {{
+
                         input.focus();
-                        input.value = pageName;
+                        input.click();
+
+                        // Xử lý cả input thường và contenteditable
+                        if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {{
+                            input.value = pageName;
+                        }} else {{
+                            input.innerText = pageName;
+                            input.textContent = pageName;
+                        }}
+
                         input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         input.dispatchEvent(new Event('change', {{ bubbles: true }}));
                         input.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles: true }}));
-                        return 'filled_name: ' + label;
+                        return 'filled_name: ' + (label || placeholder || 'parent_match');
                     }}
                 }}
-                // Fallback: điền vào input đầu tiên visible
+
+                // Fallback: điền vào input đầu tiên visible (không phải search)
                 for (var i = 0; i < inputs.length; i++) {{
                     var input = inputs[i];
-                    if (input.offsetParent !== null) {{
+                    var type = input.getAttribute('type') || '';
+                    if (input.offsetParent !== null && type !== 'search' && type !== 'hidden') {{
                         input.focus();
-                        input.value = pageName;
+                        input.click();
+                        if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {{
+                            input.value = pageName;
+                        }} else {{
+                            input.innerText = pageName;
+                        }}
                         input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        return 'filled_first_visible';
+                        return 'filled_first_visible: ' + input.tagName;
                     }}
                 }}
-                return 'no_input_found';
+                return 'no_input_found (total: ' + inputs.length + ')';
             }})();
             '''
             ws.send(json_module.dumps({
@@ -1261,45 +1284,79 @@ class CreatePageDialog(ctk.CTkToplevel):
             print(f"[CreatePage] Fill name result: {{name_result.get('result', {{}}).get('result', {{}}).get('value', '')}}")
             time.sleep(1)
 
-            # Nhập category - Facebook dùng autocomplete dropdown
+            # Nhập category - Facebook dùng "Hạng mục (Bắt buộc)"
             js_fill_category = f'''
             (function() {{
                 var categoryText = "{category}";
-                var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+                console.log('[CreatePage] Looking for category input...');
+
+                var inputs = document.querySelectorAll('input, textarea, div[contenteditable="true"]');
+                var nameInput = null;  // Track name input to skip it
+
                 for (var i = 0; i < inputs.length; i++) {{
                     var input = inputs[i];
-                    var label = input.getAttribute('aria-label') || '';
-                    var placeholder = input.getAttribute('placeholder') || '';
+                    var label = (input.getAttribute('aria-label') || '').toLowerCase();
+                    var placeholder = (input.getAttribute('placeholder') || '').toLowerCase();
+                    var parentText = '';
 
-                    // Tìm input category (thường là input thứ 2 hoặc có label "Category"/"Danh mục")
-                    if (label.toLowerCase().includes('category') ||
-                        label.toLowerCase().includes('danh mục') ||
-                        placeholder.toLowerCase().includes('category') ||
-                        placeholder.toLowerCase().includes('danh mục') ||
-                        placeholder.toLowerCase().includes('enter a category') ||
-                        placeholder.toLowerCase().includes('nhập danh mục')) {{
+                    var parent = input.parentElement;
+                    for (var j = 0; j < 5 && parent; j++) {{
+                        parentText += ' ' + (parent.innerText || '').toLowerCase();
+                        parent = parent.parentElement;
+                    }}
+
+                    console.log('[CreatePage] Cat input ' + i + ': label=' + label + ', placeholder=' + placeholder);
+
+                    // Skip name input
+                    if (label.includes('tên trang') || placeholder.includes('tên trang')) {{
+                        nameInput = input;
+                        continue;
+                    }}
+
+                    // Check nếu là input category/hạng mục
+                    if (label.includes('hạng mục') || label.includes('category') ||
+                        placeholder.includes('hạng mục') || placeholder.includes('category') ||
+                        parentText.includes('hạng mục')) {{
+
                         input.focus();
                         input.click();
-                        input.value = categoryText;
+
+                        if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {{
+                            input.value = categoryText;
+                        }} else {{
+                            input.innerText = categoryText;
+                        }}
+
                         input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        input.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true }}));
-                        return 'filled_category: ' + label;
+                        input.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true, key: 'a' }}));
+                        return 'filled_category: ' + (label || placeholder || 'parent_match');
                     }}
                 }}
-                // Fallback: input thứ 2 visible
+
+                // Fallback: input thứ 2 visible (skip name input)
                 var visibleInputs = [];
                 for (var i = 0; i < inputs.length; i++) {{
-                    if (inputs[i].offsetParent !== null) visibleInputs.push(inputs[i]);
+                    var input = inputs[i];
+                    var type = input.getAttribute('type') || '';
+                    if (input.offsetParent !== null && input !== nameInput && type !== 'search' && type !== 'hidden') {{
+                        visibleInputs.push(input);
+                    }}
                 }}
-                if (visibleInputs.length > 1) {{
-                    var input = visibleInputs[1];
+                console.log('[CreatePage] Visible inputs (excl name): ' + visibleInputs.length);
+
+                if (visibleInputs.length > 0) {{
+                    var input = visibleInputs[0];  // First visible after name
                     input.focus();
                     input.click();
-                    input.value = categoryText;
+                    if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {{
+                        input.value = categoryText;
+                    }} else {{
+                        input.innerText = categoryText;
+                    }}
                     input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                     input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    return 'filled_second_visible';
+                    return 'filled_fallback_visible: ' + input.tagName;
                 }}
                 return 'no_category_found';
             }})();
