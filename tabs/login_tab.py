@@ -860,7 +860,35 @@ class LoginTab(ctk.CTkFrame):
 
             # Navigate to Facebook login
             send_cmd("Page.navigate", {"url": "https://www.facebook.com/login"})
-            time.sleep(2.5)  # Đợi page load
+            time.sleep(3)  # Đợi page load
+
+            # Check và click "Không phải bạn?" nếu có session cũ
+            not_you_result = evaluate('''
+                (function() {
+                    // Tìm link/button "Không phải bạn?" hoặc "Not you?"
+                    let els = document.querySelectorAll('a, div[role="button"], span, button');
+                    for (let el of els) {
+                        let text = (el.innerText || el.textContent || '').trim();
+                        if (text.includes('Không phải bạn') || text.includes('Not you') ||
+                            text.includes('Quên mật khẩu') === false && text.includes('khác') ||
+                            text.includes('Log in with another') || text.includes('Đăng nhập bằng tài khoản khác')) {
+                            el.click();
+                            return 'clicked_not_you';
+                        }
+                    }
+                    // Tìm theo aria-label
+                    let notYou = document.querySelector('a[href*="login/identify"]') ||
+                                document.querySelector('div[aria-label*="Không phải"]');
+                    if (notYou) {
+                        notYou.click();
+                        return 'clicked_not_you_v2';
+                    }
+                    return 'no_session';
+                })()
+            ''')
+            if not_you_result and 'clicked' in str(not_you_result):
+                self.after(0, lambda: self._log(f"  Clicked 'Không phải bạn?'"))
+                time.sleep(2)  # Đợi page reload
 
             import random
 
