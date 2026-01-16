@@ -761,14 +761,7 @@ class LoginTab(ctk.CTkFrame):
                         self.profile_status[uuid] = {'has_fb': True}
                     else:
                         self.after(0, lambda pn=profile_name, s=status: self._log(f"[{pn}] ❌ {s}"))
-
-                        # Delete profile if bad and option enabled
-                        if self.delete_bad_var.get() and status in ['DIE', 'LOCKED']:
-                            # Don't delete profile, just mark as failed
-                            pass
-
-                        # Try next account
-                        profile_queue.put(uuid)
+                        # Không retry - mỗi profile chỉ login 1 account
 
                 except Exception as e:
                     self.after(0, lambda pn=profile_name, err=str(e): self._log(f"[{pn}] Lỗi: {err}"))
