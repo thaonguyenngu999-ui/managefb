@@ -800,10 +800,14 @@ class LoginTab(ctk.CTkFrame):
                             dest_folder = self._get_dest_folder_uuid()
                             dest_name = self.dest_folder_var.get()
                             if dest_folder:
+                                self.after(0, lambda pn=profile_name, df=dest_folder: self._log(f"  Moving {pn} to folder {df}..."))
                                 move_result = api.add_profiles_to_folder(dest_folder, [uuid])
-                                self.after(0, lambda dn=dest_name: self._log(f"[{profile_name}] 📁 Moved to {dn}"))
+                                if move_result.get('status') == 'successfully' or move_result.get('type') == 'success':
+                                    self.after(0, lambda pn=profile_name, dn=dest_name: self._log(f"[{pn}] 📁 Đã chuyển vào {dn}"))
+                                else:
+                                    self.after(0, lambda pn=profile_name, r=str(move_result): self._log(f"[{pn}] ⚠️ Move failed: {r}"))
                         except Exception as e:
-                            self.after(0, lambda err=str(e): self._log(f"  Move folder error: {err}"))
+                            self.after(0, lambda pn=profile_name, err=str(e): self._log(f"[{pn}] Move error: {err}"))
                     else:
                         self.after(0, lambda pn=profile_name, s=status: self._log(f"[{pn}] ❌ {s}"))
                         # Không retry - mỗi profile chỉ login 1 account
