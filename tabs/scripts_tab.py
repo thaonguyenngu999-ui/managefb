@@ -9,6 +9,7 @@ import json
 import time
 import os
 import random
+import re
 from datetime import datetime, timedelta
 from config import COLORS
 from widgets import ModernCard, ModernButton, ModernEntry, ModernTextbox
@@ -17,6 +18,7 @@ from db import (
     update_schedule_stats, get_categories, get_groups, get_contents
 )
 from api_service import api
+from automation import CDPHelper
 
 
 class ScriptsTab(ctk.CTkFrame):
@@ -1030,10 +1032,12 @@ class ScriptsTab(ctk.CTkFrame):
     def _execute_schedule(self, schedule: Dict):
         """Thực hiện đăng bài theo schedule"""
         folder_id = schedule.get('folder_id')
-        group_ids = schedule.get('group_ids', '').split(',')
+        group_ids_str = schedule.get('group_ids', '')
+        group_ids = [g.strip() for g in group_ids_str.split(',') if g.strip()]
         category_id = schedule.get('content_category_id')
         delay_min = schedule.get('delay_min', 30)
         delay_max = schedule.get('delay_max', 60)
+        image_folder = schedule.get('image_folder', '')
 
         if not folder_id or not group_ids:
             self.after(0, lambda: self._log("❌ Thiếu thông tin folder hoặc nhóm"))
@@ -1057,30 +1061,124 @@ class ScriptsTab(ctk.CTkFrame):
             except:
                 contents = []
 
-        if not contents:
-            self.after(0, lambda: self._log("⚠️ Không có nội dung, sẽ đăng rỗng"))
+        # Get groups info from database
+        groups_data = []
+        try:
+            all_groups = get_groups()
+            for gid in group_ids:
+                for g in all_groups:
+                    if str(g.get('id')) == str(gid):
+                        groups_data.append(g)
+                        break
+        except:
+            pass
 
-        self.after(0, lambda: self._log(f"📊 {len(profiles)} profiles, {len(group_ids)} nhóm"))
+        if not groups_data:
+            self.after(0, lambda: self._log("❌ Không tìm thấy thông tin nhóm"))
+            return
+
+        # Get images from folder
+        images = []
+        if image_folder and os.path.isdir(image_folder):
+            for f in os.listdir(image_folder):
+                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    images.append(os.path.join(image_folder, f))
+
+        self.after(0, lambda: self._log(f"📊 {len(profiles)} profiles, {len(groups_data)} nhóm, {len(contents)} nội dung"))
 
         success = 0
         errors = 0
+        total_posts = 0
 
-        # TODO: Implement actual posting logic similar to groups_tab
-        # For now, just simulate
-        for i, profile in enumerate(profiles[:3]):  # Limit for testing
+        # Đăng bài với từng profile
+        for profile in profiles:
+            profile_uuid = profile.get('uuid', '')
             profile_name = profile.get('name', 'Unknown') if isinstance(profile, dict) else str(profile)[:8]
-            self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Đang xử lý..."))
 
-            # Simulate posting delay
-            time.sleep(random.randint(delay_min, delay_max) / 10)
-            success += 1
+            if not profile_uuid:
+                continue
+
+            self.after(0, lambda pn=profile_name: self._log(f"[{pn}] Đang mở browser..."))
+
+            # Mở browser
+            result = api.open_browser(profile_uuid)
+            if result.get('type') == 'error':
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ❌ Không mở được browser"))
+                errors += 1
+                continue
+
+            data = result.get('data', {})
+            remote_port = data.get('remote_port')
+            ws_url = data.get('web_socket', '')
+
+            if not remote_port and ws_url:
+                match = re.search(r':(\d+)/', ws_url)
+                if match:
+                    remote_port = int(match.group(1))
+
+            if not remote_port:
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ❌ Không lấy được port"))
+                errors += 1
+                continue
+
+            time.sleep(2)  # Đợi browser khởi động
+
+            # Kết nối CDP
+            helper = CDPHelper()
+            if not helper.connect(remote_port=remote_port, ws_url=ws_url):
+                self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ❌ Không kết nối được CDP"))
+                api.close_browser(profile_uuid)
+                errors += 1
+                continue
+
+            # Đăng vào từng nhóm
+            for group in groups_data:
+                group_url = group.get('url', '')
+                group_name = group.get('name', 'Unknown')[:20]
+
+                if not group_url:
+                    continue
+
+                self.after(0, lambda pn=profile_name, gn=group_name: self._log(f"[{pn}] Đăng vào {gn}..."))
+
+                # Chọn nội dung ngẫu nhiên
+                content = random.choice(contents).get('content', '') if contents else ''
+
+                # Navigate đến group
+                if not helper.navigate(group_url):
+                    self.after(0, lambda pn=profile_name, gn=group_name: self._log(f"[{pn}] ❌ Không vào được {gn}"))
+                    errors += 1
+                    continue
+
+                helper.wait_for_page_ready(timeout_ms=10000)
+                time.sleep(2)
+
+                # Đăng bài
+                post_success, post_url = helper.post_to_group(content, images[:1] if images else None)
+
+                if post_success:
+                    self.after(0, lambda pn=profile_name, gn=group_name: self._log(f"[{pn}] ✓ Đã đăng vào {gn}"))
+                    success += 1
+                else:
+                    self.after(0, lambda pn=profile_name, gn=group_name: self._log(f"[{pn}] ❌ Lỗi đăng {gn}"))
+                    errors += 1
+
+                total_posts += 1
+
+                # Delay giữa các nhóm
+                delay = random.randint(delay_min, delay_max)
+                time.sleep(delay)
+
+            # Đóng kết nối và browser
+            helper.close()
+            api.close_browser(profile_uuid)
 
             self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✓ Hoàn thành"))
 
         # Update stats
-        update_schedule_stats(schedule['id'], post_count=len(profiles[:3]), success_count=success, error_count=errors)
+        update_schedule_stats(schedule['id'], post_count=total_posts, success_count=success, error_count=errors)
 
-        self.after(0, lambda: self._log(f"✅ Hoàn tất: {success} thành công, {errors} lỗi"))
+        self.after(0, lambda s=success, e=errors: self._log(f"✅ Hoàn tất: {s} thành công, {e} lỗi"))
         self.after(0, self._load_schedules)
 
     def _start_scheduler(self):
