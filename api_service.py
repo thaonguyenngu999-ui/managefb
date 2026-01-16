@@ -288,13 +288,10 @@ class HidemiumAPI:
             x, y, w, h = get_window_bounds(slot_id)
             print(f"[API] Target window: x={x}, y={y}, w={w}, h={h}")
 
-            # Calculate zoom and viewport
-            # Cửa sổ nhỏ nhưng viewport lớn hơn
+            # Calculate zoom factor
             zoom_factor = zoom_percent / 100.0  # 0.5 for 50%
-            viewport_width = int(w / zoom_factor)  # e.g., 480 / 0.5 = 960
-            viewport_height = int(h / zoom_factor)  # e.g., 400 / 0.5 = 800
 
-            print(f"[API] Zoom: {zoom_percent}%, Viewport: {viewport_width}x{viewport_height}")
+            print(f"[API] Zoom: {zoom_percent}% (factor={zoom_factor})")
 
             # Step 1: Set window position and size
             win_result = send_cmd("Browser.getWindowForTarget", {})
@@ -310,16 +307,12 @@ class HidemiumAPI:
                 })
                 print(f"[API] setWindowBounds: {bounds_result}")
 
-                # Step 2: Set device metrics to emulate larger viewport with scale
-                # This makes the page think viewport is larger, but renders smaller
-                metrics_result = send_cmd("Emulation.setDeviceMetricsOverride", {
-                    "width": viewport_width,
-                    "height": viewport_height,
-                    "deviceScaleFactor": 1,
-                    "mobile": False,
-                    "scale": zoom_factor  # This scales the visual output
+                # Step 2: Set page scale factor (actual zoom)
+                # This is the key command that makes content smaller/zoomed out
+                scale_result = send_cmd("Emulation.setPageScaleFactor", {
+                    "pageScaleFactor": zoom_factor
                 })
-                print(f"[API] setDeviceMetricsOverride: {metrics_result}")
+                print(f"[API] setPageScaleFactor({zoom_factor}): {scale_result}")
 
                 if 'error' not in bounds_result:
                     print(f"[API] ✓ Window resized with {zoom_percent}% zoom!")
