@@ -359,6 +359,19 @@ class LoginTab(ctk.CTkFrame):
         except Exception as e:
             self._log(f"Lỗi tải folders: {e}")
 
+    def _get_fb_ok_folder_uuid(self):
+        """Tìm folder 'FB OK' và trả về uuid"""
+        try:
+            folders = api.get_folders() or []
+            for f in folders:
+                name = f.get('name', '').strip()
+                if name.upper() == 'FB OK' or name.upper() == 'FBOK':
+                    # Trả về uuid hoặc id
+                    return f.get('uuid') or f.get('id')
+        except Exception as e:
+            print(f"Error getting FB OK folder: {e}")
+        return None
+
     def _on_folder_change(self, choice):
         """Khi chọn folder"""
         if choice != "-- Chọn --":
@@ -759,6 +772,15 @@ class LoginTab(ctk.CTkFrame):
                     if success:
                         self.after(0, lambda pn=profile_name: self._log(f"[{pn}] ✅ Login thành công"))
                         self.profile_status[uuid] = {'has_fb': True}
+
+                        # Move profile vào folder "FB OK"
+                        try:
+                            fb_ok_folder = self._get_fb_ok_folder_uuid()
+                            if fb_ok_folder:
+                                move_result = api.add_profiles_to_folder(fb_ok_folder, [uuid])
+                                self.after(0, lambda: self._log(f"[{profile_name}] 📁 Moved to FB OK"))
+                        except Exception as e:
+                            self.after(0, lambda err=str(e): self._log(f"  Move folder error: {err}"))
                     else:
                         self.after(0, lambda pn=profile_name, s=status: self._log(f"[{pn}] ❌ {s}"))
                         # Không retry - mỗi profile chỉ login 1 account
@@ -1264,8 +1286,13 @@ class LoginTab(ctk.CTkFrame):
             if status_clean != 'LIVE' and self.delete_bad_var.get():
                 try:
                     self.after(0, lambda s=status_clean: self._log(f"  🗑️ Xóa profile ({s})..."))
-                    delete_result = api.delete_profiles([uuid], is_local=False)
-                    self.after(0, lambda r=delete_result: self._log(f"  Delete result: {delete_result}"))
+                    # Thử xóa local trước, nếu fail thì thử remote
+                    delete_result = api.delete_profiles([uuid], is_local=True)
+                    self.after(0, lambda r=str(delete_result): self._log(f"  Delete result: {r}"))
+                    # Nếu không thành công, thử remote
+                    if not delete_result.get('status') == 'successfully':
+                        delete_result = api.delete_profiles([uuid], is_local=False)
+                        self.after(0, lambda r=str(delete_result): self._log(f"  Delete remote: {r}"))
                 except Exception as e:
                     self.after(0, lambda err=str(e): self._log(f"  Delete error: {err}"))
 
