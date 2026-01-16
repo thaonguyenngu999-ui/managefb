@@ -30,17 +30,17 @@ class WindowManager:
     _instance = None
     _lock = threading.Lock()
 
-    # Kích thước màn hình mặc định (sẽ được cập nhật)
-    SCREEN_WIDTH = 1920
-    SCREEN_HEIGHT = 1080
+    # Kích thước màn hình mặc định - auto detect nếu có thể
+    SCREEN_WIDTH = 5120  # Default cho ultrawide
+    SCREEN_HEIGHT = 1440
 
-    # Kích thước cửa sổ mặc định
-    WINDOW_WIDTH = 400
-    WINDOW_HEIGHT = 320
-    MARGIN = 5
+    # Kích thước cửa sổ mặc định - nhỏ hơn để fit nhiều cửa sổ
+    WINDOW_WIDTH = 480
+    WINDOW_HEIGHT = 400
+    MARGIN = 10
 
     # Offset để tránh taskbar
-    TOP_OFFSET = 30
+    TOP_OFFSET = 0
     LEFT_OFFSET = 0
 
     def __init__(self):
@@ -48,7 +48,21 @@ class WindowManager:
         self._max_slots = 0
         self._cols = 0
         self._rows = 0
+        self._auto_detect_screen_size()
         self._recalculate_grid()
+
+    def _auto_detect_screen_size(self):
+        """Tự động phát hiện kích thước màn hình"""
+        try:
+            import tkinter as tk
+            root = tk.Tk()
+            root.withdraw()  # Ẩn cửa sổ
+            self.SCREEN_WIDTH = root.winfo_screenwidth()
+            self.SCREEN_HEIGHT = root.winfo_screenheight()
+            root.destroy()
+            print(f"[WindowManager] Auto-detected screen: {self.SCREEN_WIDTH}x{self.SCREEN_HEIGHT}")
+        except Exception as e:
+            print(f"[WindowManager] Could not detect screen size, using default: {e}")
 
     @classmethod
     def get_instance(cls) -> 'WindowManager':

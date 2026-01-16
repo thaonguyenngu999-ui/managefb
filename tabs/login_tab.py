@@ -956,17 +956,24 @@ class LoginTab(ctk.CTkFrame):
             # Set window bounds theo slot - thu nhỏ cửa sổ và sắp xếp không chồng lên nhau
             try:
                 x, y, w, h = get_window_bounds(slot_id)
+                print(f"[Login] Setting window bounds: slot={slot_id}, x={x}, y={y}, w={w}, h={h}")
                 # Get window ID
                 win_result = send_cmd("Browser.getWindowForTarget", {})
+                print(f"[Login] getWindowForTarget result: {win_result}")
                 if win_result and 'result' in win_result and 'windowId' in win_result['result']:
                     window_id = win_result['result']['windowId']
                     # Set bounds
-                    send_cmd("Browser.setWindowBounds", {
+                    bounds_result = send_cmd("Browser.setWindowBounds", {
                         "windowId": window_id,
                         "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}
                     })
+                    print(f"[Login] setWindowBounds result: {bounds_result}")
+                else:
+                    print(f"[Login] Could not get windowId from result")
             except Exception as e:
+                import traceback
                 print(f"[Login] Window bounds error: {e}")
+                traceback.print_exc()
 
             # Xóa cookies Facebook trước khi login (tránh dính session cũ)
             for domain in [".facebook.com", "facebook.com", "www.facebook.com", "m.facebook.com"]:
