@@ -1195,8 +1195,8 @@ class CreatePageDialog(ctk.CTkToplevel):
             if not ws:
                 return False
 
-            # Navigate đến trang tạo Page
-            create_url = "https://www.facebook.com/pages/creation/"
+            # Navigate đến trang tạo Page công khai
+            create_url = "https://www.facebook.com/pages/create"
             ws.send(json_module.dumps({
                 "id": 1,
                 "method": "Page.navigate",
@@ -1205,35 +1205,49 @@ class CreatePageDialog(ctk.CTkToplevel):
             ws.recv()
 
             # Đợi trang load
-            time.sleep(5)
+            time.sleep(6)
 
-            # Nhập tên Page - tìm input field và điền
+            # Nhập tên Page - Facebook mới dùng label hoặc placeholder khác
             js_fill_name = f'''
             (function() {{
-                // Tìm input cho tên page
-                var inputs = document.querySelectorAll('input[type="text"]');
+                var pageName = "{name}";
+                // Tìm tất cả input text
+                var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
                 for (var i = 0; i < inputs.length; i++) {{
                     var input = inputs[i];
+                    var label = input.getAttribute('aria-label') || '';
                     var placeholder = input.getAttribute('placeholder') || '';
-                    var ariaLabel = input.getAttribute('aria-label') || '';
-                    if (placeholder.toLowerCase().includes('name') ||
+                    var labelText = '';
+                    // Tìm label element
+                    var labelEl = input.closest('label') || document.querySelector('label[for="' + input.id + '"]');
+                    if (labelEl) labelText = labelEl.innerText || '';
+
+                    // Check nếu là input tên page (thường là input đầu tiên hoặc có label "Page name"/"Tên Trang")
+                    if (label.toLowerCase().includes('page name') ||
+                        label.toLowerCase().includes('tên trang') ||
+                        label.toLowerCase().includes('tên page') ||
+                        placeholder.toLowerCase().includes('page name') ||
                         placeholder.toLowerCase().includes('tên') ||
-                        ariaLabel.toLowerCase().includes('name') ||
-                        ariaLabel.toLowerCase().includes('tên')) {{
+                        labelText.toLowerCase().includes('page name') ||
+                        labelText.toLowerCase().includes('tên trang')) {{
                         input.focus();
-                        input.value = '{name}';
+                        input.value = pageName;
                         input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        return 'filled_name';
+                        input.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles: true }}));
+                        return 'filled_name: ' + label;
                     }}
                 }}
-                // Fallback: điền vào input đầu tiên
-                if (inputs.length > 0) {{
-                    inputs[0].focus();
-                    inputs[0].value = '{name}';
-                    inputs[0].dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    inputs[0].dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    return 'filled_first';
+                // Fallback: điền vào input đầu tiên visible
+                for (var i = 0; i < inputs.length; i++) {{
+                    var input = inputs[i];
+                    if (input.offsetParent !== null) {{
+                        input.focus();
+                        input.value = pageName;
+                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        return 'filled_first_visible';
+                    }}
                 }}
                 return 'no_input_found';
             }})();
@@ -1243,36 +1257,49 @@ class CreatePageDialog(ctk.CTkToplevel):
                 "method": "Runtime.evaluate",
                 "params": {"expression": js_fill_name}
             }))
-            ws.recv()
+            name_result = json_module.loads(ws.recv())
+            print(f"[CreatePage] Fill name result: {{name_result.get('result', {{}}).get('result', {{}}).get('value', '')}}")
             time.sleep(1)
 
-            # Nhập category - tìm dropdown hoặc input category
+            # Nhập category - Facebook dùng autocomplete dropdown
             js_fill_category = f'''
             (function() {{
-                // Tìm input/dropdown cho category
-                var inputs = document.querySelectorAll('input[type="text"]');
+                var categoryText = "{category}";
+                var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
                 for (var i = 0; i < inputs.length; i++) {{
                     var input = inputs[i];
+                    var label = input.getAttribute('aria-label') || '';
                     var placeholder = input.getAttribute('placeholder') || '';
-                    var ariaLabel = input.getAttribute('aria-label') || '';
-                    if (placeholder.toLowerCase().includes('category') ||
+
+                    // Tìm input category (thường là input thứ 2 hoặc có label "Category"/"Danh mục")
+                    if (label.toLowerCase().includes('category') ||
+                        label.toLowerCase().includes('danh mục') ||
+                        placeholder.toLowerCase().includes('category') ||
                         placeholder.toLowerCase().includes('danh mục') ||
-                        ariaLabel.toLowerCase().includes('category') ||
-                        ariaLabel.toLowerCase().includes('danh mục')) {{
+                        placeholder.toLowerCase().includes('enter a category') ||
+                        placeholder.toLowerCase().includes('nhập danh mục')) {{
                         input.focus();
-                        input.value = '{category}';
+                        input.click();
+                        input.value = categoryText;
                         input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        return 'filled_category';
+                        input.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true }}));
+                        return 'filled_category: ' + label;
                     }}
                 }}
-                // Điền vào input thứ 2 nếu có
-                if (inputs.length > 1) {{
-                    inputs[1].focus();
-                    inputs[1].value = '{category}';
-                    inputs[1].dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    inputs[1].dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    return 'filled_second';
+                // Fallback: input thứ 2 visible
+                var visibleInputs = [];
+                for (var i = 0; i < inputs.length; i++) {{
+                    if (inputs[i].offsetParent !== null) visibleInputs.push(inputs[i]);
+                }}
+                if (visibleInputs.length > 1) {{
+                    var input = visibleInputs[1];
+                    input.focus();
+                    input.click();
+                    input.value = categoryText;
+                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    return 'filled_second_visible';
                 }}
                 return 'no_category_found';
             }})();
@@ -1282,29 +1309,67 @@ class CreatePageDialog(ctk.CTkToplevel):
                 "method": "Runtime.evaluate",
                 "params": {"expression": js_fill_category}
             }))
-            ws.recv()
+            cat_result = json_module.loads(ws.recv())
+            print(f"[CreatePage] Fill category result: {{cat_result.get('result', {{}}).get('result', {{}}).get('value', '')}}")
             time.sleep(2)
+
+            # Click vào suggestion đầu tiên của category dropdown
+            js_click_suggestion = '''
+            (function() {
+                // Tìm và click vào suggestion đầu tiên
+                var suggestions = document.querySelectorAll('ul[role="listbox"] li, div[role="listbox"] div[role="option"], div[role="option"]');
+                if (suggestions.length > 0) {
+                    suggestions[0].click();
+                    return 'clicked_suggestion';
+                }
+                // Fallback: tìm div có text giống category
+                var divs = document.querySelectorAll('div[role="button"], div[role="option"]');
+                for (var i = 0; i < divs.length; i++) {
+                    var text = divs[i].innerText || '';
+                    if (text.length > 0 && text.length < 50) {
+                        divs[i].click();
+                        return 'clicked_div: ' + text;
+                    }
+                }
+                return 'no_suggestion';
+            })();
+            '''
+            ws.send(json_module.dumps({
+                "id": 12,
+                "method": "Runtime.evaluate",
+                "params": {"expression": js_click_suggestion}
+            }))
+            ws.recv()
+            time.sleep(1)
 
             # Click nút Create Page / Tạo Trang
             js_click_create = '''
             (function() {
-                // Tìm nút Create Page
-                var buttons = document.querySelectorAll('div[role="button"], button');
+                // Tìm nút Create Page - thường ở cuối form
+                var buttons = document.querySelectorAll('div[role="button"], button, span[role="button"]');
+                var createBtn = null;
                 for (var i = 0; i < buttons.length; i++) {
                     var btn = buttons[i];
-                    var text = btn.innerText || btn.textContent || '';
-                    if (text.toLowerCase().includes('create page') ||
-                        text.toLowerCase().includes('tạo trang') ||
-                        text.toLowerCase().includes('create') && text.length < 20) {
-                        btn.click();
-                        return 'clicked';
+                    var text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+                    // Ưu tiên nút có text chính xác
+                    if (text === 'create page' || text === 'tạo trang') {
+                        createBtn = btn;
+                        break;
                     }
+                    // Fallback: nút có chứa "create" hoặc "tạo"
+                    if (!createBtn && (text.includes('create page') || text.includes('tạo trang'))) {
+                        createBtn = btn;
+                    }
+                }
+                if (createBtn) {
+                    createBtn.click();
+                    return 'clicked: ' + (createBtn.innerText || '').trim();
                 }
                 return 'no_button_found';
             })();
             '''
             ws.send(json_module.dumps({
-                "id": 12,
+                "id": 13,
                 "method": "Runtime.evaluate",
                 "params": {"expression": js_click_create}
             }))
@@ -1313,11 +1378,11 @@ class CreatePageDialog(ctk.CTkToplevel):
             print(f"[CreatePage] Click result: {click_result}")
 
             # Đợi page được tạo
-            time.sleep(8)
+            time.sleep(10)
 
             # Lấy URL hiện tại để xem có page ID không
             ws.send(json_module.dumps({
-                "id": 13,
+                "id": 14,
                 "method": "Runtime.evaluate",
                 "params": {"expression": "window.location.href"}
             }))
