@@ -214,7 +214,7 @@ class HidemiumAPI:
     
     # ============ BROWSER CONTROL ============
     
-    def open_browser(self, uuid: str, command: str = "", proxy: str = "") -> Dict:
+    def open_browser(self, uuid: str, command: str = "", proxy: str = "", auto_resize: bool = True) -> Dict:
         """Mở browser/profile - GET /openProfile"""
         params = {"uuid": uuid}
         if command:
@@ -223,7 +223,90 @@ class HidemiumAPI:
             params["proxy"] = proxy
         result = self._get("/openProfile", params=params)
         print(f"[DEBUG API] open_browser({uuid[:8]}...) response: {result}")
+
+        # Auto resize window if successful
+        if auto_resize and result.get('status') == 'successfully':
+            self._auto_resize_browser_window(result)
+
         return result
+
+    def _auto_resize_browser_window(self, open_result: Dict):
+        """Tự động resize và sắp xếp cửa sổ browser"""
+        import time
+        try:
+            from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
+
+            data = open_result.get('data', {})
+            remote_port = data.get('remote_port')
+
+            if not remote_port:
+                print(f"[API] No remote_port for window resize")
+                return
+
+            # Acquire slot
+            slot_id = acquire_window_slot()
+
+            # Wait for browser to start
+            time.sleep(0.5)
+
+            # Get page websocket
+            import requests
+            import websocket
+            import json as json_module
+
+            resp = requests.get(f"http://127.0.0.1:{remote_port}/json", timeout=5)
+            tabs = resp.json()
+
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    page_ws = tab.get('webSocketDebuggerUrl')
+                    break
+
+            if not page_ws:
+                print(f"[API] No page websocket found")
+                release_window_slot(slot_id)
+                return
+
+            # Connect and set bounds
+            ws = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
+
+            x, y, w, h = get_window_bounds(slot_id)
+            print(f"[API] Setting window bounds: x={x}, y={y}, w={w}, h={h}")
+
+            # Get window ID
+            ws.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
+            win_result = json_module.loads(ws.recv())
+            print(f"[API] getWindowForTarget: {win_result}")
+
+            if win_result and 'result' in win_result and 'windowId' in win_result['result']:
+                window_id = win_result['result']['windowId']
+                # Set bounds
+                ws.send(json_module.dumps({
+                    "id": 2,
+                    "method": "Browser.setWindowBounds",
+                    "params": {
+                        "windowId": window_id,
+                        "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}
+                    }
+                }))
+                bounds_result = json_module.loads(ws.recv())
+                print(f"[API] setWindowBounds: {bounds_result}")
+
+                if 'error' not in bounds_result:
+                    print(f"[API] ✓ Window resized successfully!")
+                else:
+                    print(f"[API] ERROR: {bounds_result.get('error')}")
+
+            ws.close()
+
+            # Store slot_id in result for later release
+            open_result['_window_slot_id'] = slot_id
+
+        except Exception as e:
+            import traceback
+            print(f"[API] Window resize error: {e}")
+            traceback.print_exc()
     
     def close_browser(self, uuid: str) -> Dict:
         """Đóng browser/profile - GET /closeProfile"""
