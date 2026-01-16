@@ -880,17 +880,9 @@ class LoginTab(ctk.CTkFrame):
 
             # Navigate to Facebook login
             send_cmd("Page.navigate", {"url": "https://www.facebook.com/login"})
-            time.sleep(3)  # Đợi navigation bắt đầu
+            time.sleep(5)  # Đợi page load
 
             import random
-
-            # Đợi page load hoàn tất (max 10s)
-            for _ in range(10):
-                ready_state = evaluate('document.readyState')
-                if ready_state == 'complete':
-                    break
-                time.sleep(1)
-            time.sleep(1)  # Buffer thêm cho JS render
 
             # Helper: Simulate human typing với CDP Input.insertText
             def type_text(text, field_selector):
@@ -943,36 +935,22 @@ class LoginTab(ctk.CTkFrame):
                 code = struct.unpack('>I', hmac_hash[offset:offset+4])[0] & 0x7FFFFFFF
                 return str(code % 1000000).zfill(6)
 
-            # Check form exists với retry (FB có thể load chậm hoặc đổi selector)
-            form_check = 'NO_FORM'
-            for retry in range(5):  # Retry 5 lần
+            # Check form exists với retry
+            form_check = None
+            for retry in range(5):
                 form_check = evaluate('''
                     (function() {
-                        // Thử nhiều selectors cho email field
-                        let email = document.querySelector('#email') ||
-                                   document.querySelector('input[name="email"]') ||
-                                   document.querySelector('input[type="email"]') ||
-                                   document.querySelector('input[autocomplete="username"]');
-
-                        // Thử nhiều selectors cho password field
-                        let pass = document.querySelector('#pass') ||
-                                  document.querySelector('input[name="pass"]') ||
-                                  document.querySelector('input[type="password"]') ||
-                                  document.querySelector('input[autocomplete="current-password"]');
-
-                        if (email && pass) {
-                            return 'OK:' + (email.id || email.name || 'found') + ':' + (pass.id || pass.name || 'found');
-                        }
-                        return 'NO_FORM:email=' + !!email + ':pass=' + !!pass;
+                        var email = document.querySelector('#email');
+                        var pass = document.querySelector('#pass');
+                        return email && pass ? 'OK' : 'NO_FORM';
                     })()
                 ''')
                 self.after(0, lambda r=form_check, i=retry: self._log(f"  Form check [{i+1}]: {r}"))
-
-                if form_check and form_check.startswith('OK'):
+                if form_check == 'OK':
                     break
-                time.sleep(1.5)  # Đợi thêm nếu chưa tìm thấy
+                time.sleep(1)
 
-            if not form_check or not form_check.startswith('OK'):
+            if form_check != 'OK':
                 ws.close()
                 api.close_browser(uuid)
                 return False, 'NO_FORM'
