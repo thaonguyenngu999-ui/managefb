@@ -851,12 +851,30 @@ class LoginTab(ctk.CTkFrame):
                 })
                 return result.get('result', {}).get('result', {}).get('value')
 
+            # Enable Network domain trước khi xóa cookies (CDP yêu cầu)
+            send_cmd("Network.enable")
+
             # Xóa cookies Facebook trước khi login (tránh dính session cũ)
-            # Chỉ xóa cookies của facebook.com, không ảnh hưởng sites khác
-            send_cmd("Network.deleteCookies", {"domain": ".facebook.com"})
-            send_cmd("Network.deleteCookies", {"domain": "facebook.com"})
+            # Xóa tất cả các domain Facebook để đảm bảo sạch hoàn toàn
+            fb_domains = [".facebook.com", "facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com"]
+            for domain in fb_domains:
+                send_cmd("Network.deleteCookies", {"domain": domain})
+
+            # Xóa storage của cả desktop và mobile Facebook
             send_cmd("Storage.clearDataForOrigin", {
                 "origin": "https://www.facebook.com",
+                "storageTypes": "all"
+            })
+            send_cmd("Storage.clearDataForOrigin", {
+                "origin": "https://www.facebook.com",
+                "storageTypes": "cookies,local_storage,session_storage,indexeddb,websql,cache_storage"
+            })
+            send_cmd("Storage.clearDataForOrigin", {
+                "origin": "https://m.facebook.com",
+                "storageTypes": "all"
+            })
+            send_cmd("Storage.clearDataForOrigin", {
+                "origin": "https://web.facebook.com",
                 "storageTypes": "all"
             })
 
@@ -1173,24 +1191,54 @@ class LoginTab(ctk.CTkFrame):
 
                     time.sleep(0.8)
 
-                    # Submit 2FA form (dùng div[role="button"] cho FB mới)
+                    # Submit 2FA form - tìm theo text để click đúng nút
                     evaluate('''
                         (function() {
-                            let btn = document.querySelector('div[role="button"][tabindex="0"]') ||
-                                     document.querySelector('div[aria-label*="Tiếp"]') ||
-                                     document.querySelector('div[aria-label*="Continue"]') ||
-                                     document.querySelector('button[type="submit"]');
-                            if (btn) {
-                                btn.click();
-                                return 'clicked';
+                            // Tìm tất cả buttons
+                            let btns = document.querySelectorAll('div[role="button"], button[type="submit"], button');
+                            let submitBtn = null;
+
+                            // Ưu tiên tìm nút theo text "Tiếp tục", "Gửi", "Continue", "Submit"
+                            for (let btn of btns) {
+                                let text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+                                // Bỏ qua các nút không phải submit
+                                if (text.includes('thử cách khác') || text.includes('try another') ||
+                                    text.includes('hủy') || text.includes('cancel') ||
+                                    text.includes('quay lại') || text.includes('back')) {
+                                    continue;
+                                }
+                                // Tìm nút submit
+                                if (text.includes('tiếp tục') || text.includes('continue') ||
+                                    text.includes('gửi') || text.includes('submit') ||
+                                    text.includes('xác nhận') || text.includes('confirm') ||
+                                    text.includes('xong') || text.includes('done')) {
+                                    submitBtn = btn;
+                                    break;
+                                }
                             }
-                            // Fallback: click button cuối cùng
-                            let allBtns = document.querySelectorAll('div[role="button"]');
-                            if (allBtns.length > 0) {
-                                allBtns[allBtns.length - 1].click();
-                                return 'clicked_last';
+
+                            // Fallback: tìm theo aria-label
+                            if (!submitBtn) {
+                                submitBtn = document.querySelector('div[aria-label*="Tiếp"]') ||
+                                           document.querySelector('div[aria-label*="Continue"]') ||
+                                           document.querySelector('button[type="submit"]');
                             }
-                            return 'no_btn';
+
+                            if (submitBtn) {
+                                submitBtn.click();
+                                return 'clicked_submit: ' + (submitBtn.innerText || '').substring(0, 20);
+                            }
+
+                            // Fallback cuối: click button cuối trong form
+                            let form = document.querySelector('form');
+                            if (form) {
+                                let formBtns = form.querySelectorAll('div[role="button"], button');
+                                if (formBtns.length > 0) {
+                                    formBtns[formBtns.length - 1].click();
+                                    return 'clicked_form_last';
+                                }
+                            }
+                            return 'no_submit_btn';
                         })()
                     ''')
 
