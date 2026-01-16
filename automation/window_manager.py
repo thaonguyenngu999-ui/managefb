@@ -73,6 +73,12 @@ class WindowManager:
                     cls._instance = WindowManager()
         return cls._instance
 
+    @classmethod
+    def reset_instance(cls):
+        """Reset singleton để re-detect screen size"""
+        with cls._lock:
+            cls._instance = None
+
     def _recalculate_grid(self):
         """Tính lại số cột/hàng dựa trên kích thước màn hình"""
         usable_width = self.SCREEN_WIDTH - self.LEFT_OFFSET
@@ -166,7 +172,10 @@ def get_window_manager() -> WindowManager:
 
 def acquire_window_slot() -> int:
     """Acquire a window slot"""
-    return get_window_manager().acquire_slot()
+    manager = get_window_manager()
+    slot = manager.acquire_slot()
+    print(f"[WindowManager] Acquired slot {slot}, grid: {manager._cols}x{manager._rows}, screen: {manager.SCREEN_WIDTH}x{manager.SCREEN_HEIGHT}")
+    return slot
 
 
 def release_window_slot(slot_id: int):
@@ -176,7 +185,9 @@ def release_window_slot(slot_id: int):
 
 def get_window_bounds(slot_id: int) -> Tuple[int, int, int, int]:
     """Get bounds for a slot"""
-    return get_window_manager().get_bounds(slot_id)
+    bounds = get_window_manager().get_bounds(slot_id)
+    print(f"[WindowManager] get_window_bounds(slot={slot_id}) -> x={bounds[0]}, y={bounds[1]}, w={bounds[2]}, h={bounds[3]}")
+    return bounds
 
 
 def configure_window_size(width: int = 400, height: int = 320):

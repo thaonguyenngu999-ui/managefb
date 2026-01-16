@@ -954,26 +954,43 @@ class LoginTab(ctk.CTkFrame):
                 return result.get('result', {}).get('result', {}).get('value')
 
             # Set window bounds theo slot - thu nhỏ cửa sổ và sắp xếp không chồng lên nhau
+            print(f"[Login] ===== WINDOW SIZING START =====")
             try:
                 x, y, w, h = get_window_bounds(slot_id)
-                print(f"[Login] Setting window bounds: slot={slot_id}, x={x}, y={y}, w={w}, h={h}")
+                print(f"[Login] Target bounds: slot={slot_id}, x={x}, y={y}, w={w}, h={h}")
+
                 # Get window ID
                 win_result = send_cmd("Browser.getWindowForTarget", {})
-                print(f"[Login] getWindowForTarget result: {win_result}")
-                if win_result and 'result' in win_result and 'windowId' in win_result['result']:
+                print(f"[Login] getWindowForTarget: {win_result}")
+
+                # Check response format
+                if win_result is None:
+                    print(f"[Login] ERROR: win_result is None!")
+                elif 'error' in win_result:
+                    print(f"[Login] ERROR from CDP: {win_result['error']}")
+                elif 'result' in win_result and 'windowId' in win_result['result']:
                     window_id = win_result['result']['windowId']
+                    print(f"[Login] Got windowId: {window_id}")
+
                     # Set bounds
                     bounds_result = send_cmd("Browser.setWindowBounds", {
                         "windowId": window_id,
                         "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}
                     })
                     print(f"[Login] setWindowBounds result: {bounds_result}")
+
+                    if bounds_result and 'error' in bounds_result:
+                        print(f"[Login] ERROR setting bounds: {bounds_result['error']}")
+                    else:
+                        print(f"[Login] ✓ Window bounds SET successfully!")
                 else:
-                    print(f"[Login] Could not get windowId from result")
+                    print(f"[Login] Unexpected response format: {win_result}")
+
             except Exception as e:
                 import traceback
-                print(f"[Login] Window bounds error: {e}")
+                print(f"[Login] Window bounds EXCEPTION: {e}")
                 traceback.print_exc()
+            print(f"[Login] ===== WINDOW SIZING END =====")
 
             # Xóa cookies Facebook trước khi login (tránh dính session cũ)
             for domain in [".facebook.com", "facebook.com", "www.facebook.com", "m.facebook.com"]:
