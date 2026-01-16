@@ -1425,6 +1425,11 @@ class LoginTab(ctk.CTkFrame):
 
             # Release slot if LIVE (browser stays open)
             if status_clean == 'LIVE':
+                # Đợi random 3-8 giây trước khi đóng browser
+                close_delay = random.uniform(3, 8)
+                self.after(0, lambda d=close_delay: self._log(f"  ⏳ Đợi {d:.1f}s trước khi đóng..."))
+                time.sleep(close_delay)
+                api.close_browser(uuid)
                 release_window_slot(slot_id)
 
             return status_clean == 'LIVE', status_clean
