@@ -32,6 +32,10 @@ class WindowManager:
     MARGIN = 15
     SCALE_FACTOR = 0.45  # 45%
 
+    # Giới hạn số cột/hàng
+    MAX_COLS = 6   # 6 cửa sổ mỗi hàng
+    MAX_ROWS = 3   # 3 hàng
+
     # Offset để tránh taskbar
     TOP_OFFSET = 0
     LEFT_OFFSET = 0
@@ -74,15 +78,9 @@ class WindowManager:
 
     def _recalculate_grid(self):
         """Tính lại số cột/hàng dựa trên kích thước màn hình"""
-        usable_width = self.SCREEN_WIDTH - self.LEFT_OFFSET
-        usable_height = self.SCREEN_HEIGHT - self.TOP_OFFSET - 40  # Trừ taskbar
-
-        # Kích thước hiển thị thực tế sau khi scale
-        display_width = int(self.WINDOW_WIDTH * self.SCALE_FACTOR)
-        display_height = int(self.WINDOW_HEIGHT * self.SCALE_FACTOR)
-
-        self._cols = max(1, usable_width // (display_width + self.MARGIN))
-        self._rows = max(1, usable_height // (display_height + self.MARGIN))
+        # Sử dụng giới hạn cố định
+        self._cols = self.MAX_COLS
+        self._rows = self.MAX_ROWS
         self._max_slots = self._cols * self._rows
 
         # Initialize slots
