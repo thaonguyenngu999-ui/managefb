@@ -36,7 +36,7 @@ class WindowManager:
 
     # Kích thước cửa sổ mặc định (trước khi scale)
     WINDOW_WIDTH = 1000
-    WINDOW_HEIGHT = 2000
+    WINDOW_HEIGHT = 1500
     MARGIN = 10
 
     # Offset để tránh taskbar
