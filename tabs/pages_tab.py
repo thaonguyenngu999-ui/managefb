@@ -272,26 +272,27 @@ class PagesTab(ctk.CTkFrame):
         self.empty_label.pack(pady=50)
 
     def _load_profiles(self):
-        """Load danh sách profiles từ Hidemium"""
+        """Load danh sách profiles và folders từ Hidemium"""
         def load():
             try:
-                result = api.get_profiles()
-                if result.get('success'):
-                    profiles = result.get('data', [])
+                # Load profiles - trả về list trực tiếp
+                profiles = api.get_profiles()
+                if not isinstance(profiles, list):
+                    profiles = []
+
+                # Load folders riêng
+                try:
+                    folders = api.get_folders()
+                    if not isinstance(folders, list):
+                        folders = []
+                except:
                     folders = []
-                    folder_set = set()
 
-                    for p in profiles:
-                        folder_id = p.get('folder_id')
-                        folder_name = p.get('folder_name', 'Không có thư mục')
-                        if folder_id and folder_id not in folder_set:
-                            folder_set.add(folder_id)
-                            folders.append({'id': folder_id, 'name': folder_name})
+                self.after(0, lambda: self._update_profiles(profiles, folders))
 
-                    self.after(0, lambda: self._update_profiles(profiles, folders))
-                else:
-                    self.after(0, lambda: self._set_status("Không thể load profiles", "error"))
             except Exception as e:
+                import traceback
+                print(f"[Pages] Load profiles error: {traceback.format_exc()}")
                 self.after(0, lambda: self._set_status(f"Lỗi: {e}", "error"))
 
         threading.Thread(target=load, daemon=True).start()
@@ -301,13 +302,16 @@ class PagesTab(ctk.CTkFrame):
         self.profiles = profiles
         self.folders = folders
 
-        # Update folder menu
-        folder_names = ["-- Tất cả --"] + [f['name'] for f in folders]
+        # Update folder menu - lấy name từ folder object
+        folder_names = ["-- Tất cả --"]
+        for f in folders:
+            fname = f.get('name') or f.get('folderName') or 'Unknown'
+            folder_names.append(fname)
         self.folder_menu.configure(values=folder_names)
 
         # Render profiles
         self._render_profiles()
-        self._set_status(f"Đã load {len(profiles)} profiles", "success")
+        self._set_status(f"Đã load {len(profiles)} profiles, {len(folders)} thư mục", "success")
 
     def _render_profiles(self, filter_folder: str = None):
         """Render danh sách profiles"""
@@ -319,7 +323,26 @@ class PagesTab(ctk.CTkFrame):
         # Filter by folder
         profiles_to_show = self.profiles
         if filter_folder and filter_folder != "-- Tất cả --":
-            profiles_to_show = [p for p in self.profiles if p.get('folder_name') == filter_folder]
+            # Tìm folder_id từ folder name
+            folder_id = None
+            for f in self.folders:
+                fname = f.get('name') or f.get('folderName') or ''
+                if fname == filter_folder:
+                    folder_id = f.get('uuid') or f.get('id') or f.get('folderId')
+                    break
+
+            if folder_id:
+                # Filter theo folder_id
+                profiles_to_show = [
+                    p for p in self.profiles
+                    if p.get('folderId') == folder_id or p.get('folder_id') == folder_id
+                ]
+            else:
+                # Fallback: filter theo folder_name
+                profiles_to_show = [
+                    p for p in self.profiles
+                    if p.get('folderName') == filter_folder or p.get('folder_name') == filter_folder
+                ]
 
         for profile in profiles_to_show:
             uuid = profile.get('uuid', '')
