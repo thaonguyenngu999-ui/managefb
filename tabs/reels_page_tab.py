@@ -834,9 +834,8 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] Browser opened, port: {remote_port}")
             time.sleep(3)
 
-            # Set window position
+            # Lưu bounds để set sau khi kết nối CDP
             bounds = get_window_bounds(slot_id)
-            api.set_window_bounds(profile_uuid, bounds)
 
             # Bước 2: Kết nối CDP
             cdp_base = f"http://127.0.0.1:{remote_port}"
@@ -874,6 +873,25 @@ class ReelsPageTab(ctk.CTkFrame):
                     ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
                 except:
                     ws = websocket.create_connection(page_ws, timeout=30)
+
+            # Set window position via CDP
+            try:
+                window_result = self._cdp_send(ws, "Browser.getWindowForTarget", {})
+                window_id = window_result.get('result', {}).get('windowId')
+                if window_id and bounds:
+                    self._cdp_send(ws, "Browser.setWindowBounds", {
+                        "windowId": window_id,
+                        "bounds": {
+                            "left": bounds.get('x', 0),
+                            "top": bounds.get('y', 0),
+                            "width": bounds.get('width', 900),
+                            "height": bounds.get('height', 810),
+                            "windowState": "normal"
+                        }
+                    })
+                    print(f"[ReelsPage] Window positioned at ({bounds.get('x')}, {bounds.get('y')})")
+            except Exception as e:
+                print(f"[ReelsPage] Could not set window bounds: {e}")
 
             # Bước 3: Navigate đến page để switch context
             print(f"[ReelsPage] Navigating to page: {page_url}")

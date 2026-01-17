@@ -3,9 +3,32 @@ FB Manager Pro - Phần mềm quản lý tài khoản Facebook
 Tích hợp Hidemium Browser API
 """
 import customtkinter as ctk
+import sys
+import io
+from datetime import datetime
 from config import COLORS, WINDOW_WIDTH, WINDOW_HEIGHT, APP_NAME, APP_VERSION
 from widgets import StatusBar
 from tabs import ProfilesTab, ScriptsTab, PostsTab, ContentTab, GroupsTab, LoginTab, PagesTab, ReelsPageTab
+
+
+class LogRedirector(io.StringIO):
+    """Redirect stdout/stderr to a callback function"""
+    def __init__(self, callback, original_stream):
+        super().__init__()
+        self.callback = callback
+        self.original_stream = original_stream
+
+    def write(self, text):
+        if text.strip():  # Chỉ log text có nội dung
+            self.callback(text)
+        # Vẫn ghi ra stream gốc
+        if self.original_stream:
+            self.original_stream.write(text)
+            self.original_stream.flush()
+
+    def flush(self):
+        if self.original_stream:
+            self.original_stream.flush()
 
 
 class FBManagerApp(ctk.CTk):
@@ -13,30 +36,37 @@ class FBManagerApp(ctk.CTk):
     
     def __init__(self):
         super().__init__()
-        
-        # Window setup
+
+        # Window setup - tăng kích thước để có chỗ cho LOG panel
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
-        self.minsize(1200, 700)
-        
+        self.geometry(f"{WINDOW_WIDTH + 400}x{WINDOW_HEIGHT}")  # +400 cho LOG panel
+        self.minsize(1600, 700)
+
         # Set theme
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        
+
         # Configure colors
         self.configure(fg_color=COLORS["bg_dark"])
-        
+
         # Initialize status_bar as None first
         self.status_bar = None
-        
+
         # Create UI
         self._create_sidebar()
         self._create_main_frame()  # Create main frame first
+        self._create_log_panel()   # Create LOG panel on the right
         self._create_status_bar()  # Create status bar BEFORE tabs
         self._create_tabs()  # Create tabs last
-        
+
+        # Setup log redirector AFTER UI is created
+        self._setup_log_redirector()
+
         # Show default tab
         self._show_tab("profiles")
+
+        # Initial log message
+        self._add_log("[App] FB Manager Pro started", "INFO")
     
     def _create_sidebar(self):
         """Tạo sidebar navigation"""
@@ -154,7 +184,112 @@ class FBManagerApp(ctk.CTk):
             corner_radius=0
         )
         self.main_frame.pack(side="left", fill="both", expand=True)
-    
+
+    def _create_log_panel(self):
+        """Tạo LOG panel bên phải"""
+        # Container cho LOG panel
+        self.log_panel = ctk.CTkFrame(
+            self,
+            width=400,
+            fg_color=COLORS["bg_secondary"],
+            corner_radius=0
+        )
+        self.log_panel.pack(side="right", fill="y")
+        self.log_panel.pack_propagate(False)
+
+        # Header
+        header_frame = ctk.CTkFrame(self.log_panel, fg_color=COLORS["bg_card"], corner_radius=0)
+        header_frame.pack(fill="x")
+
+        ctk.CTkLabel(
+            header_frame,
+            text="📋 LOG & DEBUG",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left", padx=15, pady=12)
+
+        # Clear button
+        ctk.CTkButton(
+            header_frame,
+            text="🗑️ Clear",
+            width=70,
+            height=28,
+            fg_color=COLORS["error"],
+            hover_color="#ff6b6b",
+            corner_radius=5,
+            font=ctk.CTkFont(size=12),
+            command=self._clear_logs
+        ).pack(side="right", padx=10, pady=8)
+
+        # Log text area with scrollbar
+        log_container = ctk.CTkFrame(self.log_panel, fg_color="transparent")
+        log_container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.log_text = ctk.CTkTextbox(
+            log_container,
+            fg_color=COLORS["bg_dark"],
+            text_color=COLORS["text_primary"],
+            font=ctk.CTkFont(family="Consolas", size=11),
+            corner_radius=8,
+            wrap="word"
+        )
+        self.log_text.pack(fill="both", expand=True)
+
+        # Configure tags for different log levels
+        self.log_text._textbox.tag_config("INFO", foreground="#00d9ff")
+        self.log_text._textbox.tag_config("ERROR", foreground="#ff5555")
+        self.log_text._textbox.tag_config("WARNING", foreground="#ffaa00")
+        self.log_text._textbox.tag_config("SUCCESS", foreground="#00d97e")
+        self.log_text._textbox.tag_config("DEBUG", foreground="#888888")
+        self.log_text._textbox.tag_config("TIMESTAMP", foreground="#666666")
+
+    def _setup_log_redirector(self):
+        """Setup stdout/stderr redirector để capture logs"""
+        self._original_stdout = sys.stdout
+        self._original_stderr = sys.stderr
+
+        # Redirect stdout và stderr
+        sys.stdout = LogRedirector(self._on_log_output, self._original_stdout)
+        sys.stderr = LogRedirector(self._on_log_output, self._original_stderr)
+
+    def _on_log_output(self, text):
+        """Callback khi có log output"""
+        # Xác định log level từ text
+        level = "INFO"
+        if "ERROR" in text.upper():
+            level = "ERROR"
+        elif "WARNING" in text.upper() or "WARN" in text.upper():
+            level = "WARNING"
+        elif "SUCCESS" in text.upper() or "✓" in text:
+            level = "SUCCESS"
+        elif "DEBUG" in text.upper():
+            level = "DEBUG"
+
+        # Schedule UI update on main thread
+        self.after(0, lambda: self._add_log(text.strip(), level))
+
+    def _add_log(self, text: str, level: str = "INFO"):
+        """Thêm log vào panel"""
+        if not hasattr(self, 'log_text') or not self.log_text:
+            return
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # Insert timestamp
+        self.log_text._textbox.insert("end", f"[{timestamp}] ", "TIMESTAMP")
+
+        # Insert log message với màu tương ứng
+        self.log_text._textbox.insert("end", f"{text}\n", level)
+
+        # Auto scroll to bottom
+        self.log_text._textbox.see("end")
+
+    def _clear_logs(self):
+        """Clear tất cả logs"""
+        if hasattr(self, 'log_text') and self.log_text:
+            self.log_text._textbox.delete("1.0", "end")
+            self._add_log("[App] Logs cleared", "INFO")
+
     def _create_tabs(self):
         """Tạo các tabs"""
         # Tab containers
