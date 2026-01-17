@@ -2248,9 +2248,17 @@ class GroupsTab(ctk.CTkFrame):
     def _cdp_send(self, ws, method: str, params: Dict = None) -> Dict:
         """Gửi CDP command và nhận response"""
         import json as json_module
+        if not ws:
+            return {"error": "No WebSocket connection"}
+
         self._cdp_id += 1
         msg = {"id": self._cdp_id, "method": method, "params": params or {}}
-        ws.send(json_module.dumps(msg))
+
+        try:
+            ws.send(json_module.dumps(msg))
+        except Exception as e:
+            # WebSocket đã đóng
+            return {"error": f"WebSocket send failed: {str(e)}", "ws_closed": True}
 
         # Đợi response
         while True:
@@ -2260,8 +2268,8 @@ class GroupsTab(ctk.CTkFrame):
                 data = json_module.loads(resp)
                 if data.get('id') == self._cdp_id:
                     return data
-            except:
-                return {}
+            except Exception as e:
+                return {"error": f"WebSocket recv failed: {str(e)}", "ws_closed": True}
 
     def _is_ws_connected(self, ws) -> bool:
         """Kiểm tra WebSocket còn kết nối không"""
@@ -2279,7 +2287,18 @@ class GroupsTab(ctk.CTkFrame):
                 "expression": "1+1",
                 "returnByValue": True
             })
+            # Kiểm tra có lỗi ws_closed không
+            if result.get('ws_closed'):
+                return False
             return result.get('result', {}).get('result', {}).get('value') == 2
+        except:
+            return False
+
+    def _is_browser_alive(self, cdp_base: str) -> bool:
+        """Kiểm tra browser còn chạy không bằng cách ping CDP port"""
+        try:
+            resp = requests.get(f"{cdp_base}/json/version", timeout=3)
+            return resp.status_code == 200
         except:
             return False
 
@@ -2295,6 +2314,11 @@ class GroupsTab(ctk.CTkFrame):
             return (ws, True)
 
         print(f"[WARN] WebSocket mất kết nối, đang reconnect...")
+
+        # Kiểm tra browser còn sống không
+        if not self._is_browser_alive(cdp_base):
+            print(f"[ERROR] Browser đã đóng hoàn toàn, không thể reconnect")
+            return (None, False)
 
         # Thử lấy WS từ tab hiện có
         try:
@@ -2427,8 +2451,8 @@ class GroupsTab(ctk.CTkFrame):
 
         time.sleep(random.uniform(0.3, 0.7))
 
-    def _type_like_human(self, ws, text: str):
-        """Gõ từng ký tự như người thật với typo và pause"""
+    def _type_like_human(self, ws, text: str) -> bool:
+        """Gõ từng ký tự như người thật với typo và pause. Returns True nếu thành công."""
         import time
 
         # Các ký tự hay bị gõ nhầm (adjacent keys)
@@ -2444,13 +2468,22 @@ class GroupsTab(ctk.CTkFrame):
             'y': ['t', 'u', 'h'], 'z': ['x', 'a']
         }
 
+        def safe_send(method, params):
+            """Gửi command và kiểm tra WebSocket còn sống không"""
+            result = self._cdp_send(ws, method, params)
+            if result.get('ws_closed'):
+                return False
+            return True
+
         # Chia text thành các đoạn (theo dòng hoặc câu)
         paragraphs = text.split('\n')
 
         for p_idx, paragraph in enumerate(paragraphs):
             if not paragraph.strip():
                 # Gõ newline
-                self._cdp_send(ws, "Input.insertText", {"text": "\n"})
+                if not safe_send("Input.insertText", {"text": "\n"}):
+                    print(f"[ERROR] WebSocket đóng khi gõ newline")
+                    return False
                 time.sleep(random.uniform(0.3, 0.8))
                 continue
 
@@ -2463,27 +2496,32 @@ class GroupsTab(ctk.CTkFrame):
                     if char.lower() in typo_map and random.random() < 0.03:
                         # Gõ sai
                         wrong_char = random.choice(typo_map[char.lower()])
-                        self._cdp_send(ws, "Input.insertText", {"text": wrong_char})
+                        if not safe_send("Input.insertText", {"text": wrong_char}):
+                            return False
                         time.sleep(random.uniform(0.05, 0.15))
 
                         # Nhận ra sai, dừng lại
                         time.sleep(random.uniform(0.2, 0.5))
 
                         # Xóa (Backspace)
-                        self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                        if not safe_send("Input.dispatchKeyEvent", {
                             "type": "keyDown",
                             "key": "Backspace",
                             "code": "Backspace"
-                        })
-                        self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                        }):
+                            return False
+                        if not safe_send("Input.dispatchKeyEvent", {
                             "type": "keyUp",
                             "key": "Backspace",
                             "code": "Backspace"
-                        })
+                        }):
+                            return False
                         time.sleep(random.uniform(0.1, 0.2))
 
                     # Gõ ký tự đúng
-                    self._cdp_send(ws, "Input.insertText", {"text": char})
+                    if not safe_send("Input.insertText", {"text": char}):
+                        print(f"[ERROR] WebSocket đóng khi gõ ký tự '{char}'")
+                        return False
 
                     # Delay khác nhau tùy ký tự
                     if char in ' .,!?':
@@ -2502,9 +2540,12 @@ class GroupsTab(ctk.CTkFrame):
 
             # Gõ newline giữa các paragraph
             if p_idx < len(paragraphs) - 1:
-                self._cdp_send(ws, "Input.insertText", {"text": "\n"})
+                if not safe_send("Input.insertText", {"text": "\n"}):
+                    return False
                 # Pause lâu hơn giữa các đoạn
                 time.sleep(random.uniform(0.5, 1.2))
+
+        return True
 
     def _post_to_group_cdp(self, ws, group: Dict, content: str, images: List[str], fb_name: str = "") -> tuple:
         """Đăng bài vào group qua CDP - trả về (success, post_url, new_ws)"""
@@ -2898,7 +2939,17 @@ class GroupsTab(ctk.CTkFrame):
             time.sleep(random.uniform(0.5, 1))
 
             # Bước 4: Gõ nội dung từng ký tự
-            self._type_like_human(ws, content)
+            typing_success = self._type_like_human(ws, content)
+            if not typing_success:
+                print(f"[ERROR] WebSocket đóng trong khi gõ nội dung cho group {group_id}")
+                # Thử reconnect
+                cdp_base = f"http://127.0.0.1:{self._posting_port}"
+                ws, reconnected = self._get_or_create_ws(ws, cdp_base, group_url)
+                if not reconnected:
+                    print(f"[ERROR] Không thể reconnect, browser có thể đã đóng")
+                    return (False, "", None)
+                # Không thể tiếp tục vì đã mất context, return fail
+                return (False, "", ws)
             time.sleep(random.uniform(1, 2))
 
             # Bước 5: Upload ảnh nếu có
@@ -3028,7 +3079,18 @@ class GroupsTab(ctk.CTkFrame):
             print(f"[ERROR] Lỗi đăng bài group {group_id}: {e}")
             import traceback
             traceback.print_exc()
-            return (False, "", ws)
+            # Kiểm tra WebSocket còn sống không
+            if ws and self._is_ws_connected(ws):
+                return (False, "", ws)
+            else:
+                # WS đã chết, thử reconnect
+                cdp_base = f"http://127.0.0.1:{self._posting_port}"
+                if self._is_browser_alive(cdp_base):
+                    ws, reconnected = self._get_or_create_ws(None, cdp_base, group_url)
+                    return (False, "", ws if reconnected else None)
+                else:
+                    print(f"[ERROR] Browser đã đóng hoàn toàn")
+                    return (False, "", None)
 
     def _get_post_url_new_tab(self, ws, group_url: str, group_id: str, should_like: bool = False, react_type: str = None, fb_name: str = "") -> str:
         """Mở tab mới để lấy URL bài viết vừa đăng và like nếu cần"""
