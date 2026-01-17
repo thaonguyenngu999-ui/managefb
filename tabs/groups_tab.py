@@ -2676,8 +2676,60 @@ class GroupsTab(ctk.CTkFrame):
                 self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
                 return f"https://www.facebook.com/groups/{group_id}"
 
-        # Đợi page load
+        # Helper để gửi CDP command đến tab mới
+        def send_new(method, params=None):
+            import json as json_module
+            self._cdp_id += 1
+            msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+            new_ws.send(json_module.dumps(msg))
+            while True:
+                try:
+                    new_ws.settimeout(30)
+                    resp = new_ws.recv()
+                    data = json_module.loads(resp)
+                    if data.get('id') == self._cdp_id:
+                        return data
+                except:
+                    return {}
+
+        def eval_new(expr):
+            result = send_new("Runtime.evaluate", {
+                "expression": expr,
+                "returnByValue": True,
+                "awaitPromise": True
+            })
+            return result.get('result', {}).get('result', {}).get('value')
+
+        # Đợi page load đầy đủ
         time.sleep(random.uniform(2, 3))
+
+        # Chờ page load complete
+        for _ in range(10):
+            ready = eval_new("document.readyState")
+            if ready == 'complete':
+                break
+            time.sleep(1)
+
+        # Đợi thêm để Facebook load dynamic content
+        time.sleep(random.uniform(2, 4))
+
+        # Debug: Kiểm tra URL của tab mới
+        current_tab_url = eval_new("window.location.href")
+        print(f"[Groups] DEBUG: New tab URL = {current_tab_url}")
+        print(f"[Groups] DEBUG: Expected group_url = {group_url}")
+
+        # Debug: Đếm số link có /groups/ trong page
+        debug_links = eval_new('''
+        (function() {
+            let links = document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
+            let result = [];
+            for (let i = 0; i < Math.min(5, links.length); i++) {
+                result.push(links[i].href);
+            }
+            return JSON.stringify({count: links.length, samples: result});
+        })()
+        ''')
+        print(f"[Groups] DEBUG: Group post links in page = {debug_links}")
 
         # Tìm bài vừa đăng trong tab mới - ƯU TIÊN URL có /groups/
         get_post_url_js = '''
@@ -2743,30 +2795,6 @@ class GroupsTab(ctk.CTkFrame):
             return postLinks.length > 0 ? postLinks[0].href : null;
         })()
         '''
-
-        # Helper để gửi CDP command đến tab mới
-        def send_new(method, params=None):
-            import json as json_module
-            self._cdp_id += 1
-            msg = {"id": self._cdp_id, "method": method, "params": params or {}}
-            new_ws.send(json_module.dumps(msg))
-            while True:
-                try:
-                    new_ws.settimeout(30)
-                    resp = new_ws.recv()
-                    data = json_module.loads(resp)
-                    if data.get('id') == self._cdp_id:
-                        return data
-                except:
-                    return {}
-
-        def eval_new(expr):
-            result = send_new("Runtime.evaluate", {
-                "expression": expr,
-                "returnByValue": True,
-                "awaitPromise": True
-            })
-            return result.get('result', {}).get('result', {}).get('value')
 
         # Thử lấy URL trong tab mới - ưu tiên URL có /groups/
         post_url = None
