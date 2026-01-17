@@ -19,7 +19,7 @@ from db import (
     delete_reel_schedule
 )
 from api_service import api
-from window_manager import acquire_window_slot, release_window_slot, get_window_bounds
+from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
 
 try:
     import websocket
