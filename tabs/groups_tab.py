@@ -3005,27 +3005,76 @@ class GroupsTab(ctk.CTkFrame):
             # Tìm vị trí nút Đăng
             get_post_btn_pos_js = '''
             (function() {
-                let btns = document.querySelectorAll('[role="button"]');
-                for (let btn of btns) {
-                    let text = btn.innerText ? btn.innerText.trim() : '';
-                    // Hỗ trợ cả tiếng Việt và tiếng Anh
-                    if (text === "Đăng" || text === "Post") {
-                        let rect = btn.getBoundingClientRect();
+                // Các text và aria-label có thể cho nút Đăng
+                const postTexts = ['Đăng', 'Post', 'Đăng bài', 'Submit'];
+                const postAriaLabels = ['Đăng', 'Post', 'Đăng bài', 'Submit post', 'Submit'];
+
+                function getCoords(btn) {
+                    let rect = btn.getBoundingClientRect();
+                    // Kiểm tra button visible
+                    if (rect.width > 0 && rect.height > 0 && rect.top > 0) {
                         return {
                             x: rect.left + rect.width / 2 + (Math.random() * 10 - 5),
-                            y: rect.top + rect.height / 2 + (Math.random() * 4 - 2)
+                            y: rect.top + rect.height / 2 + (Math.random() * 4 - 2),
+                            disabled: btn.disabled || btn.getAttribute('aria-disabled') === 'true'
                         };
                     }
+                    return null;
                 }
-                // Fallback: tìm aria-label
-                let postBtn = document.querySelector('[aria-label="Đăng"], [aria-label="Post"]');
-                if (postBtn) {
-                    let rect = postBtn.getBoundingClientRect();
-                    return {
-                        x: rect.left + rect.width / 2,
-                        y: rect.top + rect.height / 2
-                    };
+
+                // Cách 1: Tìm theo role="button" và text
+                let btns = document.querySelectorAll('[role="button"]');
+                for (let btn of btns) {
+                    let text = (btn.innerText || '').trim();
+                    if (postTexts.includes(text)) {
+                        let coords = getCoords(btn);
+                        if (coords) {
+                            console.log('Found post button by text:', text, 'disabled:', coords.disabled);
+                            return coords;
+                        }
+                    }
                 }
+
+                // Cách 2: Tìm theo aria-label
+                for (let label of postAriaLabels) {
+                    let btn = document.querySelector('[aria-label="' + label + '"]');
+                    if (btn) {
+                        let coords = getCoords(btn);
+                        if (coords) {
+                            console.log('Found post button by aria-label:', label);
+                            return coords;
+                        }
+                    }
+                }
+
+                // Cách 3: Tìm button/div có text Đăng/Post bên trong span
+                let spans = document.querySelectorAll('span');
+                for (let span of spans) {
+                    let text = (span.innerText || '').trim();
+                    if (postTexts.includes(text)) {
+                        // Tìm parent button
+                        let btn = span.closest('[role="button"]');
+                        if (btn) {
+                            let coords = getCoords(btn);
+                            if (coords) {
+                                console.log('Found post button via span:', text);
+                                return coords;
+                            }
+                        }
+                    }
+                }
+
+                // Cách 4: Tìm form submit button
+                let submitBtns = document.querySelectorAll('button[type="submit"], input[type="submit"]');
+                for (let btn of submitBtns) {
+                    let coords = getCoords(btn);
+                    if (coords) {
+                        console.log('Found submit button');
+                        return coords;
+                    }
+                }
+
+                console.log('No post button found');
                 return null;
             })()
             '''
