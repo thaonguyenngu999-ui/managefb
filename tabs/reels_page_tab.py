@@ -2,11 +2,13 @@
 Tab Đăng Reels Page - Lên kế hoạch và đăng Reels cho các Facebook Pages
 """
 import customtkinter as ctk
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import threading
 import os
 import re
 import time
+import random
+import json as json_module
 from datetime import datetime, timedelta
 from tkinter import filedialog
 from config import COLORS
@@ -17,6 +19,13 @@ from db import (
     delete_reel_schedule
 )
 from api_service import api
+from window_manager import acquire_window_slot, release_window_slot, get_window_bounds
+
+try:
+    import websocket
+    WEBSOCKET_AVAILABLE = True
+except ImportError:
+    WEBSOCKET_AVAILABLE = False
 
 
 class ReelsPageTab(ctk.CTkFrame):
@@ -43,6 +52,9 @@ class ReelsPageTab(ctk.CTkFrame):
 
         # Widget caches
         self._page_checkbox_vars: Dict[int, ctk.BooleanVar] = {}
+
+        # CDP counter for unique message IDs
+        self._cdp_id = 0
 
         self._create_ui()
         self._load_profiles()
@@ -787,22 +799,296 @@ class ReelsPageTab(ctk.CTkFrame):
         self._set_status(f"Hoàn tất đăng Reels: {success}/{total}", "success" if failed == 0 else "warning")
 
     def _post_reel_to_page(self, page: Dict, caption: str, hashtags: str):
-        """Đăng Reels lên một Page"""
-        # TODO: Implement actual posting via CDP
-        # This is a placeholder - actual implementation would:
-        # 1. Open browser with page profile
-        # 2. Navigate to Reels creator
-        # 3. Upload video
-        # 4. Add caption + hashtags
-        # 5. Post
+        """Đăng Reels lên một Page qua CDP"""
+        if not WEBSOCKET_AVAILABLE:
+            raise Exception("websocket-client chưa được cài đặt")
 
-        print(f"[ReelsPage] Posting to {page.get('page_name')}...")
+        profile_uuid = page.get('profile_uuid')
+        page_id = page.get('page_id')
+        page_name = page.get('page_name', 'Unknown')
+        page_url = page.get('page_url', f"https://www.facebook.com/{page_id}")
+
+        print(f"[ReelsPage] Đang đăng Reels lên {page_name}...")
         print(f"[ReelsPage] Video: {self.video_path}")
-        print(f"[ReelsPage] Caption: {caption[:50]}...")
+        print(f"[ReelsPage] Caption: {caption[:50] if caption else 'N/A'}...")
         print(f"[ReelsPage] Hashtags: {hashtags}")
 
-        # Simulate delay
-        time.sleep(2)
+        # Acquire window slot
+        slot_id = acquire_window_slot()
+        ws = None
+
+        try:
+            # Bước 1: Mở browser với profile
+            result = api.open_browser(profile_uuid)
+            if not result or not result.get('success'):
+                raise Exception(f"Không mở được browser: {result}")
+
+            browser_info = result.get('data', {})
+            remote_port = browser_info.get('remote_debugging_port')
+
+            if not remote_port:
+                raise Exception("Không lấy được remote debugging port")
+
+            print(f"[ReelsPage] Browser opened, port: {remote_port}")
+            time.sleep(3)
+
+            # Set window position
+            bounds = get_window_bounds(slot_id)
+            api.set_window_bounds(profile_uuid, bounds)
+
+            # Bước 2: Kết nối CDP
+            cdp_base = f"http://127.0.0.1:{remote_port}"
+            import urllib.request
+            tabs_url = f"{cdp_base}/json"
+
+            for attempt in range(5):
+                try:
+                    with urllib.request.urlopen(tabs_url, timeout=10) as resp:
+                        tabs = json_module.loads(resp.read().decode())
+                        break
+                except Exception as e:
+                    print(f"[ReelsPage] CDP retry {attempt + 1}: {e}")
+                    time.sleep(2)
+            else:
+                raise Exception("Không kết nối được CDP")
+
+            # Tìm tab Facebook
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    ws_url = tab.get('webSocketDebuggerUrl', '')
+                    if ws_url:
+                        page_ws = ws_url
+                        break
+
+            if not page_ws:
+                raise Exception("Không tìm thấy tab Facebook")
+
+            # Kết nối WebSocket
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+            except:
+                try:
+                    ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
+                except:
+                    ws = websocket.create_connection(page_ws, timeout=30)
+
+            # Bước 3: Navigate đến page để switch context
+            print(f"[ReelsPage] Navigating to page: {page_url}")
+            self._cdp_send(ws, "Page.navigate", {"url": page_url})
+            time.sleep(5)
+
+            # Đợi page load
+            for _ in range(10):
+                ready = self._cdp_evaluate(ws, "document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(2)
+
+            # Bước 4: Navigate đến Reels creator
+            reels_create_url = "https://www.facebook.com/reels/create"
+            print(f"[ReelsPage] Navigating to Reels creator...")
+            self._cdp_send(ws, "Page.navigate", {"url": reels_create_url})
+            time.sleep(5)
+
+            # Đợi page load
+            for _ in range(10):
+                ready = self._cdp_evaluate(ws, "document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(3)
+
+            # Bước 5: Upload video bằng cách set file vào input[type="file"]
+            print(f"[ReelsPage] Uploading video...")
+
+            # Normalize path cho Windows
+            video_path = self.video_path.replace('\\', '/')
+
+            # Lấy DOM document
+            doc_result = self._cdp_send(ws, "DOM.getDocument", {})
+            root_id = doc_result.get('result', {}).get('root', {}).get('nodeId', 0)
+
+            if not root_id:
+                raise Exception("Không lấy được DOM root")
+
+            # Tìm input[type="file"] cho video
+            query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
+                "nodeId": root_id,
+                "selector": 'input[type="file"][accept*="video"]'
+            })
+            node_ids = query_result.get('result', {}).get('nodeIds', [])
+
+            # Nếu không tìm được với accept="video", thử tất cả input file
+            if not node_ids:
+                query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
+                    "nodeId": root_id,
+                    "selector": 'input[type="file"]'
+                })
+                node_ids = query_result.get('result', {}).get('nodeIds', [])
+
+            if not node_ids:
+                raise Exception("Không tìm thấy input file để upload video")
+
+            # Set file cho input đầu tiên
+            uploaded = False
+            for node_id in node_ids:
+                try:
+                    self._cdp_send(ws, "DOM.setFileInputFiles", {
+                        "nodeId": node_id,
+                        "files": [video_path]
+                    })
+                    print(f"[ReelsPage] Video set to input nodeId: {node_id}")
+                    uploaded = True
+                    break
+                except Exception as e:
+                    print(f"[ReelsPage] Upload error for nodeId {node_id}: {e}")
+                    continue
+
+            if not uploaded:
+                raise Exception("Không upload được video")
+
+            # Đợi video được xử lý
+            print(f"[ReelsPage] Waiting for video processing...")
+            time.sleep(8)
+
+            # Bước 6: Nhập caption và hashtags
+            full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
+
+            if full_caption:
+                print(f"[ReelsPage] Adding caption...")
+
+                # Tìm và điền caption
+                js_fill_caption = f'''
+                (function() {{
+                    var captionText = `{full_caption.replace('`', '\\`')}`;
+
+                    // Tìm textarea hoặc contenteditable cho caption
+                    var editors = document.querySelectorAll('[contenteditable="true"], textarea');
+                    for (var i = 0; i < editors.length; i++) {{
+                        var ed = editors[i];
+                        var ariaLabel = (ed.getAttribute('aria-label') || '').toLowerCase();
+                        var placeholder = (ed.getAttribute('placeholder') || '').toLowerCase();
+
+                        // Tìm field liên quan đến mô tả/caption
+                        if (ariaLabel.includes('mô tả') || ariaLabel.includes('describe') ||
+                            ariaLabel.includes('caption') || placeholder.includes('mô tả') ||
+                            placeholder.includes('describe')) {{
+                            ed.focus();
+                            if (ed.tagName === 'TEXTAREA') {{
+                                var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                                setter.call(ed, captionText);
+                            }} else {{
+                                ed.innerText = captionText;
+                            }}
+                            ed.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            ed.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            return 'caption_filled: ' + ariaLabel;
+                        }}
+                    }}
+
+                    // Fallback: dùng contenteditable đầu tiên
+                    var fallback = document.querySelector('[contenteditable="true"]');
+                    if (fallback) {{
+                        fallback.focus();
+                        fallback.innerText = captionText;
+                        fallback.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        return 'caption_fallback';
+                    }}
+
+                    return 'no_caption_field_found';
+                }})();
+                '''
+                caption_result = self._cdp_evaluate(ws, js_fill_caption)
+                print(f"[ReelsPage] Caption result: {caption_result}")
+                time.sleep(2)
+
+            # Bước 7: Click nút đăng/share
+            print(f"[ReelsPage] Looking for post button...")
+
+            js_click_post = '''
+            (function() {
+                // Tìm các nút có thể là nút đăng
+                var buttons = document.querySelectorAll('div[role="button"], button, span[role="button"]');
+                var postBtn = null;
+
+                for (var i = 0; i < buttons.length; i++) {
+                    var btn = buttons[i];
+                    var text = (btn.innerText || '').toLowerCase().trim();
+                    var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+
+                    // Tìm nút Share, Đăng, Post, Chia sẻ
+                    if (text === 'share' || text === 'đăng' || text === 'post' ||
+                        text === 'chia sẻ' || text === 'share reel' || text === 'chia sẻ reel' ||
+                        ariaLabel.includes('share') || ariaLabel.includes('đăng') ||
+                        ariaLabel.includes('post')) {
+                        // Kiểm tra nút không bị disabled
+                        if (!btn.hasAttribute('disabled') && btn.offsetParent !== null) {
+                            postBtn = btn;
+                            break;
+                        }
+                    }
+                }
+
+                if (postBtn) {
+                    postBtn.click();
+                    return 'clicked: ' + (postBtn.innerText || '').substring(0, 30);
+                }
+
+                return 'no_post_button_found';
+            })();
+            '''
+            click_result = self._cdp_evaluate(ws, js_click_post)
+            print(f"[ReelsPage] Click post result: {click_result}")
+
+            if 'no_post_button_found' in str(click_result):
+                raise Exception("Không tìm thấy nút đăng")
+
+            # Đợi đăng xong
+            time.sleep(10)
+
+            print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name}")
+
+        except Exception as e:
+            print(f"[ReelsPage] ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            raise e
+        finally:
+            if ws:
+                try:
+                    ws.close()
+                except:
+                    pass
+            release_window_slot(slot_id)
+
+    def _cdp_send(self, ws, method: str, params: Dict = None) -> Dict:
+        """Gửi CDP command và nhận response"""
+        self._cdp_id += 1
+        msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+        ws.send(json_module.dumps(msg))
+
+        while True:
+            try:
+                ws.settimeout(30)
+                resp = ws.recv()
+                data = json_module.loads(resp)
+                if data.get('id') == self._cdp_id:
+                    return data
+            except:
+                return {}
+
+    def _cdp_evaluate(self, ws, expression: str) -> Any:
+        """Evaluate JavaScript trong browser"""
+        result = self._cdp_send(ws, "Runtime.evaluate", {
+            "expression": expression,
+            "returnByValue": True,
+            "awaitPromise": True
+        })
+        return result.get('result', {}).get('result', {}).get('value')
 
     def _stop_posting(self):
         """Dừng đăng"""
