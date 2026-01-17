@@ -56,6 +56,9 @@ class GroupsTab(ctk.CTkFrame):
         self._is_posting = False
         self._is_boosting = False
 
+        # Thread-local storage để mỗi thread có state riêng (tránh race condition khi multi-profile)
+        self._thread_local = threading.local()
+
         # Pagination state for boost tab
         self._boost_page = 0
         self._boost_page_size = 30  # Items per page
@@ -2064,7 +2067,7 @@ class GroupsTab(ctk.CTkFrame):
             return
 
         cdp_base = f"http://127.0.0.1:{remote_port}"
-        self._posting_port = remote_port  # Lưu để dùng cho tab mới
+        self._thread_local.posting_port = remote_port  # Lưu để dùng cho tab mới
         time.sleep(2)  # Đợi browser khởi động
 
         # Đóng hết tab cũ, giữ lại 1 tab và navigate về about:blank
@@ -2131,7 +2134,7 @@ class GroupsTab(ctk.CTkFrame):
                         if new_port:
                             remote_port = new_port
                             cdp_base = f"http://127.0.0.1:{remote_port}"
-                            self._posting_port = remote_port
+                            self._thread_local.posting_port = remote_port
                             print(f"[INFO] Đã mở lại browser, port: {remote_port}")
                 time.sleep(1)
 
@@ -2157,8 +2160,8 @@ class GroupsTab(ctk.CTkFrame):
             self.after(0, lambda: self._on_posting_error("Không kết nối được WebSocket"))
             return
 
-        self._posting_ws = ws
-        self._cdp_id = 1
+        self._thread_local.posting_ws = ws
+        self._thread_local.cdp_id = 1
 
         # Lấy fb_name từ profile để tìm bài viết chính xác
         fb_name = ""
@@ -2251,8 +2254,11 @@ class GroupsTab(ctk.CTkFrame):
         if not ws:
             return {"error": "No WebSocket connection"}
 
-        self._cdp_id += 1
-        msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+        # Initialize cdp_id for this thread if not exists
+        if not hasattr(self._thread_local, 'cdp_id'):
+            self._thread_local.cdp_id = 0
+        self._thread_local.cdp_id += 1
+        msg = {"id": self._thread_local.cdp_id, "method": method, "params": params or {}}
 
         try:
             ws.send(json_module.dumps(msg))
@@ -2266,7 +2272,7 @@ class GroupsTab(ctk.CTkFrame):
                 ws.settimeout(30)
                 resp = ws.recv()
                 data = json_module.loads(resp)
-                if data.get('id') == self._cdp_id:
+                if data.get('id') == self._thread_local.cdp_id:
                     return data
             except Exception as e:
                 return {"error": f"WebSocket recv failed: {str(e)}", "ws_closed": True}
@@ -2555,7 +2561,7 @@ class GroupsTab(ctk.CTkFrame):
 
         group_id = group.get('group_id', '')
         group_url = f"https://www.facebook.com/groups/{group_id}"
-        cdp_base = f"http://127.0.0.1:{self._posting_port}"
+        cdp_base = f"http://127.0.0.1:{self._thread_local.posting_port}"
 
         try:
             # Bước 0: Kiểm tra và reconnect WS nếu cần
@@ -2943,7 +2949,7 @@ class GroupsTab(ctk.CTkFrame):
             if not typing_success:
                 print(f"[ERROR] WebSocket đóng trong khi gõ nội dung cho group {group_id}")
                 # Thử reconnect
-                cdp_base = f"http://127.0.0.1:{self._posting_port}"
+                cdp_base = f"http://127.0.0.1:{self._thread_local.posting_port}"
                 ws, reconnected = self._get_or_create_ws(ws, cdp_base, group_url)
                 if not reconnected:
                     print(f"[ERROR] Không thể reconnect, browser có thể đã đóng")
@@ -3133,7 +3139,7 @@ class GroupsTab(ctk.CTkFrame):
                 return (False, "", ws)
             else:
                 # WS đã chết, thử reconnect
-                cdp_base = f"http://127.0.0.1:{self._posting_port}"
+                cdp_base = f"http://127.0.0.1:{self._thread_local.posting_port}"
                 if self._is_browser_alive(cdp_base):
                     ws, reconnected = self._get_or_create_ws(None, cdp_base, group_url)
                     return (False, "", ws if reconnected else None)
@@ -3158,7 +3164,7 @@ class GroupsTab(ctk.CTkFrame):
         # Lấy WebSocket của tab mới
         new_ws_url = None
         try:
-            cdp_base = f"http://127.0.0.1:{self._posting_port}"
+            cdp_base = f"http://127.0.0.1:{self._thread_local.posting_port}"
             resp = requests.get(f"{cdp_base}/json", timeout=10)
             pages = resp.json()
             for p in pages:
@@ -3187,15 +3193,17 @@ class GroupsTab(ctk.CTkFrame):
         # Helper để gửi CDP command đến tab mới
         def send_new(method, params=None):
             import json as json_module
-            self._cdp_id += 1
-            msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+            if not hasattr(self._thread_local, 'cdp_id'):
+                self._thread_local.cdp_id = 0
+            self._thread_local.cdp_id += 1
+            msg = {"id": self._thread_local.cdp_id, "method": method, "params": params or {}}
             new_ws.send(json_module.dumps(msg))
             while True:
                 try:
                     new_ws.settimeout(30)
                     resp = new_ws.recv()
                     data = json_module.loads(resp)
-                    if data.get('id') == self._cdp_id:
+                    if data.get('id') == self._thread_local.cdp_id:
                         return data
                 except:
                     return {}
@@ -4029,7 +4037,7 @@ class GroupsTab(ctk.CTkFrame):
                 return
 
         self._commenting_ws = ws
-        self._cdp_id = 1
+        self._thread_local.cdp_id = 1
         success_count = 0
 
         for i, post in enumerate(posts):
@@ -4131,15 +4139,17 @@ class GroupsTab(ctk.CTkFrame):
 
             # Helper để gửi CDP command đến tab mới
             def send_new(method, params=None):
-                self._cdp_id += 1
-                msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+                if not hasattr(self._thread_local, 'cdp_id'):
+                    self._thread_local.cdp_id = 0
+                self._thread_local.cdp_id += 1
+                msg = {"id": self._thread_local.cdp_id, "method": method, "params": params or {}}
                 new_ws.send(json_module.dumps(msg))
                 while True:
                     try:
                         new_ws.settimeout(30)
                         resp = new_ws.recv()
                         data = json_module.loads(resp)
-                        if data.get('id') == self._cdp_id:
+                        if data.get('id') == self._thread_local.cdp_id:
                             return data
                     except:
                         return {}
