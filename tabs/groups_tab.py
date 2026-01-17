@@ -2768,67 +2768,53 @@ class GroupsTab(ctk.CTkFrame):
         ''')
         print(f"[Groups] DEBUG: Group post links in page = {debug_links}")
 
-        # Tìm bài vừa đăng trong tab mới - tìm post ID từ nhiều nguồn
-        get_post_url_js = '''
-        (function() {
-            let groupId = window.location.pathname.match(/\\/groups\\/(\\d+)/)?.[1] || '';
-            console.log('Group ID from URL:', groupId);
-
-            // Hàm kiểm tra URL hợp lệ (không phải notification)
-            function isValidGroupUrl(href) {
-                if (!href) return false;
-                if (href.includes('notif_id') || href.includes('ref=notif')) return false;
-                if (href.includes('comment_id') && !href.includes('/groups/')) return false;
-                return href.includes('/groups/') && href.includes('/posts/');
-            }
+        # Tìm bài vừa đăng trong tab mới - tìm post ID từ photo links
+        get_post_url_js = f'''
+        (function() {{
+            let groupId = '{group_id}';
+            console.log('Group ID:', groupId);
+            console.log('Current URL:', window.location.href);
 
             // Cách 1: Tìm URL trực tiếp có /groups/.../posts/
             let groupLinks = document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
-            for (let link of groupLinks) {
-                if (isValidGroupUrl(link.href)) {
+            console.log('Found direct group links:', groupLinks.length);
+            for (let link of groupLinks) {{
+                if (link.href && !link.href.includes('notif_id') && !link.href.includes('ref=notif')) {{
                     console.log('Found direct group post URL:', link.href);
                     return link.href;
-                }
-            }
+                }}
+            }}
 
-            // Cách 2: Tìm post ID từ photo links (set=pcb.{post_id})
+            // Cách 2: Tìm post ID từ photo links (set=pcb.{{post_id}}) - BÀI ĐẦU TIÊN = MỚI NHẤT
             let photoLinks = document.querySelectorAll('a[href*="set=pcb."]');
-            for (let link of photoLinks) {
-                let match = link.href.match(/set=pcb\\.(\\d+)/);
-                if (match && match[1] && groupId) {
+            console.log('Found photo links with pcb:', photoLinks.length);
+            if (photoLinks.length > 0) {{
+                let firstLink = photoLinks[0];
+                let match = firstLink.href.match(/set=pcb\\.(\\d+)/);
+                if (match && match[1]) {{
                     let postId = match[1];
                     let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
-                    console.log('Built post URL from photo link:', postUrl);
+                    console.log('Built post URL from first photo:', postUrl);
                     return postUrl;
-                }
-            }
+                }}
+            }}
 
-            // Cách 3: Tìm trong bài viết có "Vừa xong"
-            let posts = document.querySelectorAll('[role="article"]');
-            for (let post of posts) {
-                let timeText = post.innerText || '';
-                let hasRecentTime = timeText.includes('Vừa xong') ||
-                                   timeText.includes('Just now') ||
-                                   timeText.includes('1 phút') ||
-                                   timeText.includes('2 phút');
-                if (hasRecentTime) {
-                    // Tìm pcb trong bài này
-                    let pcbLinks = post.querySelectorAll('a[href*="set=pcb."]');
-                    for (let link of pcbLinks) {
-                        let match = link.href.match(/set=pcb\\.(\\d+)/);
-                        if (match && match[1] && groupId) {
-                            let postId = match[1];
-                            let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
-                            console.log('Built post URL from recent post:', postUrl);
-                            return postUrl;
-                        }
-                    }
-                }
-            }
+            // Cách 3: Tìm pcb trong bất kỳ link nào
+            let allLinks = document.querySelectorAll('a[href*="pcb."]');
+            console.log('Found any pcb links:', allLinks.length);
+            for (let link of allLinks) {{
+                let match = link.href.match(/pcb\\.(\\d+)/);
+                if (match && match[1]) {{
+                    let postId = match[1];
+                    let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
+                    console.log('Built post URL from pcb link:', postUrl);
+                    return postUrl;
+                }}
+            }}
 
             console.log('No valid group post URL found');
             return null;
-        })()
+        }})()
         '''
 
         # Thử lấy URL trong tab mới - CHỈ CHẤP NHẬN URL có /groups/
