@@ -1035,6 +1035,10 @@ class GroupsTab(ctk.CTkFrame):
         self._render_scan_list()
         self._render_post_groups_list(force_rebuild=True)
         self._update_stats()
+
+        # Load contents (categories và nội dung)
+        self._load_contents()
+
         self._set_status(f"Đã load {len(groups)} nhóm!", "success")
 
     def _on_groups_loaded_multi(self, profile_groups_data: Dict[str, List[Dict]], all_groups: List[Dict]):
@@ -1056,6 +1060,10 @@ class GroupsTab(ctk.CTkFrame):
 
         self._render_scan_list()
         self._update_stats()
+
+        # Load contents (categories và nội dung) - QUAN TRỌNG!
+        self._load_contents()
+
         self._set_status(f"Đã load {len(all_groups)} nhóm từ {len(profile_groups_data)} profiles!", "success")
 
     def _create_profile_tabs(self):
