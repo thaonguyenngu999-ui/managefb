@@ -875,21 +875,23 @@ class ReelsPageTab(ctk.CTkFrame):
                     ws = websocket.create_connection(page_ws, timeout=30)
 
             # Set window position via CDP
+            # bounds là tuple (x, y, width, height)
             try:
                 window_result = self._cdp_send(ws, "Browser.getWindowForTarget", {})
                 window_id = window_result.get('result', {}).get('windowId')
                 if window_id and bounds:
+                    x, y, w, h = bounds  # Unpack tuple
                     self._cdp_send(ws, "Browser.setWindowBounds", {
                         "windowId": window_id,
                         "bounds": {
-                            "left": bounds.get('x', 0),
-                            "top": bounds.get('y', 0),
-                            "width": bounds.get('width', 900),
-                            "height": bounds.get('height', 810),
+                            "left": x,
+                            "top": y,
+                            "width": w,
+                            "height": h,
                             "windowState": "normal"
                         }
                     })
-                    print(f"[ReelsPage] Window positioned at ({bounds.get('x')}, {bounds.get('y')})")
+                    print(f"[ReelsPage] Window positioned at ({x}, {y})")
             except Exception as e:
                 print(f"[ReelsPage] Could not set window bounds: {e}")
 
@@ -974,12 +976,12 @@ class ReelsPageTab(ctk.CTkFrame):
                 # Fallback: navigate trực tiếp đến reels/create
                 print(f"[ReelsPage] Fallback: navigating directly to reels/create...")
                 self._cdp_send(ws, "Page.navigate", {"url": "https://www.facebook.com/reels/create"})
-                time.sleep(5)
+                time.sleep(8)
             else:
-                time.sleep(5)  # Đợi Reels creator mở
+                time.sleep(8)  # Đợi Reels creator dialog mở hoàn toàn
 
             # Đợi page load hoàn toàn
-            for _ in range(10):
+            for _ in range(15):
                 ready = self._cdp_evaluate(ws, "document.readyState")
                 if ready == 'complete':
                     break
@@ -987,11 +989,67 @@ class ReelsPageTab(ctk.CTkFrame):
 
             time.sleep(3)
 
-            # Bước 6: Upload video bằng cách set file vào input[type="file"]
-            print(f"[ReelsPage] Uploading video...")
+            # Bước 6: Upload video
+            print(f"[ReelsPage] Preparing to upload video...")
 
             # Normalize path cho Windows
             video_path = self.video_path.replace('\\', '/')
+
+            # Debug: liệt kê tất cả input[type="file"] trên page
+            js_debug_inputs = '''
+            (function() {
+                var inputs = document.querySelectorAll('input[type="file"]');
+                var info = [];
+                for (var i = 0; i < inputs.length; i++) {
+                    var inp = inputs[i];
+                    info.push({
+                        accept: inp.getAttribute('accept') || 'none',
+                        className: inp.className,
+                        id: inp.id || 'no-id',
+                        visible: inp.offsetParent !== null
+                    });
+                }
+                return JSON.stringify(info);
+            })();
+            '''
+            inputs_debug = self._cdp_evaluate(ws, js_debug_inputs)
+            print(f"[ReelsPage] DEBUG - Found file inputs: {inputs_debug}")
+
+            # Click vào vùng upload nếu cần (để trigger file input xuất hiện)
+            js_click_upload_area = '''
+            (function() {
+                // Tìm vùng upload trong Reels creator dialog
+                var uploadSelectors = [
+                    '[aria-label*="video"]',
+                    '[aria-label*="Video"]',
+                    '[aria-label*="Tải"]',
+                    '[aria-label*="Upload"]',
+                    '[aria-label*="Thêm video"]',
+                    '[aria-label*="Add video"]',
+                    'div[role="button"]:has(input[type="file"])',
+                    '.x1i10hfl input[type="file"]'
+                ];
+
+                for (var i = 0; i < uploadSelectors.length; i++) {
+                    try {
+                        var el = document.querySelector(uploadSelectors[i]);
+                        if (el) {
+                            // Nếu là parent của input, click vào nó
+                            var btn = el.closest('[role="button"]') || el;
+                            if (btn && btn.click) {
+                                btn.click();
+                                return 'clicked_upload_area: ' + uploadSelectors[i];
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                return 'no_upload_area_clicked';
+            })();
+            '''
+            upload_area_result = self._cdp_evaluate(ws, js_click_upload_area)
+            print(f"[ReelsPage] Upload area click: {upload_area_result}")
+            time.sleep(2)
 
             # Lấy DOM document
             doc_result = self._cdp_send(ws, "DOM.getDocument", {})
@@ -1000,23 +1058,39 @@ class ReelsPageTab(ctk.CTkFrame):
             if not root_id:
                 raise Exception("Không lấy được DOM root")
 
-            # Tìm input[type="file"] cho video
-            query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
-                "nodeId": root_id,
-                "selector": 'input[type="file"][accept*="video"]'
-            })
-            node_ids = query_result.get('result', {}).get('nodeIds', [])
+            # Tìm input[type="file"] cho video - thử nhiều selector
+            selectors_to_try = [
+                'input[type="file"][accept*="video"]',
+                'input[type="file"][accept*="mp4"]',
+                'input[type="file"][accept*=".mkv"]',
+                'input[type="file"]'
+            ]
 
-            # Nếu không tìm được với accept="video", thử tất cả input file
-            if not node_ids:
+            node_ids = []
+            for selector in selectors_to_try:
                 query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
                     "nodeId": root_id,
-                    "selector": 'input[type="file"]'
+                    "selector": selector
                 })
                 node_ids = query_result.get('result', {}).get('nodeIds', [])
+                if node_ids:
+                    print(f"[ReelsPage] Found {len(node_ids)} inputs with selector: {selector}")
+                    break
 
             if not node_ids:
-                raise Exception("Không tìm thấy input file để upload video")
+                # Thử JavaScript để tìm input
+                js_find_input = '''
+                (function() {
+                    var inputs = document.querySelectorAll('input[type="file"]');
+                    if (inputs.length > 0) {
+                        return inputs.length + ' inputs found via JS';
+                    }
+                    return 'no inputs found';
+                })();
+                '''
+                js_result = self._cdp_evaluate(ws, js_find_input)
+                print(f"[ReelsPage] JS input search: {js_result}")
+                raise Exception(f"Không tìm thấy input file để upload video. Debug: {inputs_debug}")
 
             # Set file cho input đầu tiên
             uploaded = False
