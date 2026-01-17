@@ -2679,9 +2679,22 @@ class GroupsTab(ctk.CTkFrame):
         # Đợi page load
         time.sleep(random.uniform(2, 3))
 
-        # Tìm bài vừa đăng trong tab mới
+        # Tìm bài vừa đăng trong tab mới - ƯU TIÊN URL có /groups/
         get_post_url_js = '''
         (function() {
+            // Ưu tiên tìm URL có /groups/ trước
+            let groupLinks = document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
+            if (groupLinks.length > 0) {
+                // Tìm link mới nhất (thường ở đầu)
+                for (let link of groupLinks) {
+                    if (link.href && link.href.includes('/groups/') && link.href.includes('/posts/')) {
+                        console.log('Found group post URL:', link.href);
+                        return link.href;
+                    }
+                }
+            }
+
+            // Tìm trong các bài viết gần đây
             let posts = document.querySelectorAll('[data-pagelet*="FeedUnit"], [role="article"]');
             for (let post of posts) {
                 let timeText = post.innerText || '';
@@ -2697,14 +2710,35 @@ class GroupsTab(ctk.CTkFrame):
                                    timeText.includes('Đang chờ') ||
                                    timeText.includes('Pending');
                 if (hasRecentTime) {
+                    // Ưu tiên link có /groups/
+                    let groupPostLinks = post.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
+                    for (let link of groupPostLinks) {
+                        if (link.href) {
+                            console.log('Found recent group post:', link.href);
+                            return link.href;
+                        }
+                    }
+                    // Fallback to other links
                     let links = post.querySelectorAll('a[href*="/posts/"], a[href*="pfbid"], a[href*="permalink"]');
                     for (let link of links) {
                         if (link.href && (link.href.includes('/posts/') || link.href.includes('pfbid'))) {
+                            // Bỏ qua link profile cá nhân nếu có link groups
+                            if (!link.href.includes('/groups/')) {
+                                continue; // Skip personal profile links, prefer group links
+                            }
                             return link.href;
                         }
                     }
                 }
             }
+
+            // Fallback: tìm bất kỳ link /groups/.../posts/
+            let anyGroupPost = document.querySelector('a[href*="/groups/"][href*="/posts/"]');
+            if (anyGroupPost && anyGroupPost.href) {
+                return anyGroupPost.href;
+            }
+
+            // Last resort: any /posts/ link
             let postLinks = document.querySelectorAll('a[href*="/posts/"]');
             return postLinks.length > 0 ? postLinks[0].href : null;
         })()
@@ -2734,14 +2768,27 @@ class GroupsTab(ctk.CTkFrame):
             })
             return result.get('result', {}).get('result', {}).get('value')
 
-        # Thử lấy URL trong tab mới
+        # Thử lấy URL trong tab mới - ưu tiên URL có /groups/
         post_url = None
-        for attempt in range(3):
+        for attempt in range(5):  # Tăng số lần thử
             post_url = eval_new(get_post_url_js)
-            if post_url and ('/posts/' in post_url or 'pfbid' in post_url):
+            print(f"[Groups] Attempt {attempt + 1}/5 - Found URL: {post_url}")
+
+            # Ưu tiên URL có /groups/
+            if post_url and '/groups/' in post_url and '/posts/' in post_url:
+                print(f"[Groups] Found valid group post URL!")
                 break
 
-            if attempt < 2:
+            # Accept URL có /posts/ nhưng tiếp tục tìm nếu chưa có /groups/
+            if post_url and '/posts/' in post_url:
+                # Nếu không phải URL groups, thử lại để tìm URL đúng
+                if '/groups/' not in post_url and attempt < 4:
+                    print(f"[Groups] URL không có /groups/, thử lại...")
+                    time.sleep(random.uniform(1, 2))
+                    continue
+                break
+
+            if attempt < 4:
                 time.sleep(random.uniform(2, 3))
                 # Reload tab mới
                 send_new("Page.reload", {})
