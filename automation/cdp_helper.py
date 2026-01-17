@@ -240,10 +240,18 @@ class CDPHelper:
             return self._type_with_typos(text)
 
     def _type_fast(self, text: str) -> bool:
-        """Type text quickly using CDP Input.insertText (works with Lexical editor)"""
+        """
+        Type text nhanh hơn nhưng vẫn human-like (từng ký tự với delay ngắn)
+        Dùng cho text dài > 200 chars
+        """
         try:
-            # CDP Input.insertText works directly with browser, bypassing Lexical DOM issues
-            self._client.session.send_command('Input.insertText', {'text': text})
+            for char in text:
+                self._client.session.send_command('Input.insertText', {'text': char})
+                # Delay ngắn hơn _type_with_typos nhưng vẫn có variation
+                if char in ' .,!?;:\n':
+                    time.sleep(random.uniform(0.03, 0.08))
+                else:
+                    time.sleep(random.uniform(0.015, 0.04))
             return True
         except Exception as e:
             print(f"[CDPHelper] _type_fast error: {e}")
@@ -600,11 +608,8 @@ class CDPHelper:
         if not self._client.execute(focus_js):
             return False, None
 
-        # Dùng CDP Input.insertText (hoạt động với Lexical editor)
-        try:
-            self._client.session.send_command('Input.insertText', {'text': content})
-        except Exception as e:
-            print(f"[CDPHelper] post_to_group type error: {e}")
+        # Gõ từng ký tự như người thật (hoạt động với Lexical editor)
+        if not self.type_human_like(content):
             return False, None
 
         # Human-like think pause

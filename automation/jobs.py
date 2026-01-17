@@ -358,9 +358,14 @@ class PostToGroupJob(Job):
                 failure_type=FailureType.ELEMENT_NOT_FOUND
             )
 
-        # Step 2: Dùng CDP Input.insertText (hoạt động với Lexical editor)
+        # Step 2: Gõ từng ký tự như người thật (hoạt động với Lexical editor)
         try:
-            cdp._send_command('Input.insertText', {'text': content})
+            for char in content:
+                cdp._send_command('Input.insertText', {'text': char})
+                if char in ' .,!?;:\n':
+                    time.sleep(random.uniform(0.03, 0.08))
+                else:
+                    time.sleep(random.uniform(0.015, 0.04))
         except Exception as e:
             print(f"[Jobs] Input.insertText error: {e}")
             return StateResult(
@@ -1009,9 +1014,14 @@ class PostToGroupJobMAX(JobMAX):
                 failure_type=FailureType.ELEMENT_NOT_FOUND
             )
 
-        # Step 2: Dùng CDP Input.insertText (hoạt động với Lexical editor)
+        # Step 2: Gõ từng ký tự như người thật (hoạt động với Lexical editor)
         try:
-            cdp.session.send_command('Input.insertText', {'text': content})
+            for char in content:
+                cdp.session.send_command('Input.insertText', {'text': char})
+                if char in ' .,!?;:\n':
+                    time.sleep(random.uniform(0.03, 0.08))
+                else:
+                    time.sleep(random.uniform(0.015, 0.04))
         except Exception as e:
             print(f"[Jobs] Input.insertText error: {e}")
             return StateResult(

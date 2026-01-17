@@ -331,9 +331,16 @@ class ActionExecutor:
         if result.success and result.result:
             type_result = result.result.get('result', {}).get('value', {})
             if type_result.get('success') and type_result.get('isContentEditable'):
-                # Dùng CDP Input.insertText cho contenteditable (hoạt động với Lexical editor)
+                # Gõ từng ký tự cho contenteditable (hoạt động với Lexical editor)
                 try:
-                    self._session.send_command('Input.insertText', {'text': text})
+                    import time
+                    import random
+                    for char in text:
+                        self._session.send_command('Input.insertText', {'text': char})
+                        if char in ' .,!?;:\n':
+                            time.sleep(random.uniform(0.03, 0.08))
+                        else:
+                            time.sleep(random.uniform(0.015, 0.04))
                 except Exception as e:
                     print(f"[Actions] Input.insertText error: {e}")
                     # Fallback to JS execCommand

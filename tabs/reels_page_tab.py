@@ -1222,11 +1222,11 @@ class ReelsPageTab(ctk.CTkFrame):
                 '''
                 find_result = self._cdp_evaluate(ws, js_find_and_click_caption)
                 print(f"[ReelsPage] Find caption editor: {find_result}")
-                time.sleep(1)
+                time.sleep(0.5)
 
-                # Dùng CDP Input.insertText để điền text (hoạt động tốt với Lexical)
-                # Phương pháp này gửi text trực tiếp qua CDP thay vì JavaScript
-                self._cdp_send(ws, "Input.insertText", {"text": full_caption})
+                # Gõ caption từng ký tự như người thật
+                print(f"[ReelsPage] Typing caption human-like ({len(full_caption)} chars)...")
+                self._cdp_type_human_like(ws, full_caption, typo_chance=0.02)
                 print(f"[ReelsPage] Inserted caption via CDP Input.insertText")
                 time.sleep(2)
 
@@ -1468,6 +1468,65 @@ class ReelsPageTab(ctk.CTkFrame):
             "awaitPromise": True
         })
         return result.get('result', {}).get('result', {}).get('value')
+
+    def _cdp_type_human_like(self, ws, text: str, typo_chance: float = 0.03):
+        """
+        Gõ text từng ký tự như người thật qua CDP Input.insertText
+        - Tốc độ gõ random (50-150ms mỗi ký tự)
+        - Pause dài hơn sau dấu câu
+        - Occasionally có typo và sửa lại
+        """
+        # Typo map - các phím gần nhau
+        typo_map = {
+            'a': ['s', 'q'], 'b': ['v', 'n'], 'c': ['x', 'v'],
+            'd': ['s', 'f'], 'e': ['w', 'r'], 'f': ['d', 'g'],
+            'g': ['f', 'h'], 'h': ['g', 'j'], 'i': ['u', 'o'],
+            'j': ['h', 'k'], 'k': ['j', 'l'], 'l': ['k', 'o'],
+            'm': ['n', 'k'], 'n': ['b', 'm'], 'o': ['i', 'p'],
+            'p': ['o', 'l'], 'r': ['e', 't'], 's': ['a', 'd'],
+            't': ['r', 'y'], 'u': ['y', 'i'], 'v': ['c', 'b'],
+            'w': ['q', 'e'], 'x': ['z', 'c'], 'y': ['t', 'u'],
+        }
+
+        for char in text:
+            # Random typo cho lowercase letters
+            if char.lower() in typo_map and random.random() < typo_chance:
+                # Gõ sai
+                wrong_char = random.choice(typo_map[char.lower()])
+                self._cdp_send(ws, "Input.insertText", {"text": wrong_char})
+                time.sleep(random.uniform(0.1, 0.25))
+
+                # Nhận ra sai, pause một chút
+                time.sleep(random.uniform(0.15, 0.35))
+
+                # Backspace để xóa
+                self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                    "type": "keyDown", "key": "Backspace", "code": "Backspace",
+                    "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8
+                })
+                self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                    "type": "keyUp", "key": "Backspace", "code": "Backspace",
+                    "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8
+                })
+                time.sleep(random.uniform(0.08, 0.15))
+
+            # Gõ ký tự đúng
+            self._cdp_send(ws, "Input.insertText", {"text": char})
+
+            # Delay phụ thuộc vào loại ký tự
+            if char in ' .,!?;:':
+                # Pause dài hơn sau dấu câu/space
+                time.sleep(random.uniform(0.1, 0.25))
+            elif char == '\n':
+                # Pause dài sau xuống dòng
+                time.sleep(random.uniform(0.3, 0.6))
+            else:
+                # Tốc độ gõ bình thường: 50-150ms
+                time.sleep(random.uniform(0.05, 0.15))
+
+            # Occasionally pause dài (như đang nghĩ)
+            if random.random() < 0.02:
+                time.sleep(random.uniform(0.4, 1.0))
 
     def _stop_posting(self):
         """Dừng đăng"""
@@ -1908,10 +1967,10 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] Click comment box: {click_result}")
             time.sleep(2)
 
-            # Dùng CDP Input.insertText để điền comment (hoạt động tốt với Lexical)
-            self._cdp_send(ws, "Input.insertText", {"text": comment_text})
-            print(f"[ReelsPage] Inserted comment via CDP Input.insertText")
-            time.sleep(2)
+            # Gõ comment từng ký tự như người thật
+            print(f"[ReelsPage] Typing comment human-like ({len(comment_text)} chars)...")
+            self._cdp_type_human_like(ws, comment_text, typo_chance=0.03)
+            time.sleep(1)
 
             # Click nút gửi comment
             js_submit_comment = '''

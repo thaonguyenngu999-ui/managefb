@@ -462,9 +462,15 @@ class CDPClient:
                 focus_result = self._evaluate_js(focus_js)
 
                 if focus_result and focus_result.get('isContentEditable'):
-                    # Dùng CDP Input.insertText cho contenteditable (hoạt động với Lexical)
+                    # Gõ từng ký tự cho contenteditable (hoạt động với Lexical editor)
                     try:
-                        self._send_command('Input.insertText', {'text': text})
+                        for char in text:
+                            self._send_command('Input.insertText', {'text': char})
+                            # Delay ngắn để trông tự nhiên hơn
+                            if char in ' .,!?;:\n':
+                                time.sleep(random.uniform(0.03, 0.08))
+                            else:
+                                time.sleep(random.uniform(0.015, 0.04))
                         result = True
                     except Exception as e:
                         print(f"[CDPClient] Input.insertText error: {e}")
