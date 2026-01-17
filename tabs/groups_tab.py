@@ -325,6 +325,26 @@ class GroupsTab(ctk.CTkFrame):
         )
         self.post_stats.pack(anchor="w", padx=10, pady=(0, 5))
 
+        # ===== PROFILE TABS FRAME (chỉ hiển thị khi multi-profile) =====
+        self.profile_tabs_frame = ctk.CTkFrame(left_panel, fg_color="transparent", height=40)
+        self.profile_tabs_frame.pack(fill="x", padx=10, pady=(0, 5))
+        self.profile_tabs_frame.pack_forget()  # Ẩn mặc định
+
+        # Scrollable frame cho profile tabs (khi có nhiều profiles)
+        self.profile_tabs_scroll = ctk.CTkScrollableFrame(
+            self.profile_tabs_frame,
+            fg_color="transparent",
+            height=35,
+            orientation="horizontal"
+        )
+        self.profile_tabs_scroll.pack(fill="x", expand=True)
+
+        # Lưu trữ cho multi-profile
+        self.profile_tab_buttons: Dict[str, ctk.CTkButton] = {}  # uuid -> button
+        self.profile_groups: Dict[str, List[Dict]] = {}  # uuid -> list of groups
+        self.profile_group_vars: Dict[str, Dict[int, ctk.BooleanVar]] = {}  # uuid -> {group_id -> var}
+        self.current_tab_profile: str = ""  # Profile đang hiển thị trong tab
+
         # Search/Filter row
         filter_row = ctk.CTkFrame(left_panel, fg_color="transparent")
         filter_row.pack(fill="x", padx=10, pady=(0, 5))
@@ -980,29 +1000,129 @@ class GroupsTab(ctk.CTkFrame):
 
         def do_load():
             try:
-                # Load groups
                 if self.multi_profile_var.get() and self.selected_profile_uuids:
-                    groups = get_groups_for_profiles(self.selected_profile_uuids)
-                elif self.current_profile_uuid:
-                    groups = get_groups(self.current_profile_uuid)
-                else:
-                    groups = []
+                    # Multi-profile: load từng profile riêng
+                    profile_groups_data = {}
+                    all_groups = []
+                    for uuid in self.selected_profile_uuids:
+                        groups = get_groups(uuid)
+                        profile_groups_data[uuid] = groups
+                        all_groups.extend(groups)
 
-                # Update UI on main thread
-                self.after(0, lambda: self._on_groups_loaded(groups))
+                    self.after(0, lambda: self._on_groups_loaded_multi(profile_groups_data, all_groups))
+                elif self.current_profile_uuid:
+                    # Single profile
+                    groups = get_groups(self.current_profile_uuid)
+                    self.after(0, lambda: self._on_groups_loaded(groups))
+                else:
+                    self.after(0, lambda: self._on_groups_loaded([]))
             except Exception as e:
                 self.after(0, lambda: self._set_status(f"Lỗi: {e}", "error"))
 
         threading.Thread(target=do_load, daemon=True).start()
 
     def _on_groups_loaded(self, groups: List[Dict]):
-        """Callback khi load groups xong"""
+        """Callback khi load groups xong (single profile)"""
         self.groups = groups
         self.selected_group_ids = [g['id'] for g in self.groups if g.get('is_selected')]
+
+        # Ẩn profile tabs
+        self.profile_tabs_frame.pack_forget()
+        self.profile_groups.clear()
+        self.profile_group_vars.clear()
+        self.current_tab_profile = ""
+
         self._render_scan_list()
         self._render_post_groups_list(force_rebuild=True)
         self._update_stats()
         self._set_status(f"Đã load {len(groups)} nhóm!", "success")
+
+    def _on_groups_loaded_multi(self, profile_groups_data: Dict[str, List[Dict]], all_groups: List[Dict]):
+        """Callback khi load groups xong (multi-profile)"""
+        self.groups = all_groups
+        self.profile_groups = profile_groups_data
+
+        # Tạo vars cho từng profile
+        self.profile_group_vars.clear()
+        for uuid, groups in profile_groups_data.items():
+            self.profile_group_vars[uuid] = {}
+            for g in groups:
+                self.profile_group_vars[uuid][g['id']] = ctk.BooleanVar(value=g.get('is_selected', False))
+
+        self.selected_group_ids = [g['id'] for g in all_groups if g.get('is_selected')]
+
+        # Tạo profile tabs
+        self._create_profile_tabs()
+
+        self._render_scan_list()
+        self._update_stats()
+        self._set_status(f"Đã load {len(all_groups)} nhóm từ {len(profile_groups_data)} profiles!", "success")
+
+    def _create_profile_tabs(self):
+        """Tạo tabs cho từng profile"""
+        # Clear existing tabs
+        for widget in self.profile_tabs_scroll.winfo_children():
+            widget.destroy()
+        self.profile_tab_buttons.clear()
+
+        if len(self.profile_groups) <= 1:
+            # Chỉ 1 profile, ẩn tabs
+            self.profile_tabs_frame.pack_forget()
+            if self.profile_groups:
+                first_uuid = list(self.profile_groups.keys())[0]
+                self.current_tab_profile = first_uuid
+                self._render_post_groups_list(force_rebuild=True)
+            return
+
+        # Hiển thị tabs frame
+        self.profile_tabs_frame.pack(fill="x", padx=10, pady=(0, 5), before=self.group_filter_entry.master)
+
+        # Tạo button cho từng profile
+        for idx, uuid in enumerate(self.profile_groups.keys()):
+            # Tìm tên profile
+            profile_name = "Profile"
+            for p in self.profiles:
+                if p.get('uuid') == uuid:
+                    profile_name = p.get('name', 'Unknown')[:12]
+                    break
+
+            num_groups = len(self.profile_groups.get(uuid, []))
+            btn_text = f"{profile_name} ({num_groups})"
+
+            btn = ctk.CTkButton(
+                self.profile_tabs_scroll,
+                text=btn_text,
+                width=100,
+                height=28,
+                corner_radius=5,
+                fg_color=COLORS["accent"] if idx == 0 else COLORS["bg_secondary"],
+                hover_color=COLORS["accent"],
+                font=ctk.CTkFont(size=10),
+                command=lambda u=uuid: self._switch_profile_tab(u)
+            )
+            btn.pack(side="left", padx=2)
+            self.profile_tab_buttons[uuid] = btn
+
+        # Hiển thị tab đầu tiên
+        first_uuid = list(self.profile_groups.keys())[0]
+        self.current_tab_profile = first_uuid
+        self._render_post_groups_list(force_rebuild=True)
+
+    def _switch_profile_tab(self, profile_uuid: str):
+        """Chuyển sang tab profile khác"""
+        if profile_uuid == self.current_tab_profile:
+            return
+
+        # Update button styles
+        for uuid, btn in self.profile_tab_buttons.items():
+            if uuid == profile_uuid:
+                btn.configure(fg_color=COLORS["accent"])
+            else:
+                btn.configure(fg_color=COLORS["bg_secondary"])
+
+        self.current_tab_profile = profile_uuid
+        self._render_post_groups_list(force_rebuild=True)
+        self._update_stats()
 
     def _on_profile_change(self, choice: str):
         """Khi chọn profile khác"""
@@ -1681,11 +1801,31 @@ class GroupsTab(ctk.CTkFrame):
         self._load_groups_for_profile()
 
     def _update_stats(self):
-        """Cập nhật thống kê"""
-        total = len(self.groups)
-        selected = len(self.selected_group_ids)
-        self.scan_stats.configure(text=f"Tổng: {total} nhóm")
-        self.post_stats.configure(text=f"Đã chọn: {selected} / {total}")
+        """Cập nhật thống kê - hỗ trợ multi-profile tabs"""
+        total_all = len(self.groups)
+        selected_all = len(self.selected_group_ids)
+
+        # Stats cho scan tab (tổng tất cả)
+        self.scan_stats.configure(text=f"Tổng: {total_all} nhóm")
+
+        # Stats cho post tab
+        if self.current_tab_profile and self.current_tab_profile in self.profile_groups:
+            # Multi-profile: hiển thị stats của tab hiện tại
+            tab_groups = self.profile_groups[self.current_tab_profile]
+            tab_total = len(tab_groups)
+            tab_selected = sum(1 for g in tab_groups if g['id'] in self.selected_group_ids)
+
+            # Tìm tên profile
+            profile_name = ""
+            for p in self.profiles:
+                if p.get('uuid') == self.current_tab_profile:
+                    profile_name = p.get('name', 'Unknown')[:15]
+                    break
+
+            self.post_stats.configure(text=f"{profile_name}: {tab_selected} / {tab_total} (Tổng: {selected_all})")
+        else:
+            # Single profile
+            self.post_stats.configure(text=f"Đã chọn: {selected_all} / {total_all}")
 
     # ==================== POST TAB ====================
 
@@ -1738,7 +1878,7 @@ class GroupsTab(ctk.CTkFrame):
                     widget.pack_forget()
 
     def _render_post_groups_list(self, force_rebuild=False):
-        """Render danh sách nhóm với checkbox - tối ưu"""
+        """Render danh sách nhóm với checkbox - tối ưu cho multi-profile tabs"""
         # Chỉ rebuild khi cần thiết
         if force_rebuild or not self.group_checkbox_widgets:
             for widget in self.post_groups_list.winfo_children():
@@ -1749,7 +1889,15 @@ class GroupsTab(ctk.CTkFrame):
         # Clear cache when re-rendering
         self._post_checkbox_vars.clear()
 
-        if not self.groups:
+        # Xác định danh sách groups để hiển thị
+        if self.current_tab_profile and self.current_tab_profile in self.profile_groups:
+            # Multi-profile mode: hiển thị groups của tab hiện tại
+            groups_to_show = self.profile_groups[self.current_tab_profile]
+        else:
+            # Single profile mode
+            groups_to_show = self.groups
+
+        if not groups_to_show:
             self.post_empty_label = ctk.CTkLabel(
                 self.post_groups_list,
                 text="Chưa có nhóm\nQuét nhóm trước",
@@ -1760,7 +1908,7 @@ class GroupsTab(ctk.CTkFrame):
             return
 
         # Tạo hoặc cập nhật widgets
-        for group in self.groups:
+        for group in groups_to_show:
             group_id = group['id']
 
             if group_id in self.group_checkbox_widgets:
@@ -1997,27 +2145,39 @@ class GroupsTab(ctk.CTkFrame):
         return None
 
     def _start_posting(self):
-        """Bắt đầu đăng bài"""
-        # Lấy profile để dùng
-        profile_uuid = None
-        if self.multi_profile_var.get() and self.selected_profile_uuids:
-            profile_uuid = self.selected_profile_uuids[0]  # Dùng profile đầu tiên
-        elif self.current_profile_uuid:
-            profile_uuid = self.current_profile_uuid
-
-        if not profile_uuid:
-            self._set_status("Vui lòng chọn profile!", "warning")
-            return
-
-        if not self.selected_group_ids:
-            self._set_status("Vui lòng chọn nhóm!", "warning")
+        """Bắt đầu đăng bài - hỗ trợ multi-profile"""
+        if self._is_posting:
             return
 
         if not self.contents:
             self._set_status("Vui lòng có nội dung trong mục!", "warning")
             return
 
-        if self._is_posting:
+        # Xây dựng danh sách (profile_uuid, groups) để đăng
+        posting_tasks = []
+
+        if self.multi_profile_var.get() and self.selected_profile_uuids and self.profile_groups:
+            # Multi-profile mode: mỗi profile đăng vào groups của nó
+            for profile_uuid in self.selected_profile_uuids:
+                profile_all_groups = self.profile_groups.get(profile_uuid, [])
+                # Chỉ lấy groups đã được chọn
+                selected_groups = [g for g in profile_all_groups if g['id'] in self.selected_group_ids]
+                if selected_groups:
+                    posting_tasks.append((profile_uuid, selected_groups))
+        elif self.current_profile_uuid:
+            # Single profile mode
+            selected_groups = [g for g in self.groups if g['id'] in self.selected_group_ids]
+            if selected_groups:
+                posting_tasks.append((self.current_profile_uuid, selected_groups))
+
+        if not posting_tasks:
+            self._set_status("Vui lòng chọn profile và nhóm!", "warning")
+            return
+
+        # Tính tổng số groups
+        total_groups = sum(len(groups) for _, groups in posting_tasks)
+        if total_groups == 0:
+            self._set_status("Vui lòng chọn nhóm!", "warning")
             return
 
         self._is_posting = True
@@ -2025,18 +2185,23 @@ class GroupsTab(ctk.CTkFrame):
         self.posted_urls = []
         self._render_posted_urls()
 
-        selected_groups = [g for g in self.groups if g['id'] in self.selected_group_ids]
-        self._posting_profile_uuid = profile_uuid
+        # Log thông tin
+        print(f"[Posting] Starting with {len(posting_tasks)} profiles, {total_groups} total groups")
+        for uuid, groups in posting_tasks:
+            profile_name = next((p.get('name', 'Unknown') for p in self.profiles if p.get('uuid') == uuid), 'Unknown')
+            print(f"  - {profile_name}: {len(groups)} groups")
 
-        def do_post():
-            try:
-                self._execute_posting(selected_groups, profile_uuid)
-            except Exception as e:
-                import traceback
-                print(f"[ERROR] Posting: {traceback.format_exc()}")
-                self.after(0, lambda: self._on_posting_error(str(e)))
+        # Khởi động thread cho mỗi profile
+        for profile_uuid, groups in posting_tasks:
+            def do_post(puuid=profile_uuid, pgroups=groups):
+                try:
+                    self._execute_posting(pgroups, puuid)
+                except Exception as e:
+                    import traceback
+                    print(f"[ERROR] Posting {puuid}: {traceback.format_exc()}")
+                    self.after(0, lambda: self._on_posting_error(str(e)))
 
-        threading.Thread(target=do_post, daemon=True).start()
+            threading.Thread(target=do_post, daemon=True).start()
 
     def _execute_posting(self, groups: List[Dict], profile_uuid: str):
         """Thực hiện đăng bài qua CDP"""
