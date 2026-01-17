@@ -745,69 +745,111 @@ class PagesTab(ctk.CTkFrame):
             if not html_content:
                 return []
 
-            # Parse HTML để tìm Pages
-            soup = BeautifulSoup(html_content, 'html.parser')
+            # Sử dụng JavaScript để tìm pages - đáng tin cậy hơn với React
+            js_find_pages = '''
+            (function() {
+                var pages = [];
 
-            # Tìm links đến pages - nhiều pattern khác nhau
-            # Pattern 1: Links có href chứa facebook.com/page_id hoặc /pages/
-            all_links = soup.find_all('a', href=True)
+                // Tìm tất cả links có chứa page ID
+                var links = document.querySelectorAll('a[href*="profile.php?id="], a[href*="facebook.com/"][role="link"]');
 
-            for link in all_links:
-                href = link.get('href', '')
+                links.forEach(function(link) {
+                    var href = link.getAttribute('href') || '';
+                    var pageId = null;
+                    var pageUrl = null;
+                    var pageName = '';
 
-                # Tìm page ID từ URL
-                page_id = None
-                page_url = None
+                    // Pattern 1: profile.php?id=xxx
+                    var match = href.match(/profile\\.php\\?id=(\\d+)/);
+                    if (match) {
+                        pageId = match[1];
+                        pageUrl = 'https://www.facebook.com/profile.php?id=' + pageId;
+                    }
 
-                # Pattern: /page_name hoặc /pages/Page-Name/123456
-                if 'facebook.com/' in href or href.startswith('/'):
-                    # Loại bỏ các link không phải page
-                    skip_patterns = ['/groups/', '/profile.php', '/settings', '/help', '/policies',
-                                   '/pages/create', '/pages/category', '?category=', '/login',
-                                   '/watch', '/marketplace', '/gaming', '/events']
-                    if any(p in href for p in skip_patterns):
-                        continue
+                    // Pattern 2: /123456789 (numeric ID)
+                    if (!pageId) {
+                        match = href.match(/facebook\\.com\\/(\\d{10,})/);
+                        if (match) {
+                            pageId = match[1];
+                            pageUrl = 'https://www.facebook.com/' + pageId;
+                        }
+                    }
 
-                    # Tìm page ID số
-                    match = re.search(r'/(\d{10,})', href)
-                    if match:
-                        page_id = match.group(1)
-                        page_url = f"https://www.facebook.com/{page_id}"
+                    if (!pageId) return;
 
-                if not page_id:
-                    continue
+                    // Skip nếu đã có
+                    if (pages.some(function(p) { return p.page_id === pageId; })) return;
 
-                # Tìm tên page
-                page_name = page_id
-                parent = link
-                for _ in range(8):
-                    parent = parent.find_parent()
-                    if parent is None:
-                        break
-                    # Tìm text trong các element con
-                    texts = parent.find_all(['span', 'div', 'h2', 'h3'], recursive=True)
-                    for elem in texts:
-                        text = elem.get_text(strip=True)
-                        if text and len(text) > 2 and len(text) < 100:
-                            # Loại bỏ các text không phải tên page
-                            if text not in ['Like', 'Follow', 'Message', 'Thích', 'Theo dõi', 'Nhắn tin',
-                                          'Your Pages', 'Trang của bạn', 'Pages', 'Trang']:
-                                page_name = text
-                                break
-                    if page_name != page_id:
-                        break
+                    // Tìm tên page từ aria-label hoặc text gần nhất
+                    var ariaLabel = link.getAttribute('aria-label');
+                    if (ariaLabel && ariaLabel.length > 2 && ariaLabel.length < 100) {
+                        // Loại bỏ prefix như "Ảnh đại diện của "
+                        pageName = ariaLabel.replace(/^Ảnh đại diện của /i, '').replace(/^Avatar of /i, '');
+                    }
 
-                # Kiểm tra xem đã có chưa
-                if not any(p['page_id'] == page_id for p in pages_found):
-                    pages_found.append({
-                        'page_id': page_id,
-                        'page_name': page_name,
-                        'page_url': page_url,
-                        'category': '',
-                        'follower_count': 0,
-                        'role': 'admin',
-                        'profile_uuid': profile_uuid
-                    })
+                    // Nếu chưa có tên, tìm trong parent elements
+                    if (!pageName) {
+                        var parent = link;
+                        for (var i = 0; i < 8 && parent; i++) {
+                            parent = parent.parentElement;
+                            if (!parent) break;
+
+                            var spans = parent.querySelectorAll('span, div');
+                            for (var j = 0; j < spans.length; j++) {
+                                var text = (spans[j].innerText || '').trim();
+                                if (text.length > 2 && text.length < 80) {
+                                    var skipTexts = ['Like', 'Follow', 'Message', 'Thích', 'Theo dõi', 'Nhắn tin',
+                                        'Your Pages', 'Trang của bạn', 'Pages', 'Trang', 'Trang bạn quản lý',
+                                        'thông báo', 'Tin nhắn', 'Tạo bài viết', 'Quảng cáo', 'Xem thêm'];
+                                    if (!skipTexts.some(function(s) { return text.toLowerCase().includes(s.toLowerCase()); })) {
+                                        pageName = text;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (pageName) break;
+                        }
+                    }
+
+                    if (!pageName) pageName = pageId;
+
+                    pages.push({
+                        page_id: pageId,
+                        page_name: pageName,
+                        page_url: pageUrl
+                    });
+                });
+
+                return JSON.stringify(pages);
+            })();
+            '''
+
+            ws.send(json_module.dumps({
+                "id": 300,
+                "method": "Runtime.evaluate",
+                "params": {"expression": js_find_pages}
+            }))
+            result = json_module.loads(ws.recv())
+            pages_json = result.get('result', {}).get('result', {}).get('value', '[]')
+
+            try:
+                js_pages = json_module.loads(pages_json)
+                print(f"[Pages] JS found {len(js_pages)} pages")
+
+                for p in js_pages:
+                    page_id = p.get('page_id')
+                    if page_id and not any(existing['page_id'] == page_id for existing in pages_found):
+                        pages_found.append({
+                            'page_id': page_id,
+                            'page_name': p.get('page_name', page_id),
+                            'page_url': p.get('page_url', f"https://www.facebook.com/{page_id}"),
+                            'category': '',
+                            'follower_count': 0,
+                            'role': 'admin',
+                            'profile_uuid': profile_uuid
+                        })
+            except Exception as e:
+                print(f"[Pages] JS parse error: {e}")
 
             # Lưu vào database
             if pages_found:
