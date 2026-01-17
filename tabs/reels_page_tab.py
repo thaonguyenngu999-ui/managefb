@@ -1248,47 +1248,79 @@ class ReelsPageTab(ctk.CTkFrame):
             (function() {
                 // Cách 1: Check URL hiện tại nếu đã redirect đến Reel
                 var currentUrl = window.location.href;
-                if (currentUrl.includes('/reel/') || currentUrl.includes('/reels/')) {
+                if (currentUrl.includes('/reel/') && currentUrl.match(/\\/reel\\/\\d+/)) {
                     return currentUrl;
                 }
 
-                // Cách 2: Tìm trong page có link đến Reel vừa tạo
-                var links = document.querySelectorAll('a[href*="/reel/"], a[href*="/reels/"]');
-                for (var i = links.length - 1; i >= 0; i--) {
-                    var href = links[i].href;
-                    if (href.includes('/reel/') && href.match(/\\/reel\\/\\d+/)) {
+                // Cách 2: Tìm trong toast notification (góc dưới trái)
+                // Toast thường có class chứa "toast" hoặc nằm trong fixed position
+                var toasts = document.querySelectorAll('[role="status"], [role="alert"], [data-testid*="toast"], [class*="toast"]');
+                for (var i = 0; i < toasts.length; i++) {
+                    var links = toasts[i].querySelectorAll('a[href*="/reel/"]');
+                    for (var j = 0; j < links.length; j++) {
+                        var href = links[j].href;
+                        if (href && href.match(/\\/reel\\/\\d+/)) {
+                            return href;
+                        }
+                    }
+                    // Cũng check text có chứa reel URL không
+                    var text = toasts[i].innerHTML;
+                    var match = text.match(/facebook\\.com\\/reel\\/(\\d+)/);
+                    if (match) {
+                        return 'https://www.facebook.com/reel/' + match[1];
+                    }
+                }
+
+                // Cách 3: Tìm trong notification area (thường ở góc dưới trái)
+                var notifications = document.querySelectorAll('[role="dialog"], [role="alertdialog"], [aria-live="polite"], [aria-live="assertive"]');
+                for (var i = 0; i < notifications.length; i++) {
+                    var links = notifications[i].querySelectorAll('a');
+                    for (var j = 0; j < links.length; j++) {
+                        var href = links[j].href || '';
+                        if (href.includes('/reel/') && href.match(/\\/reel\\/\\d+/)) {
+                            return href;
+                        }
+                    }
+                }
+
+                // Cách 4: Tìm tất cả link có /reel/ trong page (ưu tiên link mới nhất)
+                var allReelLinks = document.querySelectorAll('a[href*="/reel/"]');
+                for (var i = allReelLinks.length - 1; i >= 0; i--) {
+                    var href = allReelLinks[i].href;
+                    if (href && href.match(/\\/reel\\/\\d+/)) {
                         return href;
                     }
                 }
 
-                // Cách 3: Tìm trong notification/success message
-                var successMsgs = document.querySelectorAll('[role="dialog"] a, [role="alert"] a');
-                for (var i = 0; i < successMsgs.length; i++) {
-                    var href = successMsgs[i].href || '';
-                    if (href.includes('/reel/')) {
-                        return href;
+                // Cách 5: Regex tìm trong toàn bộ HTML (bao gồm cả script tags)
+                var html = document.documentElement.innerHTML;
+                // Pattern: facebook.com/reel/123456789 hoặc /reel/123456789
+                var patterns = [
+                    /facebook\\.com\\/reel\\/(\\d{10,20})/,
+                    /\\"reel_id\\":\\s*\\"(\\d+)\\"/,
+                    /\\"video_id\\":\\s*\\"(\\d+)\\"/,
+                    /reel\\/(\\d{10,20})/
+                ];
+                for (var i = 0; i < patterns.length; i++) {
+                    var match = html.match(patterns[i]);
+                    if (match && match[1]) {
+                        return 'https://www.facebook.com/reel/' + match[1];
                     }
-                }
-
-                // Cách 4: Check body có chứa reel ID pattern không
-                var bodyText = document.body.innerHTML;
-                var match = bodyText.match(/\\/reel\\/(\\d+)/);
-                if (match) {
-                    return 'https://www.facebook.com/reel/' + match[1];
                 }
 
                 return 'no_reel_url_found';
             })();
             '''
 
-            # Thử lấy URL nhiều lần
-            for attempt in range(5):
+            # Thử lấy URL nhiều lần (đợi notification xuất hiện)
+            for attempt in range(8):
                 reel_url = self._cdp_evaluate(ws, js_get_reel_url)
-                print(f"[ReelsPage] Attempt {attempt + 1} - Reel URL: {reel_url}")
+                print(f"[ReelsPage] Attempt {attempt + 1}/8 - Reel URL: {reel_url}")
 
                 if reel_url and 'no_reel_url_found' not in str(reel_url) and '/reel/' in str(reel_url):
+                    print(f"[ReelsPage] Found Reel URL!")
                     break
-                time.sleep(3)
+                time.sleep(4)  # Đợi lâu hơn cho notification xuất hiện
 
             # Lưu vào database
             final_reel_url = reel_url if (reel_url and 'no_reel_url_found' not in str(reel_url)) else None
