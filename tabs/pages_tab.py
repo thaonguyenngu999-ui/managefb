@@ -1304,62 +1304,56 @@ class CreatePageDialog(ctk.CTkToplevel):
             print(f"[CreatePage] Fill name result: {name_val}")
             time.sleep(1.5)
 
-            # Tìm và nhập Category
+            # Tìm và nhập Category - sử dụng aria-label selector (CONFIRMED)
             js_fill_category = f'''
             (function() {{
                 var categoryText = "{category}";
 
-                // Tìm label chứa "Hạng mục" hoặc "Category"
+                // Helper function
+                function setValueAndTrigger(input, value) {{
+                    input.focus();
+                    input.click();
+                    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    setter.call(input, value);
+                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+
+                // Cách 1 (CONFIRMED): Selector bằng aria-label
+                var categoryInput = document.querySelector('input[aria-label="Hạng mục (Bắt buộc)"]');
+                if (categoryInput && categoryInput.offsetParent !== null) {{
+                    setValueAndTrigger(categoryInput, categoryText);
+                    return 'filled_via_aria_label: Hạng mục (Bắt buộc)';
+                }}
+
+                // Cách 2: Tìm input type="search" có class x1i10hfl (thứ 2 sau search FB)
+                var searchInputs = document.querySelectorAll('input.x1i10hfl[type="search"]');
+                for (var i = 0; i < searchInputs.length; i++) {{
+                    var input = searchInputs[i];
+                    var ariaLabel = input.getAttribute('aria-label') || '';
+                    // Skip FB search box
+                    if (!ariaLabel.includes('Tìm kiếm') && input.offsetParent !== null) {{
+                        setValueAndTrigger(input, categoryText);
+                        return 'filled_via_search_input: ' + ariaLabel;
+                    }}
+                }}
+
+                // Cách 3: Fallback - tìm theo label
                 var labels = document.querySelectorAll('label, span, div');
                 for (var i = 0; i < labels.length; i++) {{
                     var label = labels[i];
                     var text = (label.innerText || '').toLowerCase();
-                    if (text.includes('hạng mục') || text.includes('category')) {{
+                    if (text.includes('hạng mục') && !text.includes('nhập hạng mục')) {{
                         var parent = label.parentElement;
                         for (var j = 0; j < 5 && parent; j++) {{
-                            var input = parent.querySelector('input:not([type="hidden"]):not([type="search"]), div[contenteditable="true"]');
+                            var input = parent.querySelector('input[type="search"], input:not([type="hidden"])');
                             if (input && input.offsetParent !== null) {{
-                                input.focus();
-                                input.click();
-
-                                // Gõ từng chữ để trigger autocomplete
-                                if (input.tagName === 'INPUT') {{
-                                    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                                    setter.call(input, categoryText);
-                                }} else {{
-                                    input.innerText = categoryText;
-                                }}
-
-                                input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                input.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true, key: 'ArrowDown' }}));
-                                return 'filled_category_via_label';
+                                setValueAndTrigger(input, categoryText);
+                                return 'filled_via_label_search';
                             }}
                             parent = parent.parentElement;
                         }}
                     }}
-                }}
-
-                // Fallback: tìm input thứ 2 visible (sau name input)
-                var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
-                var visibleInputs = [];
-                for (var i = 0; i < inputs.length; i++) {{
-                    if (inputs[i].offsetParent !== null) {{
-                        visibleInputs.push(inputs[i]);
-                    }}
-                }}
-
-                if (visibleInputs.length > 1) {{
-                    var input = visibleInputs[1];  // Second visible input
-                    input.focus();
-                    input.click();
-
-                    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                    setter.call(input, categoryText);
-
-                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    return 'filled_category_fallback';
                 }}
 
                 return 'no_category_input_found';
@@ -1378,18 +1372,35 @@ class CreatePageDialog(ctk.CTkToplevel):
             # Click vào suggestion đầu tiên của category dropdown
             js_click_suggestion = '''
             (function() {
-                // Đợi dropdown xuất hiện
-                var suggestions = document.querySelectorAll('ul[role="listbox"] li, div[role="listbox"] div[role="option"], div[role="option"], li[role="option"]');
-                if (suggestions.length > 0) {
-                    suggestions[0].click();
-                    return 'clicked_suggestion: ' + suggestions.length + ' options';
+                // Đợi dropdown xuất hiện - tìm nhiều loại dropdown
+                var suggestions = document.querySelectorAll(
+                    'ul[role="listbox"] li, ' +
+                    'div[role="listbox"] div[role="option"], ' +
+                    'div[role="option"], ' +
+                    'li[role="option"], ' +
+                    '[data-visualcompletion="ignore-dynamic"] ul li'
+                );
+
+                // Filter những suggestion visible
+                var visibleSuggestions = [];
+                for (var i = 0; i < suggestions.length; i++) {
+                    if (suggestions[i].offsetParent !== null) {
+                        visibleSuggestions.push(suggestions[i]);
+                    }
+                }
+
+                if (visibleSuggestions.length > 0) {
+                    visibleSuggestions[0].click();
+                    return 'clicked_suggestion: ' + visibleSuggestions.length + ' visible options';
                 }
 
                 // Tìm menu items
                 var menuItems = document.querySelectorAll('[role="menuitem"], [role="menuitemradio"]');
-                if (menuItems.length > 0) {
-                    menuItems[0].click();
-                    return 'clicked_menuitem';
+                for (var i = 0; i < menuItems.length; i++) {
+                    if (menuItems[i].offsetParent !== null) {
+                        menuItems[i].click();
+                        return 'clicked_menuitem';
+                    }
                 }
 
                 return 'no_suggestion_found';
@@ -1403,6 +1414,59 @@ class CreatePageDialog(ctk.CTkToplevel):
             sugg_result = json_module.loads(ws.recv())
             print(f"[CreatePage] Click suggestion: {sugg_result.get('result', {}).get('result', {}).get('value', 'N/A')}")
             time.sleep(1.5)
+
+            # Điền Tiểu sử (Bio) - TEXTAREA (CONFIRMED selector: textarea.x1i10hfl)
+            if description:
+                js_fill_bio = f'''
+                (function() {{
+                    var bioText = "{description.replace('"', '\\"').replace('\n', '\\n')}";
+
+                    // Helper function cho textarea
+                    function setTextareaValue(textarea, value) {{
+                        textarea.focus();
+                        textarea.click();
+                        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                        setter.call(textarea, value);
+                        textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        textarea.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+
+                    // Cách 1 (CONFIRMED): Selector textarea.x1i10hfl
+                    var bioTextarea = document.querySelector('textarea.x1i10hfl');
+                    if (bioTextarea && bioTextarea.offsetParent !== null) {{
+                        setTextareaValue(bioTextarea, bioText);
+                        return 'filled_via_confirmed_selector: textarea.x1i10hfl';
+                    }}
+
+                    // Cách 2: Tìm theo label "Tiểu sử"
+                    var labels = document.querySelectorAll('span, label, div');
+                    for (var i = 0; i < labels.length; i++) {{
+                        var text = (labels[i].innerText || '').toLowerCase();
+                        if (text.includes('tiểu sử') || text.includes('bio')) {{
+                            var parent = labels[i].parentElement;
+                            for (var j = 0; j < 5 && parent; j++) {{
+                                var textarea = parent.querySelector('textarea');
+                                if (textarea && textarea.offsetParent !== null) {{
+                                    setTextareaValue(textarea, bioText);
+                                    return 'filled_via_label_search';
+                                }}
+                                parent = parent.parentElement;
+                            }}
+                        }}
+                    }}
+
+                    return 'no_bio_textarea_found';
+                }})();
+                '''
+                ws.send(json_module.dumps({
+                    "id": 15,
+                    "method": "Runtime.evaluate",
+                    "params": {"expression": js_fill_bio}
+                }))
+                bio_result = json_module.loads(ws.recv())
+                bio_val = bio_result.get('result', {}).get('result', {}).get('value', 'N/A')
+                print(f"[CreatePage] Fill bio result: {bio_val}")
+                time.sleep(1)
 
             # Click nút Create Page / Tạo Trang
             js_click_create = '''
