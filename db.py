@@ -247,6 +247,26 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_reel_schedules_status ON reel_schedules(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_reel_schedules_time ON reel_schedules(scheduled_time)")
 
+        # ============ POSTED REELS TABLE (Lịch sử đăng Reels) ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS posted_reels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_uuid TEXT NOT NULL,
+                page_id TEXT,
+                page_name TEXT,
+                reel_url TEXT,
+                caption TEXT,
+                hashtags TEXT,
+                video_path TEXT,
+                status TEXT DEFAULT 'success',
+                error_message TEXT,
+                posted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_posted_reels_profile ON posted_reels(profile_uuid)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_posted_reels_page ON posted_reels(page_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_posted_reels_date ON posted_reels(posted_at DESC)")
+
 
 def row_to_dict(row) -> Dict:
     """Chuyển sqlite3.Row thành dict"""
@@ -1396,6 +1416,97 @@ def get_reel_history(profile_uuid: str = None, limit: int = 50, offset: int = 0)
 
         cursor.execute(query, params)
         return rows_to_list(cursor.fetchall())
+
+
+# ==================== POSTED REELS (Lịch sử Reels đã đăng) ====================
+
+def save_posted_reel(data: Dict) -> Dict:
+    """Lưu Reel đã đăng vào lịch sử"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        cursor.execute("""
+            INSERT INTO posted_reels (profile_uuid, page_id, page_name, reel_url,
+                caption, hashtags, video_path, status, error_message, posted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get('profile_uuid', ''),
+            data.get('page_id', ''),
+            data.get('page_name', ''),
+            data.get('reel_url', ''),
+            data.get('caption', ''),
+            data.get('hashtags', ''),
+            data.get('video_path', ''),
+            data.get('status', 'success'),
+            data.get('error_message', ''),
+            now
+        ))
+        data['id'] = cursor.lastrowid
+        print(f"[DB] Saved posted reel: {data.get('page_name')} - {data.get('reel_url')}")
+        return data
+
+
+def get_posted_reels(profile_uuid: str = None, page_id: str = None, limit: int = 100, offset: int = 0) -> List[Dict]:
+    """Lấy danh sách Reels đã đăng"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        query = "SELECT * FROM posted_reels WHERE 1=1"
+        params = []
+
+        if profile_uuid:
+            query += " AND profile_uuid = ?"
+            params.append(profile_uuid)
+
+        if page_id:
+            query += " AND page_id = ?"
+            params.append(page_id)
+
+        query += " ORDER BY posted_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cursor.execute(query, params)
+        return rows_to_list(cursor.fetchall())
+
+
+def get_posted_reels_count(profile_uuid: str = None, page_id: str = None) -> int:
+    """Đếm số Reels đã đăng"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        query = "SELECT COUNT(*) FROM posted_reels WHERE 1=1"
+        params = []
+
+        if profile_uuid:
+            query += " AND profile_uuid = ?"
+            params.append(profile_uuid)
+
+        if page_id:
+            query += " AND page_id = ?"
+            params.append(page_id)
+
+        cursor.execute(query, params)
+        return cursor.fetchone()[0]
+
+
+def delete_posted_reel(reel_id: int) -> bool:
+    """Xóa một Reel khỏi lịch sử"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM posted_reels WHERE id = ?", (reel_id,))
+        return cursor.rowcount > 0
+
+
+def clear_posted_reels(profile_uuid: str = None) -> int:
+    """Xóa lịch sử Reels đã đăng"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if profile_uuid:
+            cursor.execute("DELETE FROM posted_reels WHERE profile_uuid = ?", (profile_uuid,))
+        else:
+            cursor.execute("DELETE FROM posted_reels")
+        return cursor.rowcount
 
 
 # Khởi tạo database khi import module

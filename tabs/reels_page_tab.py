@@ -16,7 +16,7 @@ from widgets import ModernButton, ModernEntry
 from db import (
     get_profiles, get_pages, get_pages_for_profiles,
     save_reel_schedule, get_reel_schedules, update_reel_schedule,
-    delete_reel_schedule
+    delete_reel_schedule, save_posted_reel, get_posted_reels
 )
 from api_service import api
 from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
@@ -1290,11 +1290,25 @@ class ReelsPageTab(ctk.CTkFrame):
                     break
                 time.sleep(3)
 
-            if reel_url and 'no_reel_url_found' not in str(reel_url):
+            # Lưu vào database
+            final_reel_url = reel_url if (reel_url and 'no_reel_url_found' not in str(reel_url)) else None
+
+            posted_data = {
+                'profile_uuid': profile_uuid,
+                'page_id': page_id,
+                'page_name': page_name,
+                'reel_url': final_reel_url or '',
+                'caption': caption,
+                'hashtags': hashtags,
+                'video_path': self.video_path,
+                'status': 'success'
+            }
+            save_posted_reel(posted_data)
+
+            if final_reel_url:
                 print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name}")
-                print(f"[ReelsPage] REEL URL: {reel_url}")
-                # Có thể lưu URL vào database để dùng cho comment sau
-                return reel_url
+                print(f"[ReelsPage] REEL URL: {final_reel_url}")
+                return final_reel_url
             else:
                 print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name} (không lấy được link)")
                 return None
@@ -1303,6 +1317,24 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] ERROR: {e}")
             import traceback
             traceback.print_exc()
+
+            # Lưu lỗi vào database
+            error_data = {
+                'profile_uuid': profile_uuid,
+                'page_id': page_id,
+                'page_name': page_name,
+                'reel_url': '',
+                'caption': caption,
+                'hashtags': hashtags,
+                'video_path': self.video_path if hasattr(self, 'video_path') else '',
+                'status': 'failed',
+                'error_message': str(e)
+            }
+            try:
+                save_posted_reel(error_data)
+            except:
+                pass
+
             raise e
         finally:
             if ws:
