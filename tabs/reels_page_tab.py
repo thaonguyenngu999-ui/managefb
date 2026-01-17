@@ -1322,9 +1322,20 @@ class ReelsPageTab(ctk.CTkFrame):
                     break
                 time.sleep(4)  # Đợi lâu hơn cho notification xuất hiện
 
-            # Lưu vào database
-            final_reel_url = reel_url if (reel_url and 'no_reel_url_found' not in str(reel_url)) else None
+            # Clean URL - bỏ query params (?s=notification...)
+            final_reel_url = None
+            if reel_url and 'no_reel_url_found' not in str(reel_url):
+                # Extract chỉ phần URL chính, bỏ query string
+                import re
+                match = re.search(r'(https?://[^?#\s]+/reel/\d+)', str(reel_url))
+                if match:
+                    final_reel_url = match.group(1)
+                else:
+                    final_reel_url = reel_url.split('?')[0] if '?' in str(reel_url) else reel_url
 
+            print(f"[ReelsPage] Clean Reel URL: {final_reel_url}")
+
+            # Lưu vào database
             posted_data = {
                 'profile_uuid': profile_uuid,
                 'page_id': page_id,
@@ -1335,6 +1346,7 @@ class ReelsPageTab(ctk.CTkFrame):
                 'video_path': self.video_path,
                 'status': 'success'
             }
+            print(f"[ReelsPage] Saving to database: {posted_data}")
             save_posted_reel(posted_data)
 
             if final_reel_url:
@@ -1561,9 +1573,150 @@ class ReelsPageTab(ctk.CTkFrame):
     # ========== HISTORY ==========
 
     def _load_history(self):
-        """Load lịch sử đăng"""
-        # TODO: Implement history loading
-        pass
+        """Load lịch sử đăng từ posted_reels"""
+        # Clear current items
+        for widget in self.history_scroll.winfo_children():
+            widget.destroy()
+
+        # Get posted reels from database
+        profile_uuid = self.current_profile_uuid
+        reels = get_posted_reels(profile_uuid=profile_uuid, limit=self._history_page_size, offset=self._history_page * self._history_page_size)
+
+        if not reels:
+            self.no_history_label = ctk.CTkLabel(
+                self.history_scroll,
+                text="Chưa có lịch sử đăng",
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text_secondary"]
+            )
+            self.no_history_label.pack(pady=50)
+            return
+
+        # Display each reel
+        for reel in reels:
+            self._create_history_item(reel)
+
+        # Update pagination
+        self.history_page_label.configure(text=f"Trang {self._history_page + 1}")
+
+    def _create_history_item(self, reel: Dict):
+        """Tạo item cho lịch sử"""
+        item = ctk.CTkFrame(self.history_scroll, fg_color=COLORS["bg_secondary"], corner_radius=8)
+        item.pack(fill="x", padx=5, pady=5)
+
+        # Left: Info
+        info_frame = ctk.CTkFrame(item, fg_color="transparent")
+        info_frame.pack(side="left", fill="x", expand=True, padx=10, pady=8)
+
+        # Page name and status
+        status_color = COLORS["success"] if reel.get('status') == 'success' else COLORS["error"]
+        status_icon = "✓" if reel.get('status') == 'success' else "✗"
+
+        ctk.CTkLabel(
+            info_frame,
+            text=f"{status_icon} {reel.get('page_name', 'Unknown')}",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=status_color
+        ).pack(anchor="w")
+
+        # Reel URL (truncated)
+        reel_url = reel.get('reel_url', '')
+        if reel_url:
+            url_display = reel_url[:50] + "..." if len(reel_url) > 50 else reel_url
+            url_label = ctk.CTkLabel(
+                info_frame,
+                text=url_display,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["accent"],
+                cursor="hand2"
+            )
+            url_label.pack(anchor="w")
+            url_label.bind("<Button-1>", lambda e, url=reel_url: self._open_url(url))
+
+        # Caption (truncated)
+        caption = reel.get('caption', '')
+        if caption:
+            caption_display = caption[:40] + "..." if len(caption) > 40 else caption
+            ctk.CTkLabel(
+                info_frame,
+                text=f"📝 {caption_display}",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(anchor="w")
+
+        # Time
+        posted_at = reel.get('posted_at', '')
+        if posted_at:
+            ctk.CTkLabel(
+                info_frame,
+                text=f"🕐 {posted_at}",
+                font=ctk.CTkFont(size=10),
+                text_color=COLORS["text_secondary"]
+            ).pack(anchor="w")
+
+        # Right: Action buttons
+        btn_frame = ctk.CTkFrame(item, fg_color="transparent")
+        btn_frame.pack(side="right", padx=10, pady=8)
+
+        # CMT button
+        if reel_url:
+            ModernButton(
+                btn_frame,
+                text="💬 CMT",
+                variant="primary",
+                command=lambda r=reel: self._comment_on_reel(r),
+                width=80
+            ).pack(side="left", padx=2)
+
+        # Copy URL button
+        if reel_url:
+            ModernButton(
+                btn_frame,
+                text="📋",
+                variant="secondary",
+                command=lambda url=reel_url: self._copy_to_clipboard(url),
+                width=40
+            ).pack(side="left", padx=2)
+
+    def _open_url(self, url: str):
+        """Mở URL trong browser"""
+        import webbrowser
+        webbrowser.open(url)
+
+    def _copy_to_clipboard(self, text: str):
+        """Copy text vào clipboard"""
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        print(f"[ReelsPage] Copied to clipboard: {text}")
+
+    def _comment_on_reel(self, reel: Dict):
+        """Mở dialog comment cho Reel"""
+        CommentDialog(self, reel, self._do_comment_on_reel)
+
+    def _do_comment_on_reel(self, reel: Dict, comment_text: str):
+        """Thực hiện comment lên Reel"""
+        if not comment_text.strip():
+            print("[ReelsPage] Comment text is empty")
+            return
+
+        reel_url = reel.get('reel_url', '')
+        profile_uuid = reel.get('profile_uuid', self.current_profile_uuid)
+
+        if not reel_url:
+            print("[ReelsPage] No Reel URL to comment")
+            return
+
+        print(f"[ReelsPage] Commenting on Reel: {reel_url}")
+        print(f"[ReelsPage] Comment: {comment_text}")
+
+        # Run in thread
+        import threading
+        thread = threading.Thread(
+            target=self._post_comment_thread,
+            args=(profile_uuid, reel_url, comment_text),
+            daemon=True
+        )
+        thread.start()
 
     def _on_history_filter_change(self, selection):
         """Xử lý khi thay đổi filter"""
@@ -1581,12 +1734,338 @@ class ReelsPageTab(ctk.CTkFrame):
         self._history_page += 1
         self._load_history()
 
+    def _post_comment_thread(self, profile_uuid: str, reel_url: str, comment_text: str):
+        """Thread để đăng comment lên Reel"""
+        if not WEBSOCKET_AVAILABLE:
+            print("[ReelsPage] ERROR: websocket-client chưa được cài đặt")
+            return
+
+        slot_id = acquire_window_slot()
+        ws = None
+
+        try:
+            # Mở browser
+            result = api.open_browser(profile_uuid)
+            if not result or result.get('status') != 'successfully':
+                raise Exception(f"Không mở được browser: {result}")
+
+            browser_info = result.get('data', {})
+            remote_port = browser_info.get('remote_port') or browser_info.get('remote_debugging_port')
+
+            if not remote_port:
+                raise Exception("Không lấy được remote debugging port")
+
+            print(f"[ReelsPage] Browser opened for comment, port: {remote_port}")
+            time.sleep(3)
+
+            # Kết nối CDP
+            cdp_base = f"http://127.0.0.1:{remote_port}"
+            import urllib.request
+            tabs_url = f"{cdp_base}/json"
+
+            for attempt in range(5):
+                try:
+                    with urllib.request.urlopen(tabs_url, timeout=10) as resp:
+                        tabs = json_module.loads(resp.read().decode())
+                        break
+                except Exception as e:
+                    print(f"[ReelsPage] CDP retry {attempt + 1}: {e}")
+                    time.sleep(2)
+            else:
+                raise Exception("Không kết nối được CDP")
+
+            # Tìm tab
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    ws_url = tab.get('webSocketDebuggerUrl', '')
+                    if ws_url:
+                        page_ws = ws_url
+                        break
+
+            if not page_ws:
+                raise Exception("Không tìm thấy tab")
+
+            # Kết nối WebSocket
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+            except:
+                ws = websocket.create_connection(page_ws, timeout=30)
+
+            # Navigate đến Reel
+            print(f"[ReelsPage] Navigating to Reel: {reel_url}")
+            self._cdp_send(ws, "Page.navigate", {"url": reel_url})
+            time.sleep(8)
+
+            # Đợi page load
+            for _ in range(10):
+                ready = self._cdp_evaluate(ws, "document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(3)
+
+            # Tìm và click vào ô comment
+            js_click_comment_box = '''
+            (function() {
+                // Tìm ô comment input
+                var commentInputs = document.querySelectorAll(
+                    '[aria-label*="comment" i], [aria-label*="bình luận" i], ' +
+                    '[placeholder*="comment" i], [placeholder*="bình luận" i], ' +
+                    '[contenteditable="true"][role="textbox"]'
+                );
+
+                for (var i = 0; i < commentInputs.length; i++) {
+                    var input = commentInputs[i];
+                    if (input.offsetParent !== null) {
+                        input.click();
+                        input.focus();
+                        return 'clicked_comment_box';
+                    }
+                }
+
+                // Fallback: tìm div với text "Viết bình luận" hoặc "Write a comment"
+                var spans = document.querySelectorAll('span');
+                for (var i = 0; i < spans.length; i++) {
+                    var text = (spans[i].innerText || '').toLowerCase();
+                    if (text.includes('viết bình luận') || text.includes('write a comment')) {
+                        var parent = spans[i].closest('[role="button"]') || spans[i].parentElement;
+                        if (parent) {
+                            parent.click();
+                            return 'clicked_comment_placeholder';
+                        }
+                    }
+                }
+
+                return 'no_comment_box_found';
+            })();
+            '''
+            click_result = self._cdp_evaluate(ws, js_click_comment_box)
+            print(f"[ReelsPage] Click comment box: {click_result}")
+            time.sleep(2)
+
+            # Nhập comment
+            js_fill_comment = f'''
+            (function() {{
+                var commentText = `{comment_text.replace('`', '\\`')}`;
+
+                // Tìm contenteditable hoặc textarea đang focus
+                var active = document.activeElement;
+                if (active && (active.contentEditable === 'true' || active.tagName === 'TEXTAREA')) {{
+                    if (active.tagName === 'TEXTAREA') {{
+                        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                        setter.call(active, commentText);
+                    }} else {{
+                        active.innerText = commentText;
+                    }}
+                    active.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    return 'filled_active';
+                }}
+
+                // Fallback: tìm contenteditable
+                var editors = document.querySelectorAll('[contenteditable="true"][role="textbox"]');
+                for (var i = 0; i < editors.length; i++) {{
+                    var ed = editors[i];
+                    if (ed.offsetParent !== null) {{
+                        ed.focus();
+                        ed.innerText = commentText;
+                        ed.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        return 'filled_editor';
+                    }}
+                }}
+
+                return 'no_editor_found';
+            }})();
+            '''
+            fill_result = self._cdp_evaluate(ws, js_fill_comment)
+            print(f"[ReelsPage] Fill comment: {fill_result}")
+            time.sleep(2)
+
+            # Click nút gửi comment
+            js_submit_comment = '''
+            (function() {
+                // Tìm nút gửi (Enter hoặc nút Submit)
+                // Phương pháp 1: Tìm nút có icon gửi
+                var submitBtns = document.querySelectorAll(
+                    '[aria-label*="send" i], [aria-label*="gửi" i], ' +
+                    '[aria-label*="submit" i], [aria-label*="đăng" i]'
+                );
+
+                for (var i = 0; i < submitBtns.length; i++) {
+                    var btn = submitBtns[i];
+                    if (btn.offsetParent !== null) {
+                        btn.click();
+                        return 'clicked_submit';
+                    }
+                }
+
+                // Phương pháp 2: Simulate Enter key
+                var active = document.activeElement;
+                if (active) {
+                    active.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+                    return 'sent_enter';
+                }
+
+                return 'no_submit_found';
+            })();
+            '''
+            submit_result = self._cdp_evaluate(ws, js_submit_comment)
+            print(f"[ReelsPage] Submit comment: {submit_result}")
+            time.sleep(3)
+
+            print(f"[ReelsPage] SUCCESS - Comment đã được gửi!")
+
+        except Exception as e:
+            print(f"[ReelsPage] ERROR commenting: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if ws:
+                try:
+                    ws.close()
+                except:
+                    pass
+            release_window_slot(slot_id)
+
     # ========== HELPERS ==========
 
     def _set_status(self, text: str, status_type: str = "info"):
         """Cập nhật status"""
         if self.status_callback:
             self.status_callback(text, status_type)
+
+
+class CommentDialog(ctk.CTkToplevel):
+    """Dialog để nhập comment cho Reel"""
+
+    def __init__(self, parent, reel: Dict, callback):
+        super().__init__(parent)
+
+        self.reel = reel
+        self.callback = callback
+
+        self.title("💬 Comment vào Reel")
+        self.geometry("500x400")
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.transient(parent)
+
+        self._create_ui()
+        self._load_contents()
+
+    def _create_ui(self):
+        """Tạo giao diện"""
+        # Header
+        ctk.CTkLabel(
+            self,
+            text="💬 Comment vào Reel",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(pady=(20, 10))
+
+        # Reel info
+        reel_url = self.reel.get('reel_url', '')
+        if reel_url:
+            url_display = reel_url[:60] + "..." if len(reel_url) > 60 else reel_url
+            ctk.CTkLabel(
+                self,
+                text=url_display,
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["accent"]
+            ).pack()
+
+        # Content selector
+        content_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=10)
+        content_frame.pack(fill="x", padx=20, pady=15)
+
+        ctk.CTkLabel(
+            content_frame,
+            text="📝 Chọn từ Soạn tin:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=15, pady=(10, 5))
+
+        self.content_var = ctk.StringVar(value="-- Chọn nội dung --")
+        self.content_menu = ctk.CTkOptionMenu(
+            content_frame,
+            variable=self.content_var,
+            values=["-- Chọn nội dung --"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=400,
+            command=self._on_content_select
+        )
+        self.content_menu.pack(padx=15, pady=(0, 10))
+
+        # Comment text
+        ctk.CTkLabel(
+            self,
+            text="Nội dung comment:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=20, pady=(10, 5))
+
+        self.comment_text = ctk.CTkTextbox(
+            self,
+            fg_color=COLORS["bg_card"],
+            text_color=COLORS["text_primary"],
+            font=ctk.CTkFont(size=12),
+            height=100,
+            corner_radius=8
+        )
+        self.comment_text.pack(fill="x", padx=20, pady=(0, 15))
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=10)
+
+        ModernButton(
+            btn_frame,
+            text="💬 Gửi Comment",
+            variant="primary",
+            command=self._submit,
+            width=150
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            btn_frame,
+            text="Đóng",
+            variant="secondary",
+            command=self.destroy,
+            width=100
+        ).pack(side="left", padx=5)
+
+    def _load_contents(self):
+        """Load nội dung từ Soạn tin"""
+        from db import get_contents
+        contents = get_contents()
+
+        self.contents_map = {}
+        values = ["-- Chọn nội dung --"]
+
+        for content in contents:
+            title = content.get('title', 'Untitled')
+            content_id = content.get('id')
+            display = f"{title[:40]}..." if len(title) > 40 else title
+            values.append(display)
+            self.contents_map[display] = content
+
+        self.content_menu.configure(values=values)
+
+    def _on_content_select(self, selection):
+        """Khi chọn nội dung từ Soạn tin"""
+        if selection in self.contents_map:
+            content = self.contents_map[selection]
+            text = content.get('content', '')
+            self.comment_text.delete("1.0", "end")
+            self.comment_text.insert("1.0", text)
+
+    def _submit(self):
+        """Gửi comment"""
+        comment = self.comment_text.get("1.0", "end").strip()
+        if comment:
+            self.callback(self.reel, comment)
+            self.destroy()
 
 
 class ScheduleDialog(ctk.CTkToplevel):
