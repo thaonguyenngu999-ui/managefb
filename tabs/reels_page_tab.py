@@ -1,5 +1,6 @@
 """
 Tab Đăng Reels Page - Lên kế hoạch và đăng Reels cho các Facebook Pages
+Sử dụng CDPHelper (CDPClientMAX) cho automation
 """
 import customtkinter as ctk
 from typing import List, Dict, Optional, Any
@@ -20,12 +21,7 @@ from db import (
 )
 from api_service import api
 from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
-
-try:
-    import websocket
-    WEBSOCKET_AVAILABLE = True
-except ImportError:
-    WEBSOCKET_AVAILABLE = False
+from automation.cdp_helper import CDPHelper
 
 
 class ReelsPageTab(ctk.CTkFrame):
@@ -859,10 +855,7 @@ class ReelsPageTab(ctk.CTkFrame):
         raise Exception("Không kết nối được CDP")
 
     def _post_reel_to_page(self, page: Dict, caption: str, hashtags: str):
-        """Đăng Reels lên một Page qua CDP"""
-        if not WEBSOCKET_AVAILABLE:
-            raise Exception("websocket-client chưa được cài đặt")
-
+        """Đăng Reels lên một Page qua CDPHelper (CDPClientMAX)"""
         profile_uuid = page.get('profile_uuid')
         page_id = page.get('page_id')
         page_name = page.get('page_name', 'Unknown')
@@ -875,16 +868,13 @@ class ReelsPageTab(ctk.CTkFrame):
 
         # Acquire window slot
         slot_id = acquire_window_slot()
-        ws = None
+        cdp = None
 
         try:
-            # Bước 1 & 2: Mở browser và kết nối CDP với retry logic
+            # Bước 1: Mở browser và kết nối CDP
             remote_port, tabs = self._open_browser_with_cdp(profile_uuid)
 
-            # Lưu bounds để set sau khi kết nối CDP
-            bounds = get_window_bounds(slot_id)
-
-            # Tìm tab Facebook
+            # Tìm WebSocket URL
             page_ws = None
             for tab in tabs:
                 if tab.get('type') == 'page':
@@ -896,61 +886,35 @@ class ReelsPageTab(ctk.CTkFrame):
             if not page_ws:
                 raise Exception("Không tìm thấy tab Facebook")
 
-            # Kết nối WebSocket
-            try:
-                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
-            except:
-                try:
-                    ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
-                except:
-                    ws = websocket.create_connection(page_ws, timeout=30)
+            # Bước 2: Kết nối CDPHelper
+            cdp = CDPHelper()
+            if not cdp.connect(remote_port=remote_port, ws_url=page_ws):
+                raise Exception("Không kết nối được CDPHelper")
 
-            # Set window position via CDP
-            # bounds là tuple (x, y, width, height)
-            try:
-                window_result = self._cdp_send(ws, "Browser.getWindowForTarget", {})
-                window_id = window_result.get('result', {}).get('windowId')
-                if window_id and bounds:
-                    x, y, w, h = bounds  # Unpack tuple
-                    self._cdp_send(ws, "Browser.setWindowBounds", {
-                        "windowId": window_id,
-                        "bounds": {
-                            "left": x,
-                            "top": y,
-                            "width": w,
-                            "height": h,
-                            "windowState": "normal"
-                        }
-                    })
-                    print(f"[ReelsPage] Window positioned at ({x}, {y})")
-            except Exception as e:
-                print(f"[ReelsPage] Could not set window bounds: {e}")
+            print(f"[ReelsPage] CDPHelper connected!")
+
+            # Set window position
+            bounds = get_window_bounds(slot_id)
+            if bounds:
+                x, y, w, h = bounds
+                cdp.set_window_bounds(x, y, w, h)
+                print(f"[ReelsPage] Window positioned at ({x}, {y})")
 
             # Bước 3: Navigate đến page để switch context
             print(f"[ReelsPage] Navigating to page: {page_url}")
-            self._cdp_send(ws, "Page.navigate", {"url": page_url})
-            time.sleep(5)
-
-            # Đợi page load
-            for _ in range(10):
-                ready = self._cdp_evaluate(ws, "document.readyState")
-                if ready == 'complete':
-                    break
-                time.sleep(1)
-
+            cdp.navigate(page_url)
+            cdp.wait_for_page_load()
             time.sleep(3)
 
             # Bước 4: Click "Chuyển ngay" để switch sang Page context
             print(f"[ReelsPage] Looking for 'Chuyển ngay' button...")
             js_click_switch = '''
             (function() {
-                // Tìm nút "Chuyển ngay" để switch sang page
                 var buttons = document.querySelectorAll('div[role="button"], span[role="button"]');
                 for (var i = 0; i < buttons.length; i++) {
                     var btn = buttons[i];
                     var ariaLabel = btn.getAttribute('aria-label') || '';
                     var text = (btn.innerText || '').trim();
-
                     if (ariaLabel === 'Chuyển ngay' || text === 'Chuyển ngay' ||
                         ariaLabel === 'Switch now' || text === 'Switch now') {
                         btn.click();
@@ -960,249 +924,128 @@ class ReelsPageTab(ctk.CTkFrame):
                 return 'no_switch_button_found';
             })();
             '''
-            switch_result = self._cdp_evaluate(ws, js_click_switch)
+            switch_result = cdp.execute_js(js_click_switch)
             print(f"[ReelsPage] Switch result: {switch_result}")
 
-            if 'no_switch_button_found' in str(switch_result):
-                print(f"[ReelsPage] No switch button found, may already be in page context")
-            else:
-                time.sleep(3)  # Đợi switch xong
+            if 'no_switch_button_found' not in str(switch_result):
+                time.sleep(3)
 
-            # Bước 5: Navigate trực tiếp đến Reels creator page
-            # (Click vào "Thước phim" trên timeline không mở đúng creator)
+            # Bước 5: Navigate đến Reels creator
             reels_create_url = "https://www.facebook.com/reels/create"
-            print(f"[ReelsPage] Navigating directly to Reels creator: {reels_create_url}")
-            self._cdp_send(ws, "Page.navigate", {"url": reels_create_url})
-            time.sleep(8)
-
-            # Đợi page load hoàn toàn
-            for _ in range(15):
-                ready = self._cdp_evaluate(ws, "document.readyState")
-                if ready == 'complete':
-                    break
-                time.sleep(1)
-
+            print(f"[ReelsPage] Navigating to Reels creator: {reels_create_url}")
+            cdp.navigate(reels_create_url)
+            cdp.wait_for_page_load(timeout_ms=20000)
             time.sleep(3)
 
-            # Check current URL
-            current_url = self._cdp_evaluate(ws, "window.location.href")
+            current_url = cdp.execute_js("window.location.href")
             print(f"[ReelsPage] Current URL: {current_url}")
 
             # Bước 6: Upload video
             print(f"[ReelsPage] Preparing to upload video...")
-
-            # Normalize path cho Windows
             video_path = self.video_path.replace('\\', '/')
 
-            # Debug: liệt kê tất cả input[type="file"] trên page
-            js_debug_inputs = '''
-            (function() {
-                var inputs = document.querySelectorAll('input[type="file"]');
-                var info = [];
-                for (var i = 0; i < inputs.length; i++) {
-                    var inp = inputs[i];
-                    info.push({
-                        accept: inp.getAttribute('accept') || 'none',
-                        className: inp.className,
-                        id: inp.id || 'no-id',
-                        visible: inp.offsetParent !== null
-                    });
-                }
-                return JSON.stringify(info);
-            })();
-            '''
-            inputs_debug = self._cdp_evaluate(ws, js_debug_inputs)
-            print(f"[ReelsPage] DEBUG - Found file inputs: {inputs_debug}")
-
-            # Click vào vùng upload nếu cần (để trigger file input xuất hiện)
+            # Click vào vùng upload
             js_click_upload_area = '''
             (function() {
-                // Tìm vùng upload trong Reels creator dialog
                 var uploadSelectors = [
-                    '[aria-label*="video"]',
-                    '[aria-label*="Video"]',
-                    '[aria-label*="Tải"]',
-                    '[aria-label*="Upload"]',
-                    '[aria-label*="Thêm video"]',
-                    '[aria-label*="Add video"]',
-                    'div[role="button"]:has(input[type="file"])',
-                    '.x1i10hfl input[type="file"]'
+                    '[aria-label*="video"]', '[aria-label*="Tải"]', '[aria-label*="Upload"]',
+                    '[aria-label*="Thêm video"]', '[aria-label*="Add video"]'
                 ];
-
                 for (var i = 0; i < uploadSelectors.length; i++) {
                     try {
                         var el = document.querySelector(uploadSelectors[i]);
                         if (el) {
-                            // Nếu là parent của input, click vào nó
                             var btn = el.closest('[role="button"]') || el;
                             if (btn && btn.click) {
                                 btn.click();
-                                return 'clicked_upload_area: ' + uploadSelectors[i];
+                                return 'clicked: ' + uploadSelectors[i];
                             }
                         }
                     } catch(e) {}
                 }
-
-                return 'no_upload_area_clicked';
+                return 'no_upload_area';
             })();
             '''
-            upload_area_result = self._cdp_evaluate(ws, js_click_upload_area)
-            print(f"[ReelsPage] Upload area click: {upload_area_result}")
+            upload_result = cdp.execute_js(js_click_upload_area)
+            print(f"[ReelsPage] Upload area: {upload_result}")
             time.sleep(2)
 
-            # Lấy DOM document
-            doc_result = self._cdp_send(ws, "DOM.getDocument", {})
-            root_id = doc_result.get('result', {}).get('root', {}).get('nodeId', 0)
-
-            if not root_id:
-                raise Exception("Không lấy được DOM root")
-
-            # Tìm input[type="file"] cho video - thử nhiều selector
+            # Upload file sử dụng CDPHelper
             selectors_to_try = [
                 'input[type="file"][accept*="video"]',
                 'input[type="file"][accept*="mp4"]',
-                'input[type="file"][accept*=".mkv"]',
                 'input[type="file"]'
             ]
 
-            node_ids = []
-            for selector in selectors_to_try:
-                query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
-                    "nodeId": root_id,
-                    "selector": selector
-                })
-                node_ids = query_result.get('result', {}).get('nodeIds', [])
-                if node_ids:
-                    print(f"[ReelsPage] Found {len(node_ids)} inputs with selector: {selector}")
-                    break
-
-            if not node_ids:
-                # Thử JavaScript để tìm input
-                js_find_input = '''
-                (function() {
-                    var inputs = document.querySelectorAll('input[type="file"]');
-                    if (inputs.length > 0) {
-                        return inputs.length + ' inputs found via JS';
-                    }
-                    return 'no inputs found';
-                })();
-                '''
-                js_result = self._cdp_evaluate(ws, js_find_input)
-                print(f"[ReelsPage] JS input search: {js_result}")
-                raise Exception(f"Không tìm thấy input file để upload video. Debug: {inputs_debug}")
-
-            # Set file cho input đầu tiên
             uploaded = False
-            for node_id in node_ids:
+            for selector in selectors_to_try:
                 try:
-                    self._cdp_send(ws, "DOM.setFileInputFiles", {
-                        "nodeId": node_id,
-                        "files": [video_path]
-                    })
-                    print(f"[ReelsPage] Video set to input nodeId: {node_id}")
-                    uploaded = True
-                    break
+                    if cdp.upload_file(selector, video_path):
+                        print(f"[ReelsPage] Video uploaded via: {selector}")
+                        uploaded = True
+                        break
                 except Exception as e:
-                    print(f"[ReelsPage] Upload error for nodeId {node_id}: {e}")
+                    print(f"[ReelsPage] Upload error: {e}")
                     continue
 
             if not uploaded:
                 raise Exception("Không upload được video")
 
-            # Đợi video được xử lý và kiểm tra bản quyền
-            print(f"[ReelsPage] Waiting for video processing & copyright check...")
-            time.sleep(15)  # Đợi lâu hơn cho copyright check
+            # Đợi video xử lý
+            print(f"[ReelsPage] Waiting for video processing...")
+            time.sleep(15)
 
-            # Bước 7: Click nút "Tiếp" (Next/Continue) sau khi copyright check xong
-            print(f"[ReelsPage] Looking for 'Tiếp' (Next) button...")
+            # Bước 7: Click nút "Tiếp"
             js_click_next = '''
             (function() {
-                // Button "Tiếp" có role="none", không phải role="button"
-                // Tìm tất cả span chứa text "Tiếp"
                 var spans = document.querySelectorAll('span');
                 for (var i = 0; i < spans.length; i++) {
-                    var span = spans[i];
-                    var text = (span.innerText || '').trim();
-
-                    if (text === 'Tiếp' || text === 'Next' || text === 'Tiếp tục') {
-                        // Tìm parent div có thể click (thường là div[role="none"] hoặc div gần nhất)
-                        var clickable = span.closest('div.x1ja2u2z') ||
-                                       span.closest('div[role="none"]') ||
-                                       span.closest('div[role="button"]') ||
-                                       span.parentElement.parentElement.parentElement;
+                    var text = (spans[i].innerText || '').trim();
+                    if (text === 'Tiếp' || text === 'Next') {
+                        var clickable = spans[i].closest('div[role="none"]') ||
+                                       spans[i].closest('div[role="button"]') ||
+                                       spans[i].parentElement.parentElement;
                         if (clickable && clickable.offsetParent !== null) {
                             clickable.click();
-                            return 'clicked_next_span: ' + text;
+                            return 'clicked: ' + text;
                         }
                     }
                 }
-
-                // Fallback: tìm theo innerText của bất kỳ div nào
-                var divs = document.querySelectorAll('div');
-                for (var i = 0; i < divs.length; i++) {
-                    var div = divs[i];
-                    var text = (div.innerText || '').trim();
-                    if (text === 'Tiếp' || text === 'Next') {
-                        if (div.offsetParent !== null) {
-                            div.click();
-                            return 'clicked_next_div: ' + text;
-                        }
-                    }
-                }
-                return 'no_next_button_found';
+                return 'no_next_button';
             })();
             '''
-            next_result = self._cdp_evaluate(ws, js_click_next)
-            print(f"[ReelsPage] First 'Tiếp' button result: {next_result}")
 
-            if 'no_next_button_found' in str(next_result):
-                print(f"[ReelsPage] No first 'Tiếp' button found")
-            else:
-                time.sleep(5)  # Đợi chuyển sang trang chỉnh sửa
+            print(f"[ReelsPage] Looking for 'Tiếp' button...")
+            next_result = cdp.execute_js(js_click_next)
+            print(f"[ReelsPage] First 'Tiếp': {next_result}")
+            if 'clicked' in str(next_result):
+                time.sleep(5)
 
-            # Bước 7b: Click nút "Tiếp" lần 2 (sau khi chỉnh sửa)
-            print(f"[ReelsPage] Looking for second 'Tiếp' button (after edit)...")
-            next_result2 = self._cdp_evaluate(ws, js_click_next)
-            print(f"[ReelsPage] Second 'Tiếp' button result: {next_result2}")
+            print(f"[ReelsPage] Looking for second 'Tiếp' button...")
+            next_result2 = cdp.execute_js(js_click_next)
+            print(f"[ReelsPage] Second 'Tiếp': {next_result2}")
+            if 'clicked' in str(next_result2):
+                time.sleep(5)
 
-            if 'no_next_button_found' in str(next_result2):
-                print(f"[ReelsPage] No second 'Tiếp' button found, maybe already on description page")
-            else:
-                time.sleep(5)  # Đợi chuyển sang trang mô tả
-
-            # Bước 8: Nhập caption và hashtags (Mô tả thước phim)
+            # Bước 8: Nhập caption
             full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
 
             if full_caption:
                 print(f"[ReelsPage] Adding caption: {full_caption[:50]}...")
 
-                # Tìm và click vào editor trước
-                js_find_and_click_caption = '''
+                js_focus_caption = '''
                 (function() {
-                    // Tìm Lexical editor với aria-placeholder chứa "Mô tả" hoặc "thước phim"
                     var editors = document.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]');
-
                     for (var i = 0; i < editors.length; i++) {
                         var ed = editors[i];
-                        var ariaLabel = (ed.getAttribute('aria-label') || '').toLowerCase();
                         var placeholder = (ed.getAttribute('aria-placeholder') || '').toLowerCase();
-
-                        // Tìm field mô tả (không phải bình luận)
-                        if ((placeholder.includes('mô tả') || placeholder.includes('thước phim') ||
-                             placeholder.includes('describe') || placeholder.includes('caption') ||
-                             ariaLabel.includes('mô tả') || ariaLabel.includes('thước phim')) &&
-                            !placeholder.includes('bình luận') && !ariaLabel.includes('bình luận')) {
-
-                            // Click và focus
+                        if (placeholder.includes('mô tả') || placeholder.includes('thước phim')) {
                             ed.click();
                             ed.focus();
-
-                            // Đợi một chút
-                            return 'found_caption_editor: ' + (placeholder || ariaLabel);
+                            return 'focused: ' + placeholder;
                         }
                     }
-
-                    // Fallback: tìm bất kỳ contenteditable nào không phải comment
+                    // Fallback
                     var allEditors = document.querySelectorAll('[contenteditable="true"]');
                     for (var i = 0; i < allEditors.length; i++) {
                         var ed = allEditors[i];
@@ -1217,182 +1060,87 @@ class ReelsPageTab(ctk.CTkFrame):
                         }
                     }
 
-                    return 'no_editor_found';
+                    return 'no_editor';
                 })();
                 '''
-                find_result = self._cdp_evaluate(ws, js_find_and_click_caption)
-                print(f"[ReelsPage] Find caption editor: {find_result}")
+                focus_result = cdp.execute_js(js_focus_caption)
+                print(f"[ReelsPage] Focus caption: {focus_result}")
                 time.sleep(0.5)
 
-                # Gõ caption từng ký tự như người thật
-                print(f"[ReelsPage] Typing caption human-like ({len(full_caption)} chars)...")
-                self._cdp_type_human_like(ws, full_caption, typo_chance=0.02)
-                print(f"[ReelsPage] Inserted caption via CDP Input.insertText")
+                # Gõ caption human-like qua CDPHelper
+                print(f"[ReelsPage] Typing caption ({len(full_caption)} chars)...")
+                cdp.type_human_like(full_caption)
                 time.sleep(2)
 
-                # Verify caption đã được điền
-                js_verify_caption = '''
-                (function() {
-                    var editors = document.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]');
-                    for (var i = 0; i < editors.length; i++) {
-                        var text = editors[i].innerText || '';
-                        if (text.trim().length > 0) {
-                            return 'caption_verified: ' + text.substring(0, 50);
-                        }
-                    }
-                    return 'no_caption_content';
-                })();
-                '''
-                verify_result = self._cdp_evaluate(ws, js_verify_caption)
-                print(f"[ReelsPage] Caption verify: {verify_result}")
-
-            # Bước 9: Click nút đăng/share
-            print(f"[ReelsPage] Looking for 'Đăng' (Post) button...")
-
+            # Bước 9: Click nút đăng
+            print(f"[ReelsPage] Looking for 'Đăng' button...")
             js_click_post = '''
             (function() {
-                // Button "Đăng" cũng có thể có role="none"
-                // Tìm span chứa text "Đăng" trước
                 var spans = document.querySelectorAll('span');
                 for (var i = 0; i < spans.length; i++) {
-                    var span = spans[i];
-                    var text = (span.innerText || '').trim();
-
-                    if (text === 'Đăng' || text === 'Share' || text === 'Post' ||
-                        text === 'Chia sẻ' || text === 'Share Reel' || text === 'Chia sẻ Reel' ||
-                        text === 'Đăng thước phim' || text === 'Share reel') {
-                        var clickable = span.closest('div.x1ja2u2z') ||
-                                       span.closest('div[role="none"]') ||
-                                       span.closest('div[role="button"]') ||
-                                       span.parentElement.parentElement.parentElement;
+                    var text = (spans[i].innerText || '').trim();
+                    if (text === 'Đăng' || text === 'Share' || text === 'Post') {
+                        var clickable = spans[i].closest('div[role="none"]') ||
+                                       spans[i].closest('div[role="button"]') ||
+                                       spans[i].parentElement.parentElement;
                         if (clickable && clickable.offsetParent !== null) {
                             clickable.click();
-                            return 'clicked_post_span: ' + text;
+                            return 'clicked: ' + text;
                         }
                     }
                 }
-
-                // Fallback: tìm div với innerText
-                var divs = document.querySelectorAll('div');
-                for (var i = 0; i < divs.length; i++) {
-                    var div = divs[i];
-                    var text = (div.innerText || '').trim();
-                    if (text === 'Đăng' || text === 'Share' || text === 'Post') {
-                        if (div.offsetParent !== null) {
-                            div.click();
-                            return 'clicked_post_div: ' + text;
-                        }
-                    }
-                }
-
-                return 'no_post_button_found';
+                return 'no_post_button';
             })();
             '''
-            click_result = self._cdp_evaluate(ws, js_click_post)
-            print(f"[ReelsPage] Click post result: {click_result}")
+            click_result = cdp.execute_js(js_click_post)
+            print(f"[ReelsPage] Post button: {click_result}")
 
-            if 'no_post_button_found' in str(click_result):
+            if 'no_post_button' in str(click_result):
                 raise Exception("Không tìm thấy nút đăng")
 
-            # Đợi đăng xong và lấy link Reel
+            # Đợi đăng xong
             print(f"[ReelsPage] Waiting for Reel to be posted...")
-            time.sleep(15)  # Đợi lâu hơn để đăng xong
+            time.sleep(15)
 
-            # Bước 10: Lấy link Reel đã đăng
-            reel_url = None
+            # Bước 10: Lấy link Reel
             js_get_reel_url = '''
             (function() {
-                // Cách 1: Check URL hiện tại nếu đã redirect đến Reel
-                var currentUrl = window.location.href;
-                if (currentUrl.includes('/reel/') && currentUrl.match(/\\/reel\\/\\d+/)) {
-                    return currentUrl;
+                var url = window.location.href;
+                if (url.includes('/reel/')) return url;
+
+                var links = document.querySelectorAll('a[href*="/reel/"]');
+                for (var i = links.length - 1; i >= 0; i--) {
+                    if (links[i].href.match(/\\/reel\\/\\d+/)) return links[i].href;
                 }
 
-                // Cách 2: Tìm trong toast notification (góc dưới trái)
-                // Toast thường có class chứa "toast" hoặc nằm trong fixed position
-                var toasts = document.querySelectorAll('[role="status"], [role="alert"], [data-testid*="toast"], [class*="toast"]');
-                for (var i = 0; i < toasts.length; i++) {
-                    var links = toasts[i].querySelectorAll('a[href*="/reel/"]');
-                    for (var j = 0; j < links.length; j++) {
-                        var href = links[j].href;
-                        if (href && href.match(/\\/reel\\/\\d+/)) {
-                            return href;
-                        }
-                    }
-                    // Cũng check text có chứa reel URL không
-                    var text = toasts[i].innerHTML;
-                    var match = text.match(/facebook\\.com\\/reel\\/(\\d+)/);
-                    if (match) {
-                        return 'https://www.facebook.com/reel/' + match[1];
-                    }
-                }
-
-                // Cách 3: Tìm trong notification area (thường ở góc dưới trái)
-                var notifications = document.querySelectorAll('[role="dialog"], [role="alertdialog"], [aria-live="polite"], [aria-live="assertive"]');
-                for (var i = 0; i < notifications.length; i++) {
-                    var links = notifications[i].querySelectorAll('a');
-                    for (var j = 0; j < links.length; j++) {
-                        var href = links[j].href || '';
-                        if (href.includes('/reel/') && href.match(/\\/reel\\/\\d+/)) {
-                            return href;
-                        }
-                    }
-                }
-
-                // Cách 4: Tìm tất cả link có /reel/ trong page (ưu tiên link mới nhất)
-                var allReelLinks = document.querySelectorAll('a[href*="/reel/"]');
-                for (var i = allReelLinks.length - 1; i >= 0; i--) {
-                    var href = allReelLinks[i].href;
-                    if (href && href.match(/\\/reel\\/\\d+/)) {
-                        return href;
-                    }
-                }
-
-                // Cách 5: Regex tìm trong toàn bộ HTML (bao gồm cả script tags)
                 var html = document.documentElement.innerHTML;
-                // Pattern: facebook.com/reel/123456789 hoặc /reel/123456789
-                var patterns = [
-                    /facebook\\.com\\/reel\\/(\\d{10,20})/,
-                    /\\"reel_id\\":\\s*\\"(\\d+)\\"/,
-                    /\\"video_id\\":\\s*\\"(\\d+)\\"/,
-                    /reel\\/(\\d{10,20})/
-                ];
-                for (var i = 0; i < patterns.length; i++) {
-                    var match = html.match(patterns[i]);
-                    if (match && match[1]) {
-                        return 'https://www.facebook.com/reel/' + match[1];
-                    }
-                }
+                var match = html.match(/facebook\\.com\\/reel\\/(\\d+)/);
+                if (match) return 'https://www.facebook.com/reel/' + match[1];
 
-                return 'no_reel_url_found';
+                return 'no_reel_url';
             })();
             '''
 
-            # Thử lấy URL nhiều lần (đợi notification xuất hiện)
+            reel_url = None
             for attempt in range(8):
-                reel_url = self._cdp_evaluate(ws, js_get_reel_url)
+                reel_url = cdp.execute_js(js_get_reel_url)
                 print(f"[ReelsPage] Attempt {attempt + 1}/8 - Reel URL: {reel_url}")
 
-                if reel_url and 'no_reel_url_found' not in str(reel_url) and '/reel/' in str(reel_url):
+                if reel_url and 'no_reel_url' not in str(reel_url) and '/reel/' in str(reel_url):
                     print(f"[ReelsPage] Found Reel URL!")
                     break
-                time.sleep(4)  # Đợi lâu hơn cho notification xuất hiện
+                time.sleep(4)
 
-            # Clean URL - bỏ query params (?s=notification...)
+            # Clean URL
             final_reel_url = None
-            if reel_url and 'no_reel_url_found' not in str(reel_url):
-                # Extract chỉ phần URL chính, bỏ query string
-                import re
+            if reel_url and 'no_reel_url' not in str(reel_url):
                 match = re.search(r'(https?://[^?#\s]+/reel/\d+)', str(reel_url))
-                if match:
-                    final_reel_url = match.group(1)
-                else:
-                    final_reel_url = reel_url.split('?')[0] if '?' in str(reel_url) else reel_url
+                final_reel_url = match.group(1) if match else str(reel_url).split('?')[0]
 
             print(f"[ReelsPage] Clean Reel URL: {final_reel_url}")
 
             # Lưu vào database
-            posted_data = {
+            save_posted_reel({
                 'profile_uuid': profile_uuid,
                 'page_id': page_id,
                 'page_name': page_name,
@@ -1401,47 +1149,37 @@ class ReelsPageTab(ctk.CTkFrame):
                 'hashtags': hashtags,
                 'video_path': self.video_path,
                 'status': 'success'
-            }
-            print(f"[ReelsPage] Saving to database: {posted_data}")
-            save_posted_reel(posted_data)
+            })
 
+            print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name}")
             if final_reel_url:
-                print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name}")
                 print(f"[ReelsPage] REEL URL: {final_reel_url}")
-                return final_reel_url
-            else:
-                print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name} (không lấy được link)")
-                return None
+            return final_reel_url
 
         except Exception as e:
             print(f"[ReelsPage] ERROR: {e}")
             import traceback
             traceback.print_exc()
 
-            # Lưu lỗi vào database
-            error_data = {
-                'profile_uuid': profile_uuid,
-                'page_id': page_id,
-                'page_name': page_name,
-                'reel_url': '',
-                'caption': caption,
-                'hashtags': hashtags,
-                'video_path': self.video_path if hasattr(self, 'video_path') else '',
-                'status': 'failed',
-                'error_message': str(e)
-            }
             try:
-                save_posted_reel(error_data)
+                save_posted_reel({
+                    'profile_uuid': profile_uuid,
+                    'page_id': page_id,
+                    'page_name': page_name,
+                    'reel_url': '',
+                    'caption': caption,
+                    'hashtags': hashtags,
+                    'video_path': self.video_path if hasattr(self, 'video_path') else '',
+                    'status': 'failed',
+                    'error_message': str(e)
+                })
             except:
                 pass
-
             raise e
+
         finally:
-            if ws:
-                try:
-                    ws.close()
-                except:
-                    pass
+            if cdp:
+                cdp.close()
             release_window_slot(slot_id)
 
     def _cdp_send(self, ws, method: str, params: Dict = None) -> Dict:

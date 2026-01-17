@@ -426,6 +426,114 @@ class CDPHelper:
             print(f"[CDP] get_window_bounds error: {e}")
             return None
 
+    # ==================== RAW CDP ACCESS ====================
+
+    def send_command(self, method: str, params: Dict = None) -> Optional[Dict]:
+        """
+        Send raw CDP command - cho phép truy cập low-level CDP khi cần
+        """
+        if not self.is_connected:
+            return None
+        try:
+            return self._client.session.send_command(method, params or {})
+        except Exception as e:
+            print(f"[CDP] send_command error: {e}")
+            return None
+
+    def upload_file(self, selector: str, file_path: str) -> bool:
+        """
+        Upload file vào input[type=file]
+        Dùng DOM.setFileInputFiles
+        """
+        if not self.is_connected:
+            return False
+
+        try:
+            # Tìm node ID của input
+            doc_result = self.send_command('DOM.getDocument', {'depth': 0})
+            if not doc_result:
+                return False
+
+            root_node_id = doc_result.get('root', {}).get('nodeId')
+            if not root_node_id:
+                return False
+
+            # Query selector
+            query_result = self.send_command('DOM.querySelector', {
+                'nodeId': root_node_id,
+                'selector': selector
+            })
+            if not query_result:
+                return False
+
+            node_id = query_result.get('nodeId')
+            if not node_id:
+                return False
+
+            # Set file
+            self.send_command('DOM.setFileInputFiles', {
+                'nodeId': node_id,
+                'files': [file_path]
+            })
+
+            print(f"[CDP] Uploaded file to {selector}")
+            return True
+
+        except Exception as e:
+            print(f"[CDP] upload_file error: {e}")
+            return False
+
+    def wait_for_page_load(self, timeout_ms: int = 30000) -> bool:
+        """Đợi page load xong"""
+        if not self.is_connected:
+            return False
+
+        start = time.time()
+        timeout_sec = timeout_ms / 1000
+
+        while time.time() - start < timeout_sec:
+            ready = self.execute_js('document.readyState')
+            if ready == 'complete':
+                return True
+            time.sleep(0.5)
+
+        return False
+
+    def focus_and_type(self, selector: str, text: str) -> bool:
+        """
+        Focus vào element và gõ text human-like
+        Hoạt động với Lexical editor
+        """
+        if not self.is_connected:
+            return False
+
+        # Focus element trước
+        focus_js = f'''
+            (function() {{
+                let el = document.querySelector('{selector}');
+                if (!el) return false;
+                el.click();
+                el.focus();
+                return true;
+            }})()
+        '''
+
+        if not self.execute(focus_js):
+            return False
+
+        time.sleep(0.3)
+
+        # Gõ text
+        return self.type_human_like(text)
+
+    def click_element_by_js(self, js_code: str) -> Any:
+        """
+        Execute JavaScript để click element và trả về kết quả
+        """
+        if not self.is_connected:
+            return None
+        return self.execute_js(js_code)
+
     # ==================== HIGH-LEVEL ACTIONS ====================
 
     def click_like_button(self) -> bool:
