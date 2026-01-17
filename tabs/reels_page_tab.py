@@ -1078,11 +1078,43 @@ class ReelsPageTab(ctk.CTkFrame):
             if not uploaded:
                 raise Exception("Không upload được video")
 
-            # Đợi video được xử lý
-            print(f"[ReelsPage] Waiting for video processing...")
-            time.sleep(8)
+            # Đợi video được xử lý và kiểm tra bản quyền
+            print(f"[ReelsPage] Waiting for video processing & copyright check...")
+            time.sleep(15)  # Đợi lâu hơn cho copyright check
 
-            # Bước 7: Nhập caption và hashtags
+            # Bước 7: Click nút "Tiếp" (Next/Continue) sau khi copyright check xong
+            print(f"[ReelsPage] Looking for 'Tiếp' (Next) button...")
+            js_click_next = '''
+            (function() {
+                var buttons = document.querySelectorAll('div[role="button"], button, span[role="button"]');
+                for (var i = 0; i < buttons.length; i++) {
+                    var btn = buttons[i];
+                    var text = (btn.innerText || '').trim().toLowerCase();
+                    var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+
+                    // Tìm nút Tiếp, Next, Continue
+                    if (text === 'tiếp' || text === 'tiếp tục' || text === 'next' ||
+                        text === 'continue' || ariaLabel.includes('tiếp') ||
+                        ariaLabel.includes('next')) {
+                        // Kiểm tra nút không bị disabled
+                        if (!btn.hasAttribute('disabled') && btn.offsetParent !== null) {
+                            btn.click();
+                            return 'clicked_next: ' + text;
+                        }
+                    }
+                }
+                return 'no_next_button_found';
+            })();
+            '''
+            next_result = self._cdp_evaluate(ws, js_click_next)
+            print(f"[ReelsPage] Next button result: {next_result}")
+
+            if 'no_next_button_found' in str(next_result):
+                print(f"[ReelsPage] No 'Tiếp' button found, maybe already on description page")
+            else:
+                time.sleep(5)  # Đợi chuyển sang trang mô tả
+
+            # Bước 8: Nhập caption và hashtags (Mô tả thước phim)
             full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
 
             if full_caption:
@@ -1133,8 +1165,8 @@ class ReelsPageTab(ctk.CTkFrame):
                 print(f"[ReelsPage] Caption result: {caption_result}")
                 time.sleep(2)
 
-            # Bước 8: Click nút đăng/share
-            print(f"[ReelsPage] Looking for post button...")
+            # Bước 9: Click nút đăng/share
+            print(f"[ReelsPage] Looking for 'Đăng' (Post) button...")
 
             js_click_post = '''
             (function() {
