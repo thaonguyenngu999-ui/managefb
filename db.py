@@ -886,9 +886,17 @@ def update_page_selection(page_id: int, is_selected: int) -> bool:
 
 def sync_pages(profile_uuid: str, pages_from_scan: List[Dict]):
     """Đồng bộ pages từ scan vào database"""
+    saved_count = 0
     for page in pages_from_scan:
-        page['profile_uuid'] = profile_uuid
-        save_page(page)
+        try:
+            page['profile_uuid'] = profile_uuid
+            result = save_page(page)
+            if result.get('id'):
+                saved_count += 1
+                print(f"[DB] Saved page: {page.get('page_name')} (ID: {result.get('id')})")
+        except Exception as e:
+            print(f"[DB] ERROR saving page {page.get('page_name')}: {e}")
+    print(f"[DB] sync_pages completed: {saved_count}/{len(pages_from_scan)} pages saved")
 
 
 def clear_pages(profile_uuid: str) -> bool:
