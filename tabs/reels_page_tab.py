@@ -1174,70 +1174,77 @@ class ReelsPageTab(ctk.CTkFrame):
             full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
 
             if full_caption:
-                print(f"[ReelsPage] Adding caption...")
+                print(f"[ReelsPage] Adding caption: {full_caption[:50]}...")
 
-                # Tìm và điền caption - Facebook dùng Lexical editor
-                js_fill_caption = f'''
-                (function() {{
-                    var captionText = `{full_caption.replace('`', '\\`').replace('\\', '\\\\')}`;
+                # Tìm và click vào editor trước
+                js_find_and_click_caption = '''
+                (function() {
+                    // Tìm Lexical editor với aria-placeholder chứa "Mô tả" hoặc "thước phim"
+                    var editors = document.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]');
 
-                    // Debug: liệt kê tất cả contenteditable
+                    for (var i = 0; i < editors.length; i++) {
+                        var ed = editors[i];
+                        var ariaLabel = (ed.getAttribute('aria-label') || '').toLowerCase();
+                        var placeholder = (ed.getAttribute('aria-placeholder') || '').toLowerCase();
+
+                        // Tìm field mô tả (không phải bình luận)
+                        if ((placeholder.includes('mô tả') || placeholder.includes('thước phim') ||
+                             placeholder.includes('describe') || placeholder.includes('caption') ||
+                             ariaLabel.includes('mô tả') || ariaLabel.includes('thước phim')) &&
+                            !placeholder.includes('bình luận') && !ariaLabel.includes('bình luận')) {
+
+                            // Click và focus
+                            ed.click();
+                            ed.focus();
+
+                            // Đợi một chút
+                            return 'found_caption_editor: ' + (placeholder || ariaLabel);
+                        }
+                    }
+
+                    // Fallback: tìm bất kỳ contenteditable nào không phải comment
                     var allEditors = document.querySelectorAll('[contenteditable="true"]');
-                    console.log('Found editors:', allEditors.length);
-                    for (var i = 0; i < allEditors.length; i++) {{
-                        console.log('Editor ' + i + ':', allEditors[i].getAttribute('aria-label'));
-                    }}
-
-                    // Tìm textarea hoặc contenteditable cho mô tả thước phim
-                    var editors = document.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"], [contenteditable="true"], textarea');
-
-                    for (var i = 0; i < editors.length; i++) {{
-                        var ed = editors[i];
+                    for (var i = 0; i < allEditors.length; i++) {
+                        var ed = allEditors[i];
                         var ariaLabel = (ed.getAttribute('aria-label') || '').toLowerCase();
-                        var placeholder = ed.getAttribute('aria-placeholder') || ed.getAttribute('placeholder') || '';
-                        var placeholderLower = placeholder.toLowerCase();
+                        var placeholder = (ed.getAttribute('aria-placeholder') || '').toLowerCase();
 
-                        // Tìm field liên quan đến mô tả/caption (không phải bình luận)
-                        if ((ariaLabel.includes('mô tả') || ariaLabel.includes('describe') ||
-                            ariaLabel.includes('caption') || placeholderLower.includes('mô tả') ||
-                            placeholderLower.includes('describe') || ariaLabel.includes('thước phim')) &&
-                            !ariaLabel.includes('bình luận') && !ariaLabel.includes('comment')) {{
-
+                        if (!ariaLabel.includes('bình luận') && !ariaLabel.includes('comment') &&
+                            !placeholder.includes('bình luận') && !placeholder.includes('comment')) {
+                            ed.click();
                             ed.focus();
+                            return 'found_fallback_editor: ' + (placeholder || ariaLabel);
+                        }
+                    }
 
-                            // Xóa nội dung cũ
-                            ed.innerHTML = '';
-
-                            // Dùng execCommand để insert text (hoạt động với Lexical)
-                            document.execCommand('insertText', false, captionText);
-
-                            // Dispatch events
-                            ed.dispatchEvent(new InputEvent('input', {{ bubbles: true, data: captionText }}));
-                            ed.dispatchEvent(new Event('change', {{ bubbles: true }}));
-
-                            return 'caption_filled: ' + ariaLabel + ' | placeholder: ' + placeholder;
-                        }}
-                    }}
-
-                    // Fallback: tìm contenteditable đầu tiên không phải comment box
-                    for (var i = 0; i < editors.length; i++) {{
-                        var ed = editors[i];
-                        var ariaLabel = (ed.getAttribute('aria-label') || '').toLowerCase();
-                        if (!ariaLabel.includes('bình luận') && !ariaLabel.includes('comment')) {{
-                            ed.focus();
-                            ed.innerHTML = '';
-                            document.execCommand('insertText', false, captionText);
-                            ed.dispatchEvent(new InputEvent('input', {{ bubbles: true }}));
-                            return 'caption_fallback: ' + ariaLabel;
-                        }}
-                    }}
-
-                    return 'no_caption_field_found';
-                }})();
+                    return 'no_editor_found';
+                })();
                 '''
-                caption_result = self._cdp_evaluate(ws, js_fill_caption)
-                print(f"[ReelsPage] Caption result: {caption_result}")
+                find_result = self._cdp_evaluate(ws, js_find_and_click_caption)
+                print(f"[ReelsPage] Find caption editor: {find_result}")
+                time.sleep(1)
+
+                # Dùng CDP Input.insertText để điền text (hoạt động tốt với Lexical)
+                # Phương pháp này gửi text trực tiếp qua CDP thay vì JavaScript
+                self._cdp_send(ws, "Input.insertText", {"text": full_caption})
+                print(f"[ReelsPage] Inserted caption via CDP Input.insertText")
                 time.sleep(2)
+
+                # Verify caption đã được điền
+                js_verify_caption = '''
+                (function() {
+                    var editors = document.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]');
+                    for (var i = 0; i < editors.length; i++) {
+                        var text = editors[i].innerText || '';
+                        if (text.trim().length > 0) {
+                            return 'caption_verified: ' + text.substring(0, 50);
+                        }
+                    }
+                    return 'no_caption_content';
+                })();
+                '''
+                verify_result = self._cdp_evaluate(ws, js_verify_caption)
+                print(f"[ReelsPage] Caption verify: {verify_result}")
 
             # Bước 9: Click nút đăng/share
             print(f"[ReelsPage] Looking for 'Đăng' (Post) button...")
@@ -1901,88 +1908,9 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] Click comment box: {click_result}")
             time.sleep(2)
 
-            # Nhập comment - sử dụng execCommand cho Lexical editor
-            js_fill_comment = f'''
-            (function() {{
-                var commentText = `{comment_text.replace('`', '\\`').replace('\\', '\\\\')}`;
-
-                // Tìm Lexical editor đang focus hoặc có aria-label bình luận
-                var findCommentEditor = function() {{
-                    // Kiểm tra active element trước
-                    var active = document.activeElement;
-                    if (active && active.contentEditable === 'true') {{
-                        var ariaLabel = (active.getAttribute('aria-label') || '').toLowerCase();
-                        if (ariaLabel.includes('bình luận') || ariaLabel.includes('comment')) {{
-                            return active;
-                        }}
-                    }}
-
-                    // Tìm Lexical editor với aria-label bình luận
-                    var editors = document.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]');
-                    for (var i = 0; i < editors.length; i++) {{
-                        var ed = editors[i];
-                        var ariaLabel = (ed.getAttribute('aria-label') || '').toLowerCase();
-                        if (ariaLabel.includes('bình luận') || ariaLabel.includes('comment')) {{
-                            if (ed.offsetParent !== null) {{
-                                return ed;
-                            }}
-                        }}
-                    }}
-
-                    // Fallback: any contenteditable with comment-related aria-label
-                    var allEditors = document.querySelectorAll('[contenteditable="true"]');
-                    for (var i = 0; i < allEditors.length; i++) {{
-                        var ed = allEditors[i];
-                        var ariaLabel = (ed.getAttribute('aria-label') || '').toLowerCase();
-                        if (ariaLabel.includes('bình luận') || ariaLabel.includes('comment')) {{
-                            if (ed.offsetParent !== null) {{
-                                return ed;
-                            }}
-                        }}
-                    }}
-
-                    return null;
-                }};
-
-                var editor = findCommentEditor();
-                if (editor) {{
-                    // Focus vào editor
-                    editor.focus();
-
-                    // Xóa nội dung cũ
-                    editor.innerHTML = '';
-
-                    // Sử dụng execCommand để insert text (hoạt động với Lexical)
-                    document.execCommand('insertText', false, commentText);
-
-                    // Dispatch events
-                    editor.dispatchEvent(new InputEvent('input', {{ bubbles: true, data: commentText }}));
-                    editor.dispatchEvent(new Event('change', {{ bubbles: true }}));
-
-                    return 'filled_comment_editor: ' + (editor.getAttribute('aria-label') || 'unknown');
-                }}
-
-                // Fallback cho textarea
-                var textareas = document.querySelectorAll('textarea');
-                for (var i = 0; i < textareas.length; i++) {{
-                    var ta = textareas[i];
-                    var ariaLabel = (ta.getAttribute('aria-label') || '').toLowerCase();
-                    var placeholder = (ta.getAttribute('placeholder') || '').toLowerCase();
-                    if (ariaLabel.includes('bình luận') || ariaLabel.includes('comment') ||
-                        placeholder.includes('bình luận') || placeholder.includes('comment')) {{
-                        ta.focus();
-                        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-                        setter.call(ta, commentText);
-                        ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        return 'filled_textarea';
-                    }}
-                }}
-
-                return 'no_comment_editor_found';
-            }})();
-            '''
-            fill_result = self._cdp_evaluate(ws, js_fill_comment)
-            print(f"[ReelsPage] Fill comment: {fill_result}")
+            # Dùng CDP Input.insertText để điền comment (hoạt động tốt với Lexical)
+            self._cdp_send(ws, "Input.insertText", {"text": comment_text})
+            print(f"[ReelsPage] Inserted comment via CDP Input.insertText")
             time.sleep(2)
 
             # Click nút gửi comment
