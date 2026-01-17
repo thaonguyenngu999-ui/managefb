@@ -1086,20 +1086,35 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] Looking for 'Tiếp' (Next) button...")
             js_click_next = '''
             (function() {
-                var buttons = document.querySelectorAll('div[role="button"], button, span[role="button"]');
-                for (var i = 0; i < buttons.length; i++) {
-                    var btn = buttons[i];
-                    var text = (btn.innerText || '').trim().toLowerCase();
-                    var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+                // Button "Tiếp" có role="none", không phải role="button"
+                // Tìm tất cả span chứa text "Tiếp"
+                var spans = document.querySelectorAll('span');
+                for (var i = 0; i < spans.length; i++) {
+                    var span = spans[i];
+                    var text = (span.innerText || '').trim();
 
-                    // Tìm nút Tiếp, Next, Continue
-                    if (text === 'tiếp' || text === 'tiếp tục' || text === 'next' ||
-                        text === 'continue' || ariaLabel.includes('tiếp') ||
-                        ariaLabel.includes('next')) {
-                        // Kiểm tra nút không bị disabled
-                        if (!btn.hasAttribute('disabled') && btn.offsetParent !== null) {
-                            btn.click();
-                            return 'clicked_next: ' + text;
+                    if (text === 'Tiếp' || text === 'Next' || text === 'Tiếp tục') {
+                        // Tìm parent div có thể click (thường là div[role="none"] hoặc div gần nhất)
+                        var clickable = span.closest('div.x1ja2u2z') ||
+                                       span.closest('div[role="none"]') ||
+                                       span.closest('div[role="button"]') ||
+                                       span.parentElement.parentElement.parentElement;
+                        if (clickable && clickable.offsetParent !== null) {
+                            clickable.click();
+                            return 'clicked_next_span: ' + text;
+                        }
+                    }
+                }
+
+                // Fallback: tìm theo innerText của bất kỳ div nào
+                var divs = document.querySelectorAll('div');
+                for (var i = 0; i < divs.length; i++) {
+                    var div = divs[i];
+                    var text = (div.innerText || '').trim();
+                    if (text === 'Tiếp' || text === 'Next') {
+                        if (div.offsetParent !== null) {
+                            div.click();
+                            return 'clicked_next_div: ' + text;
                         }
                     }
                 }
@@ -1170,31 +1185,38 @@ class ReelsPageTab(ctk.CTkFrame):
 
             js_click_post = '''
             (function() {
-                // Tìm các nút có thể là nút đăng
-                var buttons = document.querySelectorAll('div[role="button"], button, span[role="button"]');
-                var postBtn = null;
+                // Button "Đăng" cũng có thể có role="none"
+                // Tìm span chứa text "Đăng" trước
+                var spans = document.querySelectorAll('span');
+                for (var i = 0; i < spans.length; i++) {
+                    var span = spans[i];
+                    var text = (span.innerText || '').trim();
 
-                for (var i = 0; i < buttons.length; i++) {
-                    var btn = buttons[i];
-                    var text = (btn.innerText || '').toLowerCase().trim();
-                    var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-
-                    // Tìm nút Share, Đăng, Post, Chia sẻ
-                    if (text === 'share' || text === 'đăng' || text === 'post' ||
-                        text === 'chia sẻ' || text === 'share reel' || text === 'chia sẻ reel' ||
-                        ariaLabel.includes('share') || ariaLabel.includes('đăng') ||
-                        ariaLabel.includes('post')) {
-                        // Kiểm tra nút không bị disabled
-                        if (!btn.hasAttribute('disabled') && btn.offsetParent !== null) {
-                            postBtn = btn;
-                            break;
+                    if (text === 'Đăng' || text === 'Share' || text === 'Post' ||
+                        text === 'Chia sẻ' || text === 'Share Reel' || text === 'Chia sẻ Reel' ||
+                        text === 'Đăng thước phim' || text === 'Share reel') {
+                        var clickable = span.closest('div.x1ja2u2z') ||
+                                       span.closest('div[role="none"]') ||
+                                       span.closest('div[role="button"]') ||
+                                       span.parentElement.parentElement.parentElement;
+                        if (clickable && clickable.offsetParent !== null) {
+                            clickable.click();
+                            return 'clicked_post_span: ' + text;
                         }
                     }
                 }
 
-                if (postBtn) {
-                    postBtn.click();
-                    return 'clicked: ' + (postBtn.innerText || '').substring(0, 30);
+                // Fallback: tìm div với innerText
+                var divs = document.querySelectorAll('div');
+                for (var i = 0; i < divs.length; i++) {
+                    var div = divs[i];
+                    var text = (div.innerText || '').trim();
+                    if (text === 'Đăng' || text === 'Share' || text === 'Post') {
+                        if (div.offsetParent !== null) {
+                            div.click();
+                            return 'clicked_post_div: ' + text;
+                        }
+                    }
                 }
 
                 return 'no_post_button_found';
