@@ -1369,50 +1369,67 @@ class CreatePageDialog(ctk.CTkToplevel):
             print(f"[CreatePage] Fill category result: {cat_val}")
             time.sleep(2)
 
-            # Click vào suggestion đầu tiên của category dropdown
-            js_click_suggestion = '''
+            # Chọn suggestion đầu tiên bằng keyboard (ArrowDown + Enter) - đáng tin cậy hơn click
+            js_select_suggestion = '''
             (function() {
-                // Đợi dropdown xuất hiện - tìm nhiều loại dropdown
-                var suggestions = document.querySelectorAll(
-                    'ul[role="listbox"] li, ' +
-                    'div[role="listbox"] div[role="option"], ' +
-                    'div[role="option"], ' +
-                    'li[role="option"], ' +
-                    '[data-visualcompletion="ignore-dynamic"] ul li'
-                );
-
-                // Filter những suggestion visible
-                var visibleSuggestions = [];
-                for (var i = 0; i < suggestions.length; i++) {
-                    if (suggestions[i].offsetParent !== null) {
-                        visibleSuggestions.push(suggestions[i]);
-                    }
+                // Tìm input category đang focus
+                var categoryInput = document.querySelector('input[aria-label="Hạng mục (Bắt buộc)"]');
+                if (!categoryInput) {
+                    categoryInput = document.activeElement;
                 }
 
-                if (visibleSuggestions.length > 0) {
-                    visibleSuggestions[0].click();
-                    return 'clicked_suggestion: ' + visibleSuggestions.length + ' visible options';
-                }
+                if (categoryInput && categoryInput.tagName === 'INPUT') {
+                    // Gửi ArrowDown để chọn suggestion đầu tiên
+                    categoryInput.dispatchEvent(new KeyboardEvent('keydown', {
+                        key: 'ArrowDown',
+                        code: 'ArrowDown',
+                        keyCode: 40,
+                        which: 40,
+                        bubbles: true
+                    }));
 
-                // Tìm menu items
-                var menuItems = document.querySelectorAll('[role="menuitem"], [role="menuitemradio"]');
-                for (var i = 0; i < menuItems.length; i++) {
-                    if (menuItems[i].offsetParent !== null) {
-                        menuItems[i].click();
-                        return 'clicked_menuitem';
-                    }
+                    return 'sent_arrow_down';
                 }
-
-                return 'no_suggestion_found';
+                return 'no_input_focused';
             })();
             '''
             ws.send(json_module.dumps({
                 "id": 12,
                 "method": "Runtime.evaluate",
-                "params": {"expression": js_click_suggestion}
+                "params": {"expression": js_select_suggestion}
             }))
-            sugg_result = json_module.loads(ws.recv())
-            print(f"[CreatePage] Click suggestion: {sugg_result.get('result', {}).get('result', {}).get('value', 'N/A')}")
+            arrow_result = json_module.loads(ws.recv())
+            print(f"[CreatePage] ArrowDown: {arrow_result.get('result', {}).get('result', {}).get('value', 'N/A')}")
+            time.sleep(0.5)
+
+            # Nhấn Enter để chọn suggestion
+            js_press_enter = '''
+            (function() {
+                var categoryInput = document.querySelector('input[aria-label="Hạng mục (Bắt buộc)"]');
+                if (!categoryInput) {
+                    categoryInput = document.activeElement;
+                }
+
+                if (categoryInput) {
+                    categoryInput.dispatchEvent(new KeyboardEvent('keydown', {
+                        key: 'Enter',
+                        code: 'Enter',
+                        keyCode: 13,
+                        which: 13,
+                        bubbles: true
+                    }));
+                    return 'sent_enter';
+                }
+                return 'no_input';
+            })();
+            '''
+            ws.send(json_module.dumps({
+                "id": 13,
+                "method": "Runtime.evaluate",
+                "params": {"expression": js_press_enter}
+            }))
+            enter_result = json_module.loads(ws.recv())
+            print(f"[CreatePage] Enter: {enter_result.get('result', {}).get('result', {}).get('value', 'N/A')}")
             time.sleep(1.5)
 
             # Điền Tiểu sử (Bio) - TEXTAREA (CONFIRMED selector: textarea.x1i10hfl)
