@@ -3639,40 +3639,40 @@ class GroupsTab(ctk.CTkFrame):
                 }}
             }}
 
-            // Khi fb_name rỗng -> Lấy bài đầu tiên có pcb link (dùng groupId để build URL đúng)
-            console.log('fb_name empty or no match, trying first post with pcb...');
-            for (let post of posts) {{
-                let pcbLinks = post.querySelectorAll('a[href*="set=pcb."]');
-                for (let link of pcbLinks) {{
-                    let match = link.href.match(/set=pcb\\.(\\d+)/);
-                    if (match && match[1]) {{
-                        let postId = match[1];
-                        let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
-                        console.log('✓ Found first post with pcb:', postUrl);
-                        return postUrl;
-                    }}
-                }}
-            }}
+            // Khi fb_name rỗng -> Lấy bài đầu tiên có post link đúng groupId
+            console.log('fb_name empty or no match, trying first post...');
 
-            // Fallback: bài có thời gian mới
-            console.log('No pcb found, trying recent-time fallback...');
-            for (let post of posts) {{
-                if (findTimeInPost(post)) {{
-                    let url = getPostUrlFromArticle(post);
-                    if (url) {{
-                        console.log('⚠ FALLBACK (recent time only):', url);
-                        return url;
-                    }}
-                }}
-            }}
-
-            // Fallback cuối: bài đầu tiên có link bất kỳ
-            console.log('Last fallback: first post with any link...');
+            // Thử với articles trước
             for (let post of posts) {{
                 let url = getPostUrlFromArticle(post);
-                if (url) {{
-                    console.log('⚠ LAST FALLBACK (first post):', url);
+                // Verify URL đúng groupId
+                if (url && url.includes('/groups/' + groupId + '/')) {{
+                    console.log('✓ Found post URL in article:', url);
                     return url;
+                }}
+            }}
+
+            // Fallback: Tìm link trực tiếp trong page (không qua article)
+            console.log('No article match, searching page directly...');
+            let allPostLinks = document.querySelectorAll('a[href*="/groups/' + groupId + '/posts/"]');
+            console.log('Found', allPostLinks.length, 'direct links for groupId', groupId);
+            for (let link of allPostLinks) {{
+                if (link.href && !link.href.includes('notif_id') && !link.href.includes('ref=notif')) {{
+                    console.log('✓ Found direct post link:', link.href);
+                    return link.href;
+                }}
+            }}
+
+            // Fallback: Tìm pcb link trong toàn page
+            console.log('Trying pcb links in page...');
+            let allPcbLinks = document.querySelectorAll('a[href*="set=pcb."]');
+            for (let link of allPcbLinks) {{
+                let match = link.href.match(/set=pcb\\.(\\d+)/);
+                if (match && match[1]) {{
+                    let postId = match[1];
+                    let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
+                    console.log('✓ Built URL from pcb:', postUrl);
+                    return postUrl;
                 }}
             }}
 
