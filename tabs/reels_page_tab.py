@@ -937,48 +937,12 @@ class ReelsPageTab(ctk.CTkFrame):
             else:
                 time.sleep(3)  # Đợi switch xong
 
-            # Bước 5: Click "Thước phim" (Reels) để mở Reels creator
-            print(f"[ReelsPage] Looking for 'Thước phim' (Reels) button...")
-            js_click_reels = '''
-            (function() {
-                // Tìm nút "Thước phim" hoặc "Reels"
-                var buttons = document.querySelectorAll('div[role="button"], span[role="button"], a[role="link"]');
-                for (var i = 0; i < buttons.length; i++) {
-                    var btn = buttons[i];
-                    var ariaLabel = btn.getAttribute('aria-label') || '';
-                    var text = (btn.innerText || '').trim();
-
-                    if (ariaLabel === 'Thước phim' || text === 'Thước phim' ||
-                        ariaLabel === 'Reels' || text === 'Reels' ||
-                        ariaLabel.includes('Thước phim') || text.includes('Thước phim')) {
-                        btn.click();
-                        return 'clicked_reels: ' + (ariaLabel || text);
-                    }
-                }
-
-                // Fallback: tìm theo icon/image với src chứa reels
-                var imgs = document.querySelectorAll('img[src*="reels"], img[alt*="Reels"], img[alt*="Thước phim"]');
-                for (var i = 0; i < imgs.length; i++) {
-                    var parent = imgs[i].closest('[role="button"]');
-                    if (parent) {
-                        parent.click();
-                        return 'clicked_reels_via_img';
-                    }
-                }
-
-                return 'no_reels_button_found';
-            })();
-            '''
-            reels_result = self._cdp_evaluate(ws, js_click_reels)
-            print(f"[ReelsPage] Reels button result: {reels_result}")
-
-            if 'no_reels_button_found' in str(reels_result):
-                # Fallback: navigate trực tiếp đến reels/create
-                print(f"[ReelsPage] Fallback: navigating directly to reels/create...")
-                self._cdp_send(ws, "Page.navigate", {"url": "https://www.facebook.com/reels/create"})
-                time.sleep(8)
-            else:
-                time.sleep(8)  # Đợi Reels creator dialog mở hoàn toàn
+            # Bước 5: Navigate trực tiếp đến Reels creator page
+            # (Click vào "Thước phim" trên timeline không mở đúng creator)
+            reels_create_url = "https://www.facebook.com/reels/create"
+            print(f"[ReelsPage] Navigating directly to Reels creator: {reels_create_url}")
+            self._cdp_send(ws, "Page.navigate", {"url": reels_create_url})
+            time.sleep(8)
 
             # Đợi page load hoàn toàn
             for _ in range(15):
@@ -988,6 +952,10 @@ class ReelsPageTab(ctk.CTkFrame):
                 time.sleep(1)
 
             time.sleep(3)
+
+            # Check current URL
+            current_url = self._cdp_evaluate(ws, "window.location.href")
+            print(f"[ReelsPage] Current URL: {current_url}")
 
             # Bước 6: Upload video
             print(f"[ReelsPage] Preparing to upload video...")
