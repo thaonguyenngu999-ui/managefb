@@ -2644,36 +2644,87 @@ class GroupsTab(ctk.CTkFrame):
 
             # Bước 2: Click vào "Bạn viết gì đi..." với mouse movement
             # Tìm vị trí composer button với RETRY
+            # QUAN TRỌNG: Phải phân biệt composer tạo bài (ở đầu trang) vs ô comment (trong bài viết)
             get_composer_pos_js = '''
             (function() {
-                // Tìm theo text tiếng Việt
+                // Hàm kiểm tra element có nằm trong bài viết (article) không
+                function isInsideArticle(el) {
+                    let parent = el;
+                    while (parent) {
+                        if (parent.getAttribute && parent.getAttribute('role') === 'article') {
+                            return true;  // Đây là ô comment trong bài viết
+                        }
+                        parent = parent.parentElement;
+                    }
+                    return false;  // Đây là composer chính
+                }
+
+                // Hàm kiểm tra có phải composer tạo bài không (có nút Bài viết ẩn danh, Thăm dò ý kiến nearby)
+                function isMainComposer(el) {
+                    // Tìm trong parent container
+                    let container = el;
+                    for (let i = 0; i < 5; i++) {
+                        if (!container.parentElement) break;
+                        container = container.parentElement;
+                        let text = container.innerText || '';
+                        // Composer tạo bài có các nút này bên cạnh
+                        if (text.includes('Bài viết ẩn danh') || text.includes('Thăm dò ý kiến') ||
+                            text.includes('Cảm xúc/hoạt động') || text.includes('Anonymous post') ||
+                            text.includes('Poll') || text.includes('Feeling/activity')) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                // Tìm composer chính (KHÔNG nằm trong article)
+                let buttons = document.querySelectorAll('[role="button"]');
+                for (let btn of buttons) {
+                    let text = btn.innerText ? btn.innerText.trim() : '';
+                    if (text.includes('Bạn viết gì đi') || text.includes('Write something')) {
+                        // Kiểm tra KHÔNG phải ô comment
+                        if (!isInsideArticle(btn) && isMainComposer(btn)) {
+                            let rect = btn.getBoundingClientRect();
+                            // Kiểm tra element visible và ở phần trên của trang
+                            if (rect.top > 0 && rect.top < 600 && rect.width > 0) {
+                                console.log('Found main composer at y=' + rect.top);
+                                return {
+                                    x: rect.left + rect.width / 2 + (Math.random() * 20 - 10),
+                                    y: rect.top + rect.height / 2 + (Math.random() * 6 - 3)
+                                };
+                            }
+                        }
+                    }
+                }
+
+                // Fallback 1: Tìm div[tabindex="0"] với text, KHÔNG trong article
                 let divs = document.querySelectorAll('div[tabindex="0"]');
                 for (let div of divs) {
-                    if (div.innerText && (div.innerText.includes("Bạn viết gì đi") || div.innerText.includes("Write something"))) {
-                        let rect = div.getBoundingClientRect();
-                        return {
-                            x: rect.left + rect.width / 2 + (Math.random() * 20 - 10),
-                            y: rect.top + rect.height / 2 + (Math.random() * 6 - 3)
-                        };
+                    let text = div.innerText || '';
+                    if (text.includes('Bạn viết gì đi') || text.includes('Write something')) {
+                        if (!isInsideArticle(div)) {
+                            let rect = div.getBoundingClientRect();
+                            if (rect.top > 0 && rect.top < 600 && rect.width > 0) {
+                                console.log('Found composer div at y=' + rect.top);
+                                return {
+                                    x: rect.left + rect.width / 2 + (Math.random() * 20 - 10),
+                                    y: rect.top + rect.height / 2 + (Math.random() * 6 - 3)
+                                };
+                            }
+                        }
                     }
                 }
-                // Fallback 1: tìm trong span
-                let spans = document.querySelectorAll('span');
-                for (let span of spans) {
-                    if (span.innerText && (span.innerText.includes("Bạn viết gì đi") || span.innerText.includes("Write something"))) {
-                        let rect = span.getBoundingClientRect();
-                        return {
-                            x: rect.left + rect.width / 2,
-                            y: rect.top + rect.height / 2
-                        };
-                    }
-                }
-                // Fallback 2: tìm theo aria-label
+
+                // Fallback 2: Tìm theo aria-label
                 let composer = document.querySelector('[aria-label*="Create a post"], [aria-label*="Tạo bài viết"]');
-                if (composer) {
+                if (composer && !isInsideArticle(composer)) {
                     let rect = composer.getBoundingClientRect();
-                    return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
+                    if (rect.top > 0 && rect.width > 0) {
+                        return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
+                    }
                 }
+
+                console.log('No main composer found');
                 return null;
             })()
             '''
