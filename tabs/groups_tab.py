@@ -2080,6 +2080,15 @@ class GroupsTab(ctk.CTkFrame):
                         requests.get(f"{cdp_base}/json/close/{target_id}", timeout=5)
                 time.sleep(1)
                 print(f"[INFO] Đã đóng {len(page_targets) - 1} tab cũ")
+
+            # Kiểm tra lại xem còn tab nào không
+            resp = requests.get(f"{cdp_base}/json", timeout=10)
+            remaining = [p for p in resp.json() if p.get('type') == 'page']
+            if len(remaining) == 0:
+                print(f"[WARN] Không còn tab nào, tạo tab mới...")
+                # Tạo tab mới
+                requests.get(f"{cdp_base}/json/new?about:blank", timeout=10)
+                time.sleep(1)
         except Exception as e:
             print(f"[WARN] Không đóng được tab cũ: {e}")
 
@@ -2095,7 +2104,20 @@ class GroupsTab(ctk.CTkFrame):
                         break
                 if page_ws:
                     break
-            except:
+            except Exception as e:
+                print(f"[WARN] CDP attempt {attempt + 1}/5 failed: {e}")
+                if attempt == 2:
+                    # Browser có thể đã đóng, thử mở lại
+                    print(f"[INFO] Browser có thể đã đóng, thử mở lại...")
+                    result = api.open_browser(profile_uuid)
+                    if result.get('type') != 'error':
+                        data = result.get('data', {})
+                        new_port = data.get('remote_port')
+                        if new_port:
+                            remote_port = new_port
+                            cdp_base = f"http://127.0.0.1:{remote_port}"
+                            self._posting_port = remote_port
+                            print(f"[INFO] Đã mở lại browser, port: {remote_port}")
                 time.sleep(1)
 
         if not page_ws:
