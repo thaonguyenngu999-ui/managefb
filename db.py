@@ -825,10 +825,13 @@ def save_page(data: Dict) -> Dict:
         cursor = conn.cursor()
         now = datetime.now().isoformat()
 
+        profile_uuid = data.get('profile_uuid', '')
+        page_id = data.get('page_id', '')
+
         # Check if page already exists for this profile
         cursor.execute(
             "SELECT id FROM pages WHERE profile_uuid = ? AND page_id = ?",
-            (data.get('profile_uuid'), data.get('page_id'))
+            (profile_uuid, page_id)
         )
         existing = cursor.fetchone()
 
@@ -851,6 +854,7 @@ def save_page(data: Dict) -> Dict:
                 existing['id']
             ))
             data['id'] = existing['id']
+            data['_is_new'] = False
         else:
             # Insert
             cursor.execute("""
@@ -858,8 +862,8 @@ def save_page(data: Dict) -> Dict:
                     follower_count, role, note, is_selected, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                data.get('profile_uuid', ''),
-                data.get('page_id', ''),
+                profile_uuid,
+                page_id,
                 data.get('page_name', ''),
                 data.get('page_url', ''),
                 data.get('category', ''),
@@ -870,6 +874,7 @@ def save_page(data: Dict) -> Dict:
                 now, now
             ))
             data['id'] = cursor.lastrowid
+            data['_is_new'] = True
 
         return data
 
@@ -907,16 +912,40 @@ def update_page_selection(page_id: int, is_selected: int) -> bool:
 def sync_pages(profile_uuid: str, pages_from_scan: List[Dict]):
     """Đồng bộ pages từ scan vào database"""
     saved_count = 0
+    print(f"[DB] sync_pages starting for profile {profile_uuid[:8]}...")
+    print(f"[DB] Pages to sync: {len(pages_from_scan)}")
+
+    # Debug: show all page_ids
+    for i, p in enumerate(pages_from_scan):
+        print(f"[DB]   [{i+1}] page_id={p.get('page_id')} | name={p.get('page_name')}")
+
     for page in pages_from_scan:
         try:
             page['profile_uuid'] = profile_uuid
+            page_id = page.get('page_id')
+            page_name = page.get('page_name')
+
             result = save_page(page)
             if result.get('id'):
                 saved_count += 1
-                print(f"[DB] Saved page: {page.get('page_name')} (ID: {result.get('id')})")
+                is_new = result.get('_is_new', False)
+                action = "INSERTED" if is_new else "UPDATED"
+                print(f"[DB] {action} page: {page_name} (db_id={result.get('id')}, page_id={page_id})")
         except Exception as e:
             print(f"[DB] ERROR saving page {page.get('page_name')}: {e}")
+            import traceback
+            traceback.print_exc()
+
     print(f"[DB] sync_pages completed: {saved_count}/{len(pages_from_scan)} pages saved")
+
+    # Verify: đếm lại số pages trong DB
+    actual_count = get_pages_count(profile_uuid)
+    print(f"[DB] VERIFY: {actual_count} pages in database for profile {profile_uuid[:8]}")
+
+    # List all pages in DB for this profile
+    all_pages = get_pages(profile_uuid)
+    for i, p in enumerate(all_pages):
+        print(f"[DB]   DB[{i+1}] id={p.get('id')} | page_id={p.get('page_id')} | name={p.get('page_name')}")
 
 
 def clear_pages(profile_uuid: str) -> bool:
