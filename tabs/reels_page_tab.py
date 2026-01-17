@@ -820,11 +820,13 @@ class ReelsPageTab(ctk.CTkFrame):
         try:
             # Bước 1: Mở browser với profile
             result = api.open_browser(profile_uuid)
-            if not result or not result.get('success'):
+            # API trả về status: 'successfully' thay vì success: True
+            if not result or result.get('status') != 'successfully':
                 raise Exception(f"Không mở được browser: {result}")
 
             browser_info = result.get('data', {})
-            remote_port = browser_info.get('remote_debugging_port')
+            # API trả về remote_port, không phải remote_debugging_port
+            remote_port = browser_info.get('remote_port') or browser_info.get('remote_debugging_port')
 
             if not remote_port:
                 raise Exception("Không lấy được remote debugging port")
