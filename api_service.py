@@ -77,35 +77,25 @@ class HidemiumAPI:
             params={"is_local": str(is_local).lower()},
             data=body
         )
-        print(f"[DEBUG API] get_profiles response type: {type(result)}")
-        print(f"[DEBUG API] get_profiles result keys: {result.keys() if isinstance(result, dict) else 'not dict'}")
         # Parse response theo cấu trúc thực tế
         if result and 'data' in result:
             data = result['data']
-            print(f"[DEBUG API] data type: {type(data)}")
             if isinstance(data, dict) and 'content' in data:
                 content = data['content']
-                print(f"[DEBUG API] content type: {type(content)}")
                 # Nếu content là list -> trả về list
                 if isinstance(content, list):
-                    print(f"[DEBUG API] Found {len(content)} profiles in data.content (list)")
                     return content
                 # Nếu content là dict - kiểm tra có phải error không
                 elif isinstance(content, dict):
                     # Kiểm tra error response
                     if 'code' in content or 'error' in content:
-                        print(f"[DEBUG API] Error in content: {content}")
                         return []
                     # Nếu là profile hợp lệ (có uuid) -> wrap trong list
                     if 'uuid' in content:
-                        print(f"[DEBUG API] Found 1 profile in data.content (dict), wrapping in list")
                         return [content]
-                    print(f"[DEBUG API] Unknown content format: {content}")
                     return []
             elif isinstance(data, list):
-                print(f"[DEBUG API] data is list with {len(data)} items")
                 return data
-        print(f"[DEBUG API] No profiles found, returning empty list")
         return []
     
     def get_profile_detail(self, uuid: str, is_local: bool = False) -> Dict:
@@ -235,7 +225,6 @@ class HidemiumAPI:
         if proxy:
             params["proxy"] = proxy
         result = self._get("/openProfile", params=params)
-        print(f"[DEBUG API] open_browser({uuid[:8]}...) response: {result}")
 
         # Auto resize window position if successful
         if auto_resize and result.get('status') == 'successfully':
@@ -373,22 +362,17 @@ class HidemiumAPI:
             "/v1/folder/list",
             params={"limit": limit, "page": page, "is_local": str(is_local).lower()}
         )
-        print(f"[DEBUG API] get_folders response: {result}")
         # Parse response
         if result and 'data' in result:
             data = result['data']
-            print(f"[DEBUG API] get_folders data type: {type(data)}")
             if isinstance(data, dict) and 'content' in data:
                 content = data['content']
                 if isinstance(content, list):
-                    print(f"[DEBUG API] Found {len(content)} folders")
                     return content
                 elif isinstance(content, dict):
                     return [content]
             elif isinstance(data, list):
-                print(f"[DEBUG API] get_folders data is list: {len(data)} items")
                 return data
-        print(f"[DEBUG API] get_folders returning empty list")
         return []
     
     def add_profiles_to_folder(self, folder_uuid: str, profile_uuids: List[str], is_local: bool = True) -> Dict:

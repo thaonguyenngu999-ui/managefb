@@ -264,23 +264,18 @@ class PostsTab(ctk.CTkFrame):
         """Load danh sách folders từ Hidemium"""
         try:
             self.folders = api.get_folders()
-            print(f"[DEBUG PostsTab] _load_folders got {len(self.folders)} folders")
         except Exception as e:
-            print(f"[DEBUG PostsTab] _load_folders error: {e}")
             self.folders = []
 
         folder_options = ["-- Tất cả --"]
         for f in self.folders:
             name = f.get('name', 'Unknown')
             folder_options.append(name)
-            print(f"[DEBUG PostsTab] Added folder: {name}")
-        print(f"[DEBUG PostsTab] folder_options: {folder_options}")
         self.folder_menu.configure(values=folder_options)
 
     def _load_profiles(self):
         """Load profiles từ Hidemium API"""
         folder_name = self.folder_var.get()
-        print(f"[DEBUG] _load_profiles called, folder: {folder_name}")
 
         try:
             if folder_name == "-- Tất cả --":
@@ -292,24 +287,12 @@ class PostsTab(ctk.CTkFrame):
                 for f in self.folders:
                     if f.get('name') == folder_name:
                         folder_id = f.get('id')  # Dùng numeric id
-                        print(f"[DEBUG] Found folder {folder_name} with id={folder_id}")
                         break
                 if folder_id:
                     self.profiles = api.get_profiles(folder_id=[folder_id], limit=500)
                 else:
                     self.profiles = api.get_profiles(limit=500)
-
-            # Debug: in ra profiles
-            print(f"[DEBUG] Loaded {len(self.profiles)} profiles")
-            if self.profiles and len(self.profiles) > 0:
-                print(f"[DEBUG] First profile type: {type(self.profiles[0])}")
-                print(f"[DEBUG] First profile: {self.profiles[0]}")
-                if len(self.profiles) > 1:
-                    print(f"[DEBUG] Second profile: {self.profiles[1]}")
         except Exception as e:
-            print(f"[ERROR] Load profiles: {e}")
-            import traceback
-            traceback.print_exc()
             self.profiles = []
 
         self.profile_count_label.configure(text=f"{len(self.profiles)} profiles")
@@ -640,9 +623,7 @@ class PostsTab(ctk.CTkFrame):
         # Sắp xếp profiles theo tên (00, 01, 02, ...)
         # Đảm bảo profiles là list of dicts
         available_profiles = []
-        print(f"[DEBUG] Processing {len(self.profiles)} profiles from self.profiles")
-        for i, p in enumerate(self.profiles):
-            print(f"[DEBUG] Profile {i}: type={type(p)}, value={str(p)[:100]}")
+        for p in self.profiles:
             if isinstance(p, dict):
                 available_profiles.append(p)
             elif isinstance(p, str):
