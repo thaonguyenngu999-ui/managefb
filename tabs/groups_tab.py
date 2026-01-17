@@ -3294,6 +3294,11 @@ class GroupsTab(ctk.CTkFrame):
             time.sleep(random.uniform(5, 8))  # Đợi đăng xong (đợi lâu hơn cho duyệt tự động)
 
             # Bước 7: Mở tab mới để lấy URL (tránh dialog leave site)
+            # Chờ 8-10s để Facebook cập nhật feed trước khi check
+            wait_time = random.uniform(8, 10)
+            print(f"[Groups] Đợi {wait_time:.1f}s để FB cập nhật feed...")
+            time.sleep(wait_time)
+
             # Kiểm tra có cần like không
             should_like = self.auto_like_var.get()
             react_type = self.react_type_var.get() if should_like else None
@@ -3432,17 +3437,17 @@ class GroupsTab(ctk.CTkFrame):
             console.log('FB Name:', fbName);
             console.log('Current URL:', window.location.href);
 
-            // Các từ khóa thời gian "vừa đăng" - cả tiếng Việt lẫn tiếng Anh
+            // Các từ khóa thời gian "vừa đăng" - CHỈ TRONG VÒNG 2 PHÚT
             const recentTimeKeywords = [
                 'vừa xong', 'vừaxong', 'vua xong', 'vuaxong',
                 'just now', 'justnow',
-                '1 phút', '2 phút', '3 phút', '4 phút', '5 phút',
-                '1 giây', '2 giây', '3 giây', '5 giây', '10 giây', '30 giây',
-                '1m', '2m', '3m', '4m', '5m',
-                '1 min', '2 min', '3 min', '4 min', '5 min',
-                '1 minute', '2 minutes', '3 minutes', '4 minutes', '5 minutes',
-                '1s', '2s', '3s', '5s', '10s', '30s',
-                'một phút', 'hai phút', 'ba phút', 'bốn phút', 'năm phút',
+                '1 phút', '2 phút',  // Max 2 phút
+                '1 giây', '2 giây', '3 giây', '5 giây', '10 giây', '30 giây', '45 giây',
+                '1m', '2m',  // Max 2 minutes
+                '1 min', '2 min',
+                '1 minute', '2 minutes',
+                '1s', '2s', '3s', '5s', '10s', '30s', '45s',
+                'một phút', 'hai phút',
                 'một giây', 'vài giây', 'một vài giây', 'a few seconds'
             ];
 
