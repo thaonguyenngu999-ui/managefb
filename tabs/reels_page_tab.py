@@ -12,7 +12,7 @@ from tkinter import filedialog
 from config import COLORS
 from widgets import ModernButton, ModernEntry
 from db import (
-    get_profiles, get_pages, get_pages_for_profile,
+    get_profiles, get_pages, get_pages_for_profiles,
     save_reel_schedule, get_reel_schedules, update_reel_schedule,
     delete_reel_schedule
 )
@@ -562,7 +562,7 @@ class ReelsPageTab(ctk.CTkFrame):
             return
 
         def load():
-            self.pages = get_pages_for_profile(self.current_profile_uuid)
+            self.pages = get_pages_for_profiles([self.current_profile_uuid])
             self.after(0, self._update_pages_list)
 
         threading.Thread(target=load, daemon=True).start()
