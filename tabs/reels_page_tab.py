@@ -1122,10 +1122,20 @@ class ReelsPageTab(ctk.CTkFrame):
             })();
             '''
             next_result = self._cdp_evaluate(ws, js_click_next)
-            print(f"[ReelsPage] Next button result: {next_result}")
+            print(f"[ReelsPage] First 'Tiếp' button result: {next_result}")
 
             if 'no_next_button_found' in str(next_result):
-                print(f"[ReelsPage] No 'Tiếp' button found, maybe already on description page")
+                print(f"[ReelsPage] No first 'Tiếp' button found")
+            else:
+                time.sleep(5)  # Đợi chuyển sang trang chỉnh sửa
+
+            # Bước 7b: Click nút "Tiếp" lần 2 (sau khi chỉnh sửa)
+            print(f"[ReelsPage] Looking for second 'Tiếp' button (after edit)...")
+            next_result2 = self._cdp_evaluate(ws, js_click_next)
+            print(f"[ReelsPage] Second 'Tiếp' button result: {next_result2}")
+
+            if 'no_next_button_found' in str(next_result2):
+                print(f"[ReelsPage] No second 'Tiếp' button found, maybe already on description page")
             else:
                 time.sleep(5)  # Đợi chuyển sang trang mô tả
 
