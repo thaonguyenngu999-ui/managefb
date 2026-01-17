@@ -2768,9 +2768,12 @@ class GroupsTab(ctk.CTkFrame):
         ''')
         print(f"[Groups] DEBUG: Group post links in page = {debug_links}")
 
-        # Tìm bài vừa đăng trong tab mới - CHỈ TÌM URL có /groups/
+        # Tìm bài vừa đăng trong tab mới - tìm post ID từ nhiều nguồn
         get_post_url_js = '''
         (function() {
+            let groupId = window.location.pathname.match(/\\/groups\\/(\\d+)/)?.[1] || '';
+            console.log('Group ID from URL:', groupId);
+
             // Hàm kiểm tra URL hợp lệ (không phải notification)
             function isValidGroupUrl(href) {
                 if (!href) return false;
@@ -2779,38 +2782,50 @@ class GroupsTab(ctk.CTkFrame):
                 return href.includes('/groups/') && href.includes('/posts/');
             }
 
-            // Ưu tiên tìm URL có /groups/.../posts/ trước
+            // Cách 1: Tìm URL trực tiếp có /groups/.../posts/
             let groupLinks = document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
             for (let link of groupLinks) {
                 if (isValidGroupUrl(link.href)) {
-                    console.log('Found group post URL:', link.href);
+                    console.log('Found direct group post URL:', link.href);
                     return link.href;
                 }
             }
 
-            // Tìm trong các bài viết gần đây
-            let posts = document.querySelectorAll('[data-pagelet*="FeedUnit"], [role="article"]');
+            // Cách 2: Tìm post ID từ photo links (set=pcb.{post_id})
+            let photoLinks = document.querySelectorAll('a[href*="set=pcb."]');
+            for (let link of photoLinks) {
+                let match = link.href.match(/set=pcb\\.(\\d+)/);
+                if (match && match[1] && groupId) {
+                    let postId = match[1];
+                    let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
+                    console.log('Built post URL from photo link:', postUrl);
+                    return postUrl;
+                }
+            }
+
+            // Cách 3: Tìm trong bài viết có "Vừa xong"
+            let posts = document.querySelectorAll('[role="article"]');
             for (let post of posts) {
                 let timeText = post.innerText || '';
                 let hasRecentTime = timeText.includes('Vừa xong') ||
                                    timeText.includes('Just now') ||
                                    timeText.includes('1 phút') ||
-                                   timeText.includes('2 phút') ||
-                                   timeText.includes('3 phút') ||
-                                   timeText.includes('Đang chờ') ||
-                                   timeText.includes('Pending');
+                                   timeText.includes('2 phút');
                 if (hasRecentTime) {
-                    let groupPostLinks = post.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
-                    for (let link of groupPostLinks) {
-                        if (isValidGroupUrl(link.href)) {
-                            console.log('Found recent group post:', link.href);
-                            return link.href;
+                    // Tìm pcb trong bài này
+                    let pcbLinks = post.querySelectorAll('a[href*="set=pcb."]');
+                    for (let link of pcbLinks) {
+                        let match = link.href.match(/set=pcb\\.(\\d+)/);
+                        if (match && match[1] && groupId) {
+                            let postId = match[1];
+                            let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
+                            console.log('Built post URL from recent post:', postUrl);
+                            return postUrl;
                         }
                     }
                 }
             }
 
-            // KHÔNG fallback - chỉ trả về null nếu không tìm thấy group post
             console.log('No valid group post URL found');
             return null;
         })()
