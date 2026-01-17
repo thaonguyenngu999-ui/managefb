@@ -887,15 +887,80 @@ class ReelsPageTab(ctk.CTkFrame):
                     break
                 time.sleep(1)
 
-            time.sleep(2)
+            time.sleep(3)
 
-            # Bước 4: Navigate đến Reels creator
-            reels_create_url = "https://www.facebook.com/reels/create"
-            print(f"[ReelsPage] Navigating to Reels creator...")
-            self._cdp_send(ws, "Page.navigate", {"url": reels_create_url})
-            time.sleep(5)
+            # Bước 4: Click "Chuyển ngay" để switch sang Page context
+            print(f"[ReelsPage] Looking for 'Chuyển ngay' button...")
+            js_click_switch = '''
+            (function() {
+                // Tìm nút "Chuyển ngay" để switch sang page
+                var buttons = document.querySelectorAll('div[role="button"], span[role="button"]');
+                for (var i = 0; i < buttons.length; i++) {
+                    var btn = buttons[i];
+                    var ariaLabel = btn.getAttribute('aria-label') || '';
+                    var text = (btn.innerText || '').trim();
 
-            # Đợi page load
+                    if (ariaLabel === 'Chuyển ngay' || text === 'Chuyển ngay' ||
+                        ariaLabel === 'Switch now' || text === 'Switch now') {
+                        btn.click();
+                        return 'clicked_switch: ' + (ariaLabel || text);
+                    }
+                }
+                return 'no_switch_button_found';
+            })();
+            '''
+            switch_result = self._cdp_evaluate(ws, js_click_switch)
+            print(f"[ReelsPage] Switch result: {switch_result}")
+
+            if 'no_switch_button_found' in str(switch_result):
+                print(f"[ReelsPage] No switch button found, may already be in page context")
+            else:
+                time.sleep(3)  # Đợi switch xong
+
+            # Bước 5: Click "Thước phim" (Reels) để mở Reels creator
+            print(f"[ReelsPage] Looking for 'Thước phim' (Reels) button...")
+            js_click_reels = '''
+            (function() {
+                // Tìm nút "Thước phim" hoặc "Reels"
+                var buttons = document.querySelectorAll('div[role="button"], span[role="button"], a[role="link"]');
+                for (var i = 0; i < buttons.length; i++) {
+                    var btn = buttons[i];
+                    var ariaLabel = btn.getAttribute('aria-label') || '';
+                    var text = (btn.innerText || '').trim();
+
+                    if (ariaLabel === 'Thước phim' || text === 'Thước phim' ||
+                        ariaLabel === 'Reels' || text === 'Reels' ||
+                        ariaLabel.includes('Thước phim') || text.includes('Thước phim')) {
+                        btn.click();
+                        return 'clicked_reels: ' + (ariaLabel || text);
+                    }
+                }
+
+                // Fallback: tìm theo icon/image với src chứa reels
+                var imgs = document.querySelectorAll('img[src*="reels"], img[alt*="Reels"], img[alt*="Thước phim"]');
+                for (var i = 0; i < imgs.length; i++) {
+                    var parent = imgs[i].closest('[role="button"]');
+                    if (parent) {
+                        parent.click();
+                        return 'clicked_reels_via_img';
+                    }
+                }
+
+                return 'no_reels_button_found';
+            })();
+            '''
+            reels_result = self._cdp_evaluate(ws, js_click_reels)
+            print(f"[ReelsPage] Reels button result: {reels_result}")
+
+            if 'no_reels_button_found' in str(reels_result):
+                # Fallback: navigate trực tiếp đến reels/create
+                print(f"[ReelsPage] Fallback: navigating directly to reels/create...")
+                self._cdp_send(ws, "Page.navigate", {"url": "https://www.facebook.com/reels/create"})
+                time.sleep(5)
+            else:
+                time.sleep(5)  # Đợi Reels creator mở
+
+            # Đợi page load hoàn toàn
             for _ in range(10):
                 ready = self._cdp_evaluate(ws, "document.readyState")
                 if ready == 'complete':
@@ -904,7 +969,7 @@ class ReelsPageTab(ctk.CTkFrame):
 
             time.sleep(3)
 
-            # Bước 5: Upload video bằng cách set file vào input[type="file"]
+            # Bước 6: Upload video bằng cách set file vào input[type="file"]
             print(f"[ReelsPage] Uploading video...")
 
             # Normalize path cho Windows
@@ -957,7 +1022,7 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] Waiting for video processing...")
             time.sleep(8)
 
-            # Bước 6: Nhập caption và hashtags
+            # Bước 7: Nhập caption và hashtags
             full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
 
             if full_caption:
@@ -1008,7 +1073,7 @@ class ReelsPageTab(ctk.CTkFrame):
                 print(f"[ReelsPage] Caption result: {caption_result}")
                 time.sleep(2)
 
-            # Bước 7: Click nút đăng/share
+            # Bước 8: Click nút đăng/share
             print(f"[ReelsPage] Looking for post button...")
 
             js_click_post = '''
