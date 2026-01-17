@@ -2263,6 +2263,71 @@ class GroupsTab(ctk.CTkFrame):
             except:
                 return {}
 
+    def _is_ws_connected(self, ws) -> bool:
+        """Kiểm tra WebSocket còn kết nối không"""
+        if not ws:
+            return False
+        try:
+            # Gửi ping đơn giản
+            ws.ping()
+            return True
+        except:
+            pass
+        # Fallback: thử gọi một command đơn giản
+        try:
+            result = self._cdp_send(ws, "Runtime.evaluate", {
+                "expression": "1+1",
+                "returnByValue": True
+            })
+            return result.get('result', {}).get('result', {}).get('value') == 2
+        except:
+            return False
+
+    def _get_or_create_ws(self, ws, cdp_base: str, target_url: str = None) -> tuple:
+        """
+        Kiểm tra WS hiện tại, nếu không ok thì tạo tab mới.
+        Returns: (ws, success)
+        """
+        import websocket as ws_module
+
+        # Check WS hiện tại
+        if self._is_ws_connected(ws):
+            return (ws, True)
+
+        print(f"[WARN] WebSocket mất kết nối, đang reconnect...")
+
+        # Thử lấy WS từ tab hiện có
+        try:
+            resp = requests.get(f"{cdp_base}/json", timeout=10)
+            pages = resp.json()
+            for p in pages:
+                if p.get('type') == 'page':
+                    ws_url = p.get('webSocketDebuggerUrl')
+                    if ws_url:
+                        try:
+                            new_ws = ws_module.create_connection(ws_url, timeout=30, suppress_origin=True)
+                            print(f"[INFO] Đã reconnect WS từ tab có sẵn")
+                            return (new_ws, True)
+                        except:
+                            pass
+        except:
+            pass
+
+        # Không có tab nào, tạo tab mới
+        if target_url:
+            try:
+                resp = requests.get(f"{cdp_base}/json/new?{target_url}", timeout=10)
+                new_page = resp.json()
+                ws_url = new_page.get('webSocketDebuggerUrl')
+                if ws_url:
+                    new_ws = ws_module.create_connection(ws_url, timeout=30, suppress_origin=True)
+                    print(f"[INFO] Đã tạo tab mới và kết nối WS")
+                    return (new_ws, True)
+            except Exception as e:
+                print(f"[ERROR] Không tạo được tab mới: {e}")
+
+        return (ws, False)
+
     def _cdp_evaluate(self, ws, expression: str) -> Any:
         """Evaluate JavaScript trong browser"""
         result = self._cdp_send(ws, "Runtime.evaluate", {
@@ -2449,11 +2514,16 @@ class GroupsTab(ctk.CTkFrame):
 
         group_id = group.get('group_id', '')
         group_url = f"https://www.facebook.com/groups/{group_id}"
+        cdp_base = f"http://127.0.0.1:{self._posting_port}"
 
         try:
-            # Bước 1: Tạo tab MỚI với group URL (tránh leave site dialog)
-            cdp_base = f"http://127.0.0.1:{self._posting_port}"
+            # Bước 0: Kiểm tra và reconnect WS nếu cần
+            ws, ws_ok = self._get_or_create_ws(ws, cdp_base, "about:blank")
+            if not ws_ok:
+                print(f"[ERROR] Không có WebSocket để làm việc")
+                return (False, "", ws)
 
+            # Bước 1: Tạo tab MỚI với group URL (tránh leave site dialog)
             # Lưu ID tab cũ TRƯỚC khi tạo tab mới
             old_target_id = None
             try:
@@ -2466,54 +2536,73 @@ class GroupsTab(ctk.CTkFrame):
             except:
                 pass
 
-            # Tạo tab mới
-            result = self._cdp_send(ws, "Target.createTarget", {"url": group_url})
-            target_id = result.get('result', {}).get('targetId')
-
-            if not target_id:
-                print(f"[WARN] Không tạo được tab mới cho group {group_id}")
-                return (False, "", ws)
-
-            time.sleep(random.uniform(2, 3))
-
-            # Lấy WebSocket của tab mới
-            new_ws_url = None
-            try:
-                resp = requests.get(f"{cdp_base}/json", timeout=10)
-                pages = resp.json()
-                for p in pages:
-                    if p.get('id') == target_id:
-                        new_ws_url = p.get('webSocketDebuggerUrl')
-                        break
-                # Fallback: tìm theo URL
-                if not new_ws_url:
-                    for p in pages:
-                        if p.get('type') == 'page' and group_id in p.get('url', '') and p.get('id') != old_target_id:
-                            new_ws_url = p.get('webSocketDebuggerUrl')
-                            break
-            except Exception as e:
-                print(f"[WARN] Không lấy được WS tab mới: {e}")
-
-            if not new_ws_url:
-                print(f"[WARN] Không tìm thấy WebSocket cho tab mới")
-                return (False, "", ws)
-
-            # Kết nối WebSocket tab mới
+            # Tạo tab mới với RETRY
+            target_id = None
             new_ws = None
-            try:
-                new_ws = ws_module.create_connection(new_ws_url, timeout=30, suppress_origin=True)
-            except:
+            for attempt in range(3):
                 try:
-                    new_ws = ws_module.create_connection(new_ws_url, timeout=30)
+                    # Thử tạo tab mới
+                    result = self._cdp_send(ws, "Target.createTarget", {"url": group_url})
+                    target_id = result.get('result', {}).get('targetId')
+
+                    if target_id:
+                        time.sleep(random.uniform(2, 3))
+
+                        # Lấy WebSocket của tab mới
+                        new_ws_url = None
+                        resp = requests.get(f"{cdp_base}/json", timeout=10)
+                        pages = resp.json()
+                        for p in pages:
+                            if p.get('id') == target_id:
+                                new_ws_url = p.get('webSocketDebuggerUrl')
+                                break
+                        # Fallback: tìm theo URL
+                        if not new_ws_url:
+                            for p in pages:
+                                if p.get('type') == 'page' and group_id in p.get('url', '') and p.get('id') != old_target_id:
+                                    new_ws_url = p.get('webSocketDebuggerUrl')
+                                    target_id = p.get('id')
+                                    break
+
+                        if new_ws_url:
+                            # Kết nối WebSocket tab mới
+                            try:
+                                new_ws = ws_module.create_connection(new_ws_url, timeout=30, suppress_origin=True)
+                            except:
+                                new_ws = ws_module.create_connection(new_ws_url, timeout=30)
+
+                            if new_ws:
+                                print(f"[INFO] Tạo tab mới thành công (attempt {attempt + 1})")
+                                break
                 except Exception as e:
-                    print(f"[WARN] Không kết nối được WS tab mới: {e}")
+                    print(f"[WARN] Attempt {attempt + 1}/3 tạo tab thất bại: {e}")
+                    time.sleep(1)
+
+            # Nếu không tạo được tab mới, thử FALLBACK: navigate trên tab hiện tại
+            if not new_ws:
+                print(f"[WARN] Không tạo được tab mới, thử navigate trên tab hiện tại...")
+                try:
+                    # Dismiss any dialog first
+                    self._cdp_send(ws, "Page.handleJavaScriptDialog", {"accept": True})
+                except:
+                    pass
+                try:
+                    self._cdp_send(ws, "Page.navigate", {"url": group_url})
+                    time.sleep(random.uniform(3, 4))
+                    new_ws = ws
+                    target_id = old_target_id
+                    old_target_id = None  # Không đóng tab vì đang dùng
+                    print(f"[INFO] Fallback navigate thành công")
+                except Exception as e:
+                    print(f"[ERROR] Fallback navigate cũng thất bại: {e}")
                     return (False, "", ws)
 
-            # Đóng WebSocket cũ TRƯỚC
-            try:
-                ws.close()
-            except:
-                pass
+            # Đóng WebSocket cũ TRƯỚC (nếu đã tạo tab mới)
+            if new_ws != ws:
+                try:
+                    ws.close()
+                except:
+                    pass
 
             # Đóng tab CŨ bằng ID đã lưu (không có leave site vì đang ở tab khác)
             if old_target_id and old_target_id != target_id:
@@ -2527,12 +2616,21 @@ class GroupsTab(ctk.CTkFrame):
             ws = new_ws
             time.sleep(random.uniform(1, 2))
 
-            # Đợi page load xong
-            for _ in range(10):
-                ready = self._cdp_evaluate(ws, "document.readyState")
-                if ready == 'complete':
-                    break
+            # Đợi page load xong với retry
+            page_loaded = False
+            for _ in range(15):
+                try:
+                    ready = self._cdp_evaluate(ws, "document.readyState")
+                    if ready == 'complete':
+                        page_loaded = True
+                        break
+                except:
+                    # WS có thể bị disconnect, thử reconnect
+                    ws, _ = self._get_or_create_ws(ws, cdp_base, group_url)
                 time.sleep(1)
+
+            if not page_loaded:
+                print(f"[WARN] Page không load được, thử tiếp...")
 
             time.sleep(random.uniform(1, 2))
 
@@ -2545,12 +2643,13 @@ class GroupsTab(ctk.CTkFrame):
                 time.sleep(random.uniform(0.3, 0.8))
 
             # Bước 2: Click vào "Bạn viết gì đi..." với mouse movement
-            # Tìm vị trí composer button
+            # Tìm vị trí composer button với RETRY
             get_composer_pos_js = '''
             (function() {
+                // Tìm theo text tiếng Việt
                 let divs = document.querySelectorAll('div[tabindex="0"]');
                 for (let div of divs) {
-                    if (div.innerText && div.innerText.includes("Bạn viết gì đi")) {
+                    if (div.innerText && (div.innerText.includes("Bạn viết gì đi") || div.innerText.includes("Write something"))) {
                         let rect = div.getBoundingClientRect();
                         return {
                             x: rect.left + rect.width / 2 + (Math.random() * 20 - 10),
@@ -2558,10 +2657,10 @@ class GroupsTab(ctk.CTkFrame):
                         };
                     }
                 }
-                // Fallback
+                // Fallback 1: tìm trong span
                 let spans = document.querySelectorAll('span');
                 for (let span of spans) {
-                    if (span.innerText && span.innerText.includes("Bạn viết gì đi")) {
+                    if (span.innerText && (span.innerText.includes("Bạn viết gì đi") || span.innerText.includes("Write something"))) {
                         let rect = span.getBoundingClientRect();
                         return {
                             x: rect.left + rect.width / 2,
@@ -2569,12 +2668,32 @@ class GroupsTab(ctk.CTkFrame):
                         };
                     }
                 }
+                // Fallback 2: tìm theo aria-label
+                let composer = document.querySelector('[aria-label*="Create a post"], [aria-label*="Tạo bài viết"]');
+                if (composer) {
+                    let rect = composer.getBoundingClientRect();
+                    return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
+                }
                 return null;
             })()
             '''
-            composer_pos = self._cdp_evaluate(ws, get_composer_pos_js)
+
+            composer_pos = None
+            for attempt in range(3):
+                composer_pos = self._cdp_evaluate(ws, get_composer_pos_js)
+                if composer_pos:
+                    break
+                print(f"[WARN] Không tìm thấy composer (attempt {attempt + 1}/3), thử scroll và reload...")
+                # Scroll lên đầu trang
+                self._cdp_evaluate(ws, "window.scrollTo(0, 0)")
+                time.sleep(1)
+                if attempt == 1:
+                    # Reload page
+                    self._cdp_send(ws, "Page.reload", {})
+                    time.sleep(random.uniform(3, 4))
+
             if not composer_pos:
-                print(f"[WARN] Không tìm thấy nút tạo bài trong group {group_id}")
+                print(f"[WARN] Không tìm thấy nút tạo bài trong group {group_id} sau 3 lần thử")
                 return (False, "", ws)
 
             # Di chuyển chuột đến composer và click
@@ -2600,16 +2719,16 @@ class GroupsTab(ctk.CTkFrame):
 
             time.sleep(random.uniform(2, 3))  # Đợi popup mở
 
-            # Bước 3: Tìm và focus vào textarea (contenteditable)
+            # Bước 3: Tìm và focus vào textarea (contenteditable) với RETRY
             focus_textarea_js = '''
             (function() {
                 // Tìm tất cả contenteditable với aria-label null (textarea chính)
                 let editors = document.querySelectorAll('[contenteditable="true"]');
                 for (let i = 0; i < editors.length; i++) {
                     let ed = editors[i];
-                    // Thường textarea post có aria-label null hoặc chứa "Bạn đang nghĩ gì"
+                    // Thường textarea post có aria-label null hoặc chứa "Bạn đang nghĩ gì" hoặc "What's on your mind"
                     let ariaLabel = ed.getAttribute('aria-label');
-                    if (ariaLabel === null || ariaLabel === '' || ariaLabel.includes('nghĩ gì')) {
+                    if (ariaLabel === null || ariaLabel === '' || ariaLabel.includes('nghĩ gì') || ariaLabel.includes('on your mind')) {
                         ed.focus();
                         return true;
                     }
@@ -2622,9 +2741,27 @@ class GroupsTab(ctk.CTkFrame):
                 return false;
             })()
             '''
-            focused = self._cdp_evaluate(ws, focus_textarea_js)
+
+            focused = False
+            for attempt in range(3):
+                focused = self._cdp_evaluate(ws, focus_textarea_js)
+                if focused:
+                    break
+                print(f"[WARN] Không focus được textarea (attempt {attempt + 1}/3), thử click lại composer...")
+                # Thử click lại composer
+                if composer_pos:
+                    self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                        "type": "mousePressed", "x": int(composer_pos['x']), "y": int(composer_pos['y']),
+                        "button": "left", "clickCount": 1
+                    })
+                    self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                        "type": "mouseReleased", "x": int(composer_pos['x']), "y": int(composer_pos['y']),
+                        "button": "left"
+                    })
+                    time.sleep(random.uniform(1, 2))
+
             if not focused:
-                print(f"[WARN] Không focus được textarea trong group {group_id}")
+                print(f"[WARN] Không focus được textarea trong group {group_id} sau 3 lần thử")
                 return (False, "", ws)
 
             time.sleep(random.uniform(0.5, 1))
@@ -2682,14 +2819,15 @@ class GroupsTab(ctk.CTkFrame):
 
                 time.sleep(random.uniform(2, 3))  # Đợi upload xong
 
-            # Bước 6: Click nút Đăng với mouse movement
+            # Bước 6: Click nút Đăng với mouse movement và RETRY
             # Tìm vị trí nút Đăng
             get_post_btn_pos_js = '''
             (function() {
                 let btns = document.querySelectorAll('[role="button"]');
                 for (let btn of btns) {
                     let text = btn.innerText ? btn.innerText.trim() : '';
-                    if (text === "Đăng") {
+                    // Hỗ trợ cả tiếng Việt và tiếng Anh
+                    if (text === "Đăng" || text === "Post") {
                         let rect = btn.getBoundingClientRect();
                         return {
                             x: rect.left + rect.width / 2 + (Math.random() * 10 - 5),
@@ -2698,7 +2836,7 @@ class GroupsTab(ctk.CTkFrame):
                     }
                 }
                 // Fallback: tìm aria-label
-                let postBtn = document.querySelector('[aria-label="Đăng"]');
+                let postBtn = document.querySelector('[aria-label="Đăng"], [aria-label="Post"]');
                 if (postBtn) {
                     let rect = postBtn.getBoundingClientRect();
                     return {
@@ -2709,9 +2847,17 @@ class GroupsTab(ctk.CTkFrame):
                 return null;
             })()
             '''
-            post_btn_pos = self._cdp_evaluate(ws, get_post_btn_pos_js)
+
+            post_btn_pos = None
+            for attempt in range(3):
+                post_btn_pos = self._cdp_evaluate(ws, get_post_btn_pos_js)
+                if post_btn_pos:
+                    break
+                print(f"[WARN] Không tìm thấy nút Đăng (attempt {attempt + 1}/3), đợi thêm...")
+                time.sleep(1)
+
             if not post_btn_pos:
-                print(f"[WARN] Không tìm thấy nút Đăng trong group {group_id}")
+                print(f"[WARN] Không tìm thấy nút Đăng trong group {group_id} sau 3 lần thử")
                 return (False, "", ws)
 
             # Di chuyển chuột đến nút Đăng
