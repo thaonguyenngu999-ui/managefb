@@ -2067,26 +2067,41 @@ class GroupsTab(ctk.CTkFrame):
         self._posting_port = remote_port  # Lưu để dùng cho tab mới
         time.sleep(2)  # Đợi browser khởi động
 
-        # Đóng hết tab cũ, chỉ giữ lại 1 tab
+        # Đóng hết tab cũ, giữ lại 1 tab và navigate về about:blank
         try:
             resp = requests.get(f"{cdp_base}/json", timeout=10)
             all_pages = resp.json()
             page_targets = [p for p in all_pages if p.get('type') == 'page']
-            # Giữ lại tab đầu tiên, đóng các tab còn lại
-            if len(page_targets) > 1:
-                for p in page_targets[1:]:
-                    target_id = p.get('id')
-                    if target_id:
-                        requests.get(f"{cdp_base}/json/close/{target_id}", timeout=5)
-                time.sleep(1)
-                print(f"[INFO] Đã đóng {len(page_targets) - 1} tab cũ")
 
-            # Kiểm tra lại xem còn tab nào không
-            resp = requests.get(f"{cdp_base}/json", timeout=10)
-            remaining = [p for p in resp.json() if p.get('type') == 'page']
-            if len(remaining) == 0:
-                print(f"[WARN] Không còn tab nào, tạo tab mới...")
-                # Tạo tab mới
+            if len(page_targets) > 0:
+                # Navigate tab đầu tiên về about:blank TRƯỚC (giữ browser mở)
+                first_tab_ws = page_targets[0].get('webSocketDebuggerUrl')
+                if first_tab_ws:
+                    try:
+                        import websocket as ws_temp
+                        temp_ws = ws_temp.create_connection(first_tab_ws, timeout=10, suppress_origin=True)
+                        temp_ws.send(json_module.dumps({
+                            "id": 1,
+                            "method": "Page.navigate",
+                            "params": {"url": "about:blank"}
+                        }))
+                        temp_ws.recv()
+                        temp_ws.close()
+                        print(f"[INFO] Đã navigate tab chính về about:blank")
+                    except Exception as e:
+                        print(f"[WARN] Không navigate được tab chính: {e}")
+
+                # SAU ĐÓ mới đóng các tab còn lại
+                if len(page_targets) > 1:
+                    for p in page_targets[1:]:
+                        target_id = p.get('id')
+                        if target_id:
+                            requests.get(f"{cdp_base}/json/close/{target_id}", timeout=5)
+                    time.sleep(1)
+                    print(f"[INFO] Đã đóng {len(page_targets) - 1} tab cũ")
+            else:
+                # Không có tab nào, tạo tab mới
+                print(f"[WARN] Không có tab nào, tạo tab mới...")
                 requests.get(f"{cdp_base}/json/new?about:blank", timeout=10)
                 time.sleep(1)
         except Exception as e:
