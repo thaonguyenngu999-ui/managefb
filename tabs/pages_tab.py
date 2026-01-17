@@ -1207,12 +1207,38 @@ class CreatePageDialog(ctk.CTkToplevel):
             # Đợi trang load
             time.sleep(6)
 
-            # Tìm và nhập tên Page bằng cách tìm label và input liên quan
+            # Tìm và nhập tên Page - sử dụng selector đã xác nhận hoạt động
             js_fill_name = f'''
             (function() {{
                 var pageName = "{name}";
 
-                // Cách 1: Tìm label chứa "Tên Trang" rồi tìm input gần đó
+                // Helper function để set value và trigger events (React-compatible)
+                function setValueAndTrigger(input, value) {{
+                    input.focus();
+                    input.click();
+
+                    if (input.tagName === 'INPUT') {{
+                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                        nativeInputValueSetter.call(input, value);
+                    }} else if (input.tagName === 'TEXTAREA') {{
+                        var nativeTextAreaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                        nativeTextAreaSetter.call(input, value);
+                    }} else {{
+                        input.innerText = value;
+                    }}
+
+                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+
+                // Cách 1 (CONFIRMED WORKING): Selector input.x1i10hfl[type="text"]
+                var confirmedInput = document.querySelector('input.x1i10hfl[type="text"]');
+                if (confirmedInput && confirmedInput.offsetParent !== null) {{
+                    setValueAndTrigger(confirmedInput, pageName);
+                    return 'filled_via_confirmed_selector: input.x1i10hfl[type=text]';
+                }}
+
+                // Cách 2: Tìm label chứa "Tên Trang" rồi tìm input gần đó
                 var labels = document.querySelectorAll('label, span, div');
                 for (var i = 0; i < labels.length; i++) {{
                     var label = labels[i];
@@ -1223,22 +1249,7 @@ class CreatePageDialog(ctk.CTkToplevel):
                         for (var j = 0; j < 5 && parent; j++) {{
                             var input = parent.querySelector('input:not([type="hidden"]):not([type="search"]), textarea, div[contenteditable="true"]');
                             if (input && input.offsetParent !== null) {{
-                                input.focus();
-                                input.click();
-
-                                // Simulate typing for React
-                                var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                                if (input.tagName === 'INPUT') {{
-                                    nativeInputValueSetter.call(input, pageName);
-                                }} else if (input.tagName === 'TEXTAREA') {{
-                                    var nativeTextAreaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-                                    nativeTextAreaSetter.call(input, pageName);
-                                }} else {{
-                                    input.innerText = pageName;
-                                }}
-
-                                input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                setValueAndTrigger(input, pageName);
                                 return 'filled_via_label: ' + text.substring(0, 30);
                             }}
                             parent = parent.parentElement;
@@ -1246,7 +1257,7 @@ class CreatePageDialog(ctk.CTkToplevel):
                     }}
                 }}
 
-                // Cách 2: Tìm input có aria-label hoặc placeholder
+                // Cách 3: Tìm input có aria-label hoặc placeholder
                 var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="search"]), textarea, div[contenteditable="true"]');
                 for (var i = 0; i < inputs.length; i++) {{
                     var input = inputs[i];
@@ -1255,38 +1266,27 @@ class CreatePageDialog(ctk.CTkToplevel):
 
                     if (ariaLabel.includes('tên') || ariaLabel.includes('name') ||
                         placeholder.includes('tên') || placeholder.includes('name')) {{
-                        input.focus();
-                        input.click();
-
-                        if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {{
-                            var setter = Object.getOwnPropertyDescriptor(
-                                input.tagName === 'INPUT' ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype,
-                                'value'
-                            ).set;
-                            setter.call(input, pageName);
-                        }} else {{
-                            input.innerText = pageName;
-                        }}
-
-                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        setValueAndTrigger(input, pageName);
                         return 'filled_via_attr: ' + (ariaLabel || placeholder);
                     }}
                 }}
 
-                // Cách 3: Fallback - điền vào input text đầu tiên visible trong form
+                // Cách 4: Tìm bằng class x1i10hfl với các type khác
+                var classBasedInputs = document.querySelectorAll('input.x1i10hfl');
+                for (var i = 0; i < classBasedInputs.length; i++) {{
+                    var input = classBasedInputs[i];
+                    if (input.offsetParent !== null && !input.value) {{
+                        setValueAndTrigger(input, pageName);
+                        return 'filled_via_class_x1i10hfl: idx=' + i;
+                    }}
+                }}
+
+                // Cách 5: Fallback - điền vào input text đầu tiên visible trong form
                 var formInputs = document.querySelectorAll('input[type="text"], input:not([type]), textarea');
                 for (var i = 0; i < formInputs.length; i++) {{
                     var input = formInputs[i];
                     if (input.offsetParent !== null && !input.value) {{
-                        input.focus();
-                        input.click();
-
-                        var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                        setter.call(input, pageName);
-
-                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        setValueAndTrigger(input, pageName);
                         return 'filled_first_empty: idx=' + i;
                     }}
                 }}
