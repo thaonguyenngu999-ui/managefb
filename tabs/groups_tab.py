@@ -3607,39 +3607,55 @@ class GroupsTab(ctk.CTkFrame):
 
             // === BẮT ĐẦU TÌM KIẾM ===
             let posts = document.querySelectorAll('[role="article"]');
-            console.log('Found', posts.length, 'articles');
+            console.log('Found', posts.length, 'articles, fbName:', fbName);
 
-            // Duyệt qua từng bài viết, PHẢI MATCH CẢ TÊN VÀ THỜI GIAN
-            for (let post of posts) {{
-                let hasMyName = isMyPost(post, fbName);
-                let hasRecentTime = findTimeInPost(post);
+            // Nếu có fb_name, thử match tên + thời gian trước
+            if (fbName && fbName.trim()) {{
+                for (let post of posts) {{
+                    let hasMyName = isMyPost(post, fbName);
+                    let hasRecentTime = findTimeInPost(post);
 
-                console.log('Post check - Name match:', hasMyName, ', Recent time:', hasRecentTime);
+                    console.log('Post check - Name match:', hasMyName, ', Recent time:', hasRecentTime);
 
-                // CHỈ lấy URL nếu ĐÚNG TÊN VÀ THỜI GIAN MỚI ĐĂNG
-                if (hasMyName && hasRecentTime) {{
-                    let url = getPostUrlFromArticle(post);
-                    if (url) {{
-                        console.log('✓ VERIFIED POST - Name + Recent time matched:', url);
-                        return url;
+                    if (hasMyName && hasRecentTime) {{
+                        let url = getPostUrlFromArticle(post);
+                        if (url) {{
+                            console.log('✓ VERIFIED POST - Name + Recent time matched:', url);
+                            return url;
+                        }}
+                    }}
+                }}
+
+                // Fallback: chỉ với tên
+                console.log('No exact match, trying name-only fallback...');
+                for (let post of posts) {{
+                    if (isMyPost(post, fbName)) {{
+                        let url = getPostUrlFromArticle(post);
+                        if (url) {{
+                            console.log('⚠ FALLBACK (name only):', url);
+                            return url;
+                        }}
                     }}
                 }}
             }}
 
-            // Fallback 1: Nếu không tìm được cả 2, thử chỉ với tên (lỏng hơn)
-            console.log('No exact match, trying name-only fallback...');
+            // Khi fb_name rỗng -> Lấy bài đầu tiên có pcb link (dùng groupId để build URL đúng)
+            console.log('fb_name empty or no match, trying first post with pcb...');
             for (let post of posts) {{
-                if (isMyPost(post, fbName)) {{
-                    let url = getPostUrlFromArticle(post);
-                    if (url) {{
-                        console.log('⚠ FALLBACK (name only):', url);
-                        return url;
+                let pcbLinks = post.querySelectorAll('a[href*="set=pcb."]');
+                for (let link of pcbLinks) {{
+                    let match = link.href.match(/set=pcb\\.(\\d+)/);
+                    if (match && match[1]) {{
+                        let postId = match[1];
+                        let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
+                        console.log('✓ Found first post with pcb:', postUrl);
+                        return postUrl;
                     }}
                 }}
             }}
 
-            // Fallback 2: Nếu vẫn không có, thử bài đầu tiên có thời gian mới (post mới nhất)
-            console.log('No name match, trying recent-time-only fallback...');
+            // Fallback: bài có thời gian mới
+            console.log('No pcb found, trying recent-time fallback...');
             for (let post of posts) {{
                 if (findTimeInPost(post)) {{
                     let url = getPostUrlFromArticle(post);
@@ -3647,6 +3663,16 @@ class GroupsTab(ctk.CTkFrame):
                         console.log('⚠ FALLBACK (recent time only):', url);
                         return url;
                     }}
+                }}
+            }}
+
+            // Fallback cuối: bài đầu tiên có link bất kỳ
+            console.log('Last fallback: first post with any link...');
+            for (let post of posts) {{
+                let url = getPostUrlFromArticle(post);
+                if (url) {{
+                    console.log('⚠ LAST FALLBACK (first post):', url);
+                    return url;
                 }}
             }}
 
