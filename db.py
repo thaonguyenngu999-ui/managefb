@@ -200,6 +200,29 @@ def init_database():
             )
         """)
 
+        # ============ REEL SCHEDULES TABLE ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reel_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_uuid TEXT NOT NULL,
+                page_id INTEGER,
+                page_name TEXT,
+                video_path TEXT NOT NULL,
+                cover_path TEXT,
+                caption TEXT,
+                hashtags TEXT,
+                scheduled_time TIMESTAMP NOT NULL,
+                delay_min INTEGER DEFAULT 30,
+                delay_max INTEGER DEFAULT 60,
+                status TEXT DEFAULT 'pending',
+                reel_url TEXT,
+                error_message TEXT,
+                executed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Tạo category mặc định nếu chưa có
         cursor.execute("SELECT COUNT(*) FROM categories")
         if cursor.fetchone()[0] == 0:
@@ -220,6 +243,9 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_status ON post_history(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_profile_date ON post_history(profile_uuid, created_at DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_composite ON post_history(profile_uuid, status, created_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reel_schedules_profile ON reel_schedules(profile_uuid)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reel_schedules_status ON reel_schedules(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reel_schedules_time ON reel_schedules(scheduled_time)")
 
 
 def row_to_dict(row) -> Dict:
@@ -1249,6 +1275,119 @@ def update_schedule_stats(schedule_id: int, post_count: int = None,
 
         values.append(schedule_id)
         cursor.execute(f"UPDATE schedules SET {', '.join(updates)} WHERE id = ?", values)
+
+
+# ==================== REEL SCHEDULES ====================
+
+def get_reel_schedules(profile_uuid: str = None, status: str = None) -> List[Dict]:
+    """Lấy danh sách reel schedules"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        query = "SELECT * FROM reel_schedules WHERE 1=1"
+        params = []
+
+        if profile_uuid:
+            query += " AND profile_uuid = ?"
+            params.append(profile_uuid)
+
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+
+        query += " ORDER BY scheduled_time ASC"
+        cursor.execute(query, params)
+        return rows_to_list(cursor.fetchall())
+
+
+def get_pending_reel_schedules() -> List[Dict]:
+    """Lấy danh sách reels cần đăng (đã đến giờ)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            SELECT * FROM reel_schedules
+            WHERE status = 'pending' AND scheduled_time <= ?
+            ORDER BY scheduled_time ASC
+        """, (now,))
+        return rows_to_list(cursor.fetchall())
+
+
+def save_reel_schedule(data: Dict) -> Dict:
+    """Lưu reel schedule mới"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        cursor.execute("""
+            INSERT INTO reel_schedules
+            (profile_uuid, page_id, page_name, video_path, cover_path,
+             caption, hashtags, scheduled_time, delay_min, delay_max, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get('profile_uuid'),
+            data.get('page_id'),
+            data.get('page_name', ''),
+            data.get('video_path'),
+            data.get('cover_path', ''),
+            data.get('caption', ''),
+            data.get('hashtags', ''),
+            data.get('scheduled_time'),
+            data.get('delay_min', 30),
+            data.get('delay_max', 60),
+            data.get('status', 'pending'),
+            now
+        ))
+        data['id'] = cursor.lastrowid
+        return data
+
+
+def update_reel_schedule(schedule_id: int, data: Dict) -> bool:
+    """Cập nhật reel schedule"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        updates = ["updated_at = ?"]
+        values = [now]
+
+        for key in ['status', 'reel_url', 'error_message', 'executed_at']:
+            if key in data:
+                updates.append(f"{key} = ?")
+                values.append(data[key])
+
+        values.append(schedule_id)
+        cursor.execute(f"""
+            UPDATE reel_schedules SET {', '.join(updates)} WHERE id = ?
+        """, values)
+        return cursor.rowcount > 0
+
+
+def delete_reel_schedule(schedule_id: int) -> bool:
+    """Xóa reel schedule"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM reel_schedules WHERE id = ?", (schedule_id,))
+        return cursor.rowcount > 0
+
+
+def get_reel_history(profile_uuid: str = None, limit: int = 50, offset: int = 0) -> List[Dict]:
+    """Lấy lịch sử đăng reels"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        query = "SELECT * FROM reel_schedules WHERE status IN ('completed', 'failed')"
+        params = []
+
+        if profile_uuid:
+            query += " AND profile_uuid = ?"
+            params.append(profile_uuid)
+
+        query += " ORDER BY executed_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cursor.execute(query, params)
+        return rows_to_list(cursor.fetchall())
 
 
 # Khởi tạo database khi import module

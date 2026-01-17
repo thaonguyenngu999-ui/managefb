@@ -1542,40 +1542,58 @@ class CreatePageDialog(ctk.CTkToplevel):
             click_result = result.get('result', {}).get('result', {}).get('value', '')
             print(f"[CreatePage] Click result: {click_result}")
 
-            # Đợi page được tạo
-            time.sleep(10)
+            # Đợi page được tạo - kiểm tra URL thay đổi (tối đa 30 giây)
+            page_url = ""
+            for wait_attempt in range(15):  # 15 lần x 2 giây = 30 giây
+                time.sleep(2)
+                ws.send(json_module.dumps({
+                    "id": 14 + wait_attempt,
+                    "method": "Runtime.evaluate",
+                    "params": {"expression": "window.location.href"}
+                }))
+                result = json_module.loads(ws.recv())
+                current_url = result.get('result', {}).get('result', {}).get('value', '')
+                print(f"[CreatePage] URL check {wait_attempt + 1}: {current_url}")
 
-            # Lấy URL hiện tại để xem có page ID không
-            ws.send(json_module.dumps({
-                "id": 14,
-                "method": "Runtime.evaluate",
-                "params": {"expression": "window.location.href"}
-            }))
-            result = json_module.loads(ws.recv())
-            current_url = result.get('result', {}).get('result', {}).get('value', '')
-            print(f"[CreatePage] Current URL: {current_url}")
+                # Kiểm tra nếu đã redirect khỏi trang create
+                if '/pages/create' not in current_url and current_url != 'https://www.facebook.com/pages/create':
+                    page_url = current_url
+                    print(f"[CreatePage] Page created! URL: {page_url}")
+                    break
 
-            # Tìm page ID từ URL
-            match = re.search(r'/(\d{10,})', current_url)
-            if match:
-                created_page_id = match.group(1)
+            # Tìm page ID từ URL - hỗ trợ nhiều định dạng
+            # Format 1: /profile.php?id=123456789
+            # Format 2: /123456789
+            # Format 3: /pagename (username)
+            if page_url:
+                # Thử tìm numeric ID
+                match = re.search(r'id=(\d+)', page_url)
+                if not match:
+                    match = re.search(r'facebook\.com/(\d{10,})', page_url)
+                if not match:
+                    # Lấy page username từ URL
+                    match = re.search(r'facebook\.com/([^/?]+)', page_url)
+
+                if match:
+                    created_page_id = match.group(1)
 
             ws.close()
 
             # Lưu vào database nếu tạo thành công
-            if created_page_id:
+            if created_page_id and page_url:
                 page_data = {
                     'profile_uuid': profile_uuid,
                     'page_id': created_page_id,
                     'page_name': name,
-                    'page_url': f"https://www.facebook.com/{created_page_id}",
+                    'page_url': page_url,  # Lưu URL thực tế
                     'category': category,
                     'follower_count': 0,
                     'role': 'admin',
                     'note': description
                 }
                 save_page(page_data)
-                print(f"[CreatePage] Created page {created_page_id} for {profile_uuid[:8]}")
+                print(f"[CreatePage] SUCCESS! Page ID: {created_page_id}")
+                print(f"[CreatePage] Page URL: {page_url}")
                 return True
             else:
                 # Vẫn lưu vào DB với ID tạm

@@ -1,0 +1,1116 @@
+"""
+Tab Đăng Reels Page - Lên kế hoạch và đăng Reels cho các Facebook Pages
+"""
+import customtkinter as ctk
+from typing import List, Dict, Optional
+import threading
+import os
+import re
+import time
+from datetime import datetime, timedelta
+from tkinter import filedialog
+from config import COLORS
+from widgets import ModernButton, ModernEntry
+from db import (
+    get_profiles, get_pages, get_pages_for_profile,
+    save_reel_schedule, get_reel_schedules, update_reel_schedule,
+    delete_reel_schedule
+)
+from api_service import api
+
+
+class ReelsPageTab(ctk.CTkFrame):
+    """Tab Đăng Reels Page - Đăng và lên lịch Reels cho các Pages"""
+
+    def __init__(self, master, status_callback=None, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+
+        self.status_callback = status_callback
+        self.profiles: List[Dict] = []
+        self.pages: List[Dict] = []
+        self.current_profile_uuid: Optional[str] = None
+        self.selected_page_ids: List[int] = []
+        self.video_path: Optional[str] = None
+        self.cover_path: Optional[str] = None
+        self._is_posting = False
+        self._is_scheduling = False
+
+        # Pagination state
+        self._history_page = 0
+        self._history_page_size = 20
+        self._schedule_page = 0
+        self._schedule_page_size = 20
+
+        # Widget caches
+        self._page_checkbox_vars: Dict[int, ctk.BooleanVar] = {}
+
+        self._create_ui()
+        self._load_profiles()
+
+    def _create_ui(self):
+        """Tạo giao diện chính"""
+        # ========== HEADER - Profile & Page Selector ==========
+        header = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
+        header.pack(fill="x", padx=15, pady=(15, 10))
+
+        # Row 1: Profile selector
+        header_row1 = ctk.CTkFrame(header, fg_color="transparent")
+        header_row1.pack(fill="x", padx=15, pady=(12, 5))
+
+        ctk.CTkLabel(
+            header_row1,
+            text="👤 Profile:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        self.profile_var = ctk.StringVar(value="-- Chọn profile --")
+        self.profile_menu = ctk.CTkOptionMenu(
+            header_row1,
+            variable=self.profile_var,
+            values=["-- Chọn profile --"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=280,
+            command=self._on_profile_change
+        )
+        self.profile_menu.pack(side="left", padx=10)
+
+        ModernButton(
+            header_row1,
+            text="Làm mới",
+            icon="🔄",
+            variant="secondary",
+            command=self._load_profiles,
+            width=100
+        ).pack(side="left", padx=5)
+
+        self.status_label = ctk.CTkLabel(
+            header_row1,
+            text="",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.status_label.pack(side="right", padx=10)
+
+        # Row 2: Pages selection info
+        header_row2 = ctk.CTkFrame(header, fg_color="transparent")
+        header_row2.pack(fill="x", padx=15, pady=(0, 12))
+
+        ctk.CTkLabel(
+            header_row2,
+            text="📄 Pages đã chọn:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        self.pages_selected_label = ctk.CTkLabel(
+            header_row2,
+            text="0 pages",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["accent"]
+        )
+        self.pages_selected_label.pack(side="left", padx=10)
+
+        # ========== MAIN CONTENT - Tabview ==========
+        self.tabview = ctk.CTkTabview(
+            self,
+            fg_color=COLORS["bg_secondary"],
+            segmented_button_fg_color=COLORS["bg_card"],
+            segmented_button_selected_color=COLORS["accent"],
+            segmented_button_unselected_color=COLORS["bg_card"],
+            corner_radius=12
+        )
+        self.tabview.pack(fill="both", expand=True, padx=15, pady=10)
+
+        # Tabs
+        self.tabview.add("📹 Đăng Reels")
+        self.tabview.add("📅 Lên lịch")
+        self.tabview.add("📊 Lịch sử")
+
+        self._create_post_reels_tab()
+        self._create_schedule_tab()
+        self._create_history_tab()
+
+    def _create_post_reels_tab(self):
+        """Tab đăng Reels"""
+        tab = self.tabview.tab("📹 Đăng Reels")
+
+        # Container với 2 cột
+        container = ctk.CTkFrame(tab, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # ===== CỘT TRÁI: Chọn Pages =====
+        left_col = ctk.CTkFrame(container, fg_color=COLORS["bg_card"], corner_radius=10, width=320)
+        left_col.pack(side="left", fill="y", padx=(0, 10))
+        left_col.pack_propagate(False)
+
+        # Header
+        pages_header = ctk.CTkFrame(left_col, fg_color="transparent")
+        pages_header.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(
+            pages_header,
+            text="📄 Chọn Pages",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        # Select all / Deselect all
+        btn_frame = ctk.CTkFrame(pages_header, fg_color="transparent")
+        btn_frame.pack(side="right")
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Chọn tất cả",
+            width=80,
+            height=28,
+            font=ctk.CTkFont(size=11),
+            fg_color=COLORS["accent"],
+            command=self._select_all_pages
+        ).pack(side="left", padx=2)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Bỏ chọn",
+            width=70,
+            height=28,
+            font=ctk.CTkFont(size=11),
+            fg_color=COLORS["border"],
+            command=self._deselect_all_pages
+        ).pack(side="left", padx=2)
+
+        # Pages list với scrollable
+        self.pages_scroll = ctk.CTkScrollableFrame(
+            left_col,
+            fg_color="transparent",
+            height=400
+        )
+        self.pages_scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        self.no_pages_label = ctk.CTkLabel(
+            self.pages_scroll,
+            text="Chọn profile để xem danh sách Pages",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.no_pages_label.pack(pady=50)
+
+        # ===== CỘT PHẢI: Nội dung Reels =====
+        right_col = ctk.CTkFrame(container, fg_color=COLORS["bg_card"], corner_radius=10)
+        right_col.pack(side="left", fill="both", expand=True)
+
+        # Header
+        ctk.CTkLabel(
+            right_col,
+            text="🎬 Nội dung Reels",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=15, pady=(15, 10))
+
+        # Video upload section
+        video_frame = ctk.CTkFrame(right_col, fg_color=COLORS["bg_secondary"], corner_radius=8)
+        video_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(
+            video_frame,
+            text="📹 Video Reels:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=10, pady=(10, 5))
+
+        video_btn_frame = ctk.CTkFrame(video_frame, fg_color="transparent")
+        video_btn_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        ModernButton(
+            video_btn_frame,
+            text="Chọn Video",
+            icon="📂",
+            variant="secondary",
+            command=self._select_video,
+            width=120
+        ).pack(side="left")
+
+        self.video_label = ctk.CTkLabel(
+            video_btn_frame,
+            text="Chưa chọn video",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        )
+        self.video_label.pack(side="left", padx=10)
+
+        # Caption
+        caption_frame = ctk.CTkFrame(right_col, fg_color=COLORS["bg_secondary"], corner_radius=8)
+        caption_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(
+            caption_frame,
+            text="✏️ Caption:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=10, pady=(10, 5))
+
+        self.caption_text = ctk.CTkTextbox(
+            caption_frame,
+            height=100,
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border"],
+            border_width=1,
+            font=ctk.CTkFont(size=12)
+        )
+        self.caption_text.pack(fill="x", padx=10, pady=(0, 10))
+
+        # Hashtags
+        hashtag_frame = ctk.CTkFrame(right_col, fg_color=COLORS["bg_secondary"], corner_radius=8)
+        hashtag_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(
+            hashtag_frame,
+            text="#️⃣ Hashtags (cách nhau bởi dấu cách):",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=10, pady=(10, 5))
+
+        self.hashtags_entry = ModernEntry(
+            hashtag_frame,
+            placeholder="#reels #facebook #viral"
+        )
+        self.hashtags_entry.pack(fill="x", padx=10, pady=(0, 10))
+
+        # Cover image (optional)
+        cover_frame = ctk.CTkFrame(right_col, fg_color=COLORS["bg_secondary"], corner_radius=8)
+        cover_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(
+            cover_frame,
+            text="🖼️ Ảnh bìa (tùy chọn):",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=10, pady=(10, 5))
+
+        cover_btn_frame = ctk.CTkFrame(cover_frame, fg_color="transparent")
+        cover_btn_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        ModernButton(
+            cover_btn_frame,
+            text="Chọn ảnh",
+            icon="🖼️",
+            variant="secondary",
+            command=self._select_cover,
+            width=100
+        ).pack(side="left")
+
+        self.cover_label = ctk.CTkLabel(
+            cover_btn_frame,
+            text="Tự động từ video",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        )
+        self.cover_label.pack(side="left", padx=10)
+
+        # Delay settings
+        delay_frame = ctk.CTkFrame(right_col, fg_color=COLORS["bg_secondary"], corner_radius=8)
+        delay_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(
+            delay_frame,
+            text="⏱️ Delay giữa các đăng (giây):",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=10, pady=(10, 5))
+
+        delay_input_frame = ctk.CTkFrame(delay_frame, fg_color="transparent")
+        delay_input_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        self.delay_min_entry = ModernEntry(delay_input_frame, placeholder="30", width=80)
+        self.delay_min_entry.pack(side="left")
+        self.delay_min_entry.insert(0, "30")
+
+        ctk.CTkLabel(
+            delay_input_frame,
+            text=" đến ",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left", padx=5)
+
+        self.delay_max_entry = ModernEntry(delay_input_frame, placeholder="60", width=80)
+        self.delay_max_entry.pack(side="left")
+        self.delay_max_entry.insert(0, "60")
+
+        ctk.CTkLabel(
+            delay_input_frame,
+            text=" giây",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left", padx=5)
+
+        # Action buttons
+        action_frame = ctk.CTkFrame(right_col, fg_color="transparent")
+        action_frame.pack(fill="x", padx=15, pady=15)
+
+        self.post_btn = ModernButton(
+            action_frame,
+            text="Đăng Reels Ngay",
+            icon="🚀",
+            variant="primary",
+            command=self._start_posting,
+            width=160
+        )
+        self.post_btn.pack(side="left", padx=5)
+
+        self.schedule_btn = ModernButton(
+            action_frame,
+            text="Lên lịch đăng",
+            icon="📅",
+            variant="secondary",
+            command=self._show_schedule_dialog,
+            width=140
+        )
+        self.schedule_btn.pack(side="left", padx=5)
+
+        self.stop_btn = ModernButton(
+            action_frame,
+            text="Dừng",
+            icon="⏹️",
+            variant="danger",
+            command=self._stop_posting,
+            width=100
+        )
+        self.stop_btn.pack(side="left", padx=5)
+        self.stop_btn.configure(state="disabled")
+
+        # Progress
+        self.progress_label = ctk.CTkLabel(
+            right_col,
+            text="",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.progress_label.pack(anchor="w", padx=15, pady=(0, 10))
+
+    def _create_schedule_tab(self):
+        """Tab lên lịch"""
+        tab = self.tabview.tab("📅 Lên lịch")
+
+        # Header
+        header = ctk.CTkFrame(tab, fg_color="transparent")
+        header.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(
+            header,
+            text="📅 Lịch đăng Reels",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        ModernButton(
+            header,
+            text="Làm mới",
+            icon="🔄",
+            variant="secondary",
+            command=self._load_schedules,
+            width=100
+        ).pack(side="right")
+
+        # Schedule list
+        self.schedule_scroll = ctk.CTkScrollableFrame(
+            tab,
+            fg_color=COLORS["bg_card"],
+            corner_radius=10
+        )
+        self.schedule_scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        self.no_schedule_label = ctk.CTkLabel(
+            self.schedule_scroll,
+            text="Chưa có lịch đăng nào",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_secondary"]
+        )
+        self.no_schedule_label.pack(pady=50)
+
+    def _create_history_tab(self):
+        """Tab lịch sử đăng"""
+        tab = self.tabview.tab("📊 Lịch sử")
+
+        # Header
+        header = ctk.CTkFrame(tab, fg_color="transparent")
+        header.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(
+            header,
+            text="📊 Lịch sử đăng Reels",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        # Filter
+        filter_frame = ctk.CTkFrame(header, fg_color="transparent")
+        filter_frame.pack(side="right")
+
+        self.history_filter_var = ctk.StringVar(value="Tất cả")
+        ctk.CTkOptionMenu(
+            filter_frame,
+            variable=self.history_filter_var,
+            values=["Tất cả", "Thành công", "Thất bại", "Đang chờ"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=120,
+            command=self._on_history_filter_change
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            filter_frame,
+            text="Làm mới",
+            icon="🔄",
+            variant="secondary",
+            command=self._load_history,
+            width=100
+        ).pack(side="left", padx=5)
+
+        # History list
+        self.history_scroll = ctk.CTkScrollableFrame(
+            tab,
+            fg_color=COLORS["bg_card"],
+            corner_radius=10
+        )
+        self.history_scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        self.no_history_label = ctk.CTkLabel(
+            self.history_scroll,
+            text="Chưa có lịch sử đăng",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_secondary"]
+        )
+        self.no_history_label.pack(pady=50)
+
+        # Pagination
+        pagination = ctk.CTkFrame(tab, fg_color="transparent")
+        pagination.pack(fill="x", padx=10, pady=5)
+
+        self.history_prev_btn = ModernButton(
+            pagination,
+            text="Trước",
+            icon="◀",
+            variant="secondary",
+            command=self._history_prev_page,
+            width=80
+        )
+        self.history_prev_btn.pack(side="left")
+
+        self.history_page_label = ctk.CTkLabel(
+            pagination,
+            text="Trang 1",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.history_page_label.pack(side="left", padx=20)
+
+        self.history_next_btn = ModernButton(
+            pagination,
+            text="Sau",
+            icon="▶",
+            variant="secondary",
+            command=self._history_next_page,
+            width=80
+        )
+        self.history_next_btn.pack(side="left")
+
+    # ========== DATA LOADING ==========
+
+    def _load_profiles(self):
+        """Load danh sách profiles"""
+        def load():
+            self.profiles = get_profiles()
+            self.after(0, self._update_profile_menu)
+
+        threading.Thread(target=load, daemon=True).start()
+
+    def _update_profile_menu(self):
+        """Cập nhật dropdown profiles"""
+        if not self.profiles:
+            self.profile_menu.configure(values=["-- Không có profile --"])
+            return
+
+        values = ["-- Chọn profile --"]
+        for p in self.profiles:
+            name = p.get('name', p.get('uuid', '')[:8])
+            values.append(name)
+
+        self.profile_menu.configure(values=values)
+        self.status_label.configure(text=f"{len(self.profiles)} profiles")
+
+    def _on_profile_change(self, selection):
+        """Xử lý khi thay đổi profile"""
+        if selection == "-- Chọn profile --" or selection == "-- Không có profile --":
+            self.current_profile_uuid = None
+            self._clear_pages_list()
+            return
+
+        # Tìm profile UUID từ tên
+        for p in self.profiles:
+            name = p.get('name', p.get('uuid', '')[:8])
+            if name == selection:
+                self.current_profile_uuid = p.get('uuid')
+                break
+
+        if self.current_profile_uuid:
+            self._load_pages()
+
+    def _load_pages(self):
+        """Load danh sách pages của profile"""
+        if not self.current_profile_uuid:
+            return
+
+        def load():
+            self.pages = get_pages_for_profile(self.current_profile_uuid)
+            self.after(0, self._update_pages_list)
+
+        threading.Thread(target=load, daemon=True).start()
+
+    def _clear_pages_list(self):
+        """Xóa danh sách pages"""
+        for widget in self.pages_scroll.winfo_children():
+            widget.destroy()
+
+        self.no_pages_label = ctk.CTkLabel(
+            self.pages_scroll,
+            text="Chọn profile để xem danh sách Pages",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        self.no_pages_label.pack(pady=50)
+        self.pages_selected_label.configure(text="0 pages")
+
+    def _update_pages_list(self):
+        """Cập nhật danh sách pages"""
+        # Clear old widgets
+        for widget in self.pages_scroll.winfo_children():
+            widget.destroy()
+
+        self._page_checkbox_vars.clear()
+        self.selected_page_ids.clear()
+
+        if not self.pages:
+            self.no_pages_label = ctk.CTkLabel(
+                self.pages_scroll,
+                text="Profile này chưa có Page nào.\nHãy tạo Page trước.",
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_secondary"]
+            )
+            self.no_pages_label.pack(pady=50)
+            self.pages_selected_label.configure(text="0 pages")
+            return
+
+        # Render pages
+        for page in self.pages:
+            self._render_page_item(page)
+
+        self._update_selected_count()
+
+    def _render_page_item(self, page: Dict):
+        """Render một page item"""
+        page_id = page.get('id', 0)
+
+        frame = ctk.CTkFrame(self.pages_scroll, fg_color=COLORS["bg_secondary"], corner_radius=8)
+        frame.pack(fill="x", pady=3)
+
+        # Checkbox
+        var = ctk.BooleanVar(value=False)
+        self._page_checkbox_vars[page_id] = var
+
+        cb = ctk.CTkCheckBox(
+            frame,
+            text="",
+            variable=var,
+            width=24,
+            command=self._update_selected_count
+        )
+        cb.pack(side="left", padx=10, pady=8)
+
+        # Page info
+        info_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        info_frame.pack(side="left", fill="x", expand=True, pady=5)
+
+        page_name = page.get('page_name', 'Unknown')
+        ctk.CTkLabel(
+            info_frame,
+            text=page_name,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w")
+
+        category = page.get('category', '')
+        if category:
+            ctk.CTkLabel(
+                info_frame,
+                text=f"📁 {category}",
+                font=ctk.CTkFont(size=10),
+                text_color=COLORS["text_secondary"]
+            ).pack(anchor="w")
+
+    def _update_selected_count(self):
+        """Cập nhật số pages đã chọn"""
+        self.selected_page_ids = [
+            pid for pid, var in self._page_checkbox_vars.items()
+            if var.get()
+        ]
+        count = len(self.selected_page_ids)
+        self.pages_selected_label.configure(text=f"{count} pages")
+
+    def _select_all_pages(self):
+        """Chọn tất cả pages"""
+        for var in self._page_checkbox_vars.values():
+            var.set(True)
+        self._update_selected_count()
+
+    def _deselect_all_pages(self):
+        """Bỏ chọn tất cả pages"""
+        for var in self._page_checkbox_vars.values():
+            var.set(False)
+        self._update_selected_count()
+
+    # ========== VIDEO & COVER SELECTION ==========
+
+    def _select_video(self):
+        """Chọn video Reels"""
+        filetypes = [
+            ("Video files", "*.mp4 *.mov *.avi *.mkv"),
+            ("All files", "*.*")
+        ]
+        path = filedialog.askopenfilename(filetypes=filetypes)
+        if path:
+            self.video_path = path
+            filename = os.path.basename(path)
+            self.video_label.configure(text=filename[:40] + "..." if len(filename) > 40 else filename)
+            self._set_status(f"Đã chọn video: {filename}", "info")
+
+    def _select_cover(self):
+        """Chọn ảnh bìa"""
+        filetypes = [
+            ("Image files", "*.jpg *.jpeg *.png *.webp"),
+            ("All files", "*.*")
+        ]
+        path = filedialog.askopenfilename(filetypes=filetypes)
+        if path:
+            self.cover_path = path
+            filename = os.path.basename(path)
+            self.cover_label.configure(text=filename[:30] + "..." if len(filename) > 30 else filename)
+
+    # ========== POSTING ==========
+
+    def _start_posting(self):
+        """Bắt đầu đăng Reels"""
+        if self._is_posting:
+            return
+
+        # Validate
+        if not self.video_path:
+            self._set_status("Vui lòng chọn video!", "error")
+            return
+
+        if not os.path.exists(self.video_path):
+            self._set_status("File video không tồn tại!", "error")
+            return
+
+        if not self.selected_page_ids:
+            self._set_status("Vui lòng chọn ít nhất 1 Page!", "error")
+            return
+
+        self._is_posting = True
+        self.post_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
+
+        # Get content
+        caption = self.caption_text.get("1.0", "end-1c").strip()
+        hashtags = self.hashtags_entry.get().strip()
+
+        try:
+            delay_min = int(self.delay_min_entry.get() or "30")
+            delay_max = int(self.delay_max_entry.get() or "60")
+        except ValueError:
+            delay_min, delay_max = 30, 60
+
+        # Start posting thread
+        threading.Thread(
+            target=self._posting_worker,
+            args=(caption, hashtags, delay_min, delay_max),
+            daemon=True
+        ).start()
+
+    def _posting_worker(self, caption: str, hashtags: str, delay_min: int, delay_max: int):
+        """Worker thread đăng Reels"""
+        import random
+
+        total = len(self.selected_page_ids)
+        success = 0
+        failed = 0
+
+        for idx, page_id in enumerate(self.selected_page_ids):
+            if not self._is_posting:
+                break
+
+            # Find page info
+            page = next((p for p in self.pages if p.get('id') == page_id), None)
+            if not page:
+                continue
+
+            page_name = page.get('page_name', 'Unknown')
+            self.after(0, lambda n=page_name, i=idx, t=total:
+                self.progress_label.configure(text=f"Đang đăng lên {n} ({i+1}/{t})...")
+            )
+
+            # TODO: Implement actual Reels posting via CDP
+            # For now, simulate posting
+            try:
+                self._post_reel_to_page(page, caption, hashtags)
+                success += 1
+                self._set_status(f"Đã đăng Reels lên {page_name}", "success")
+            except Exception as e:
+                failed += 1
+                self._set_status(f"Lỗi đăng lên {page_name}: {str(e)}", "error")
+
+            # Delay between posts
+            if idx < total - 1 and self._is_posting:
+                delay = random.randint(delay_min, delay_max)
+                self.after(0, lambda d=delay:
+                    self.progress_label.configure(text=f"Đợi {d} giây...")
+                )
+                time.sleep(delay)
+
+        # Done
+        self._is_posting = False
+        self.after(0, lambda: self.post_btn.configure(state="normal"))
+        self.after(0, lambda: self.stop_btn.configure(state="disabled"))
+        self.after(0, lambda s=success, f=failed:
+            self.progress_label.configure(text=f"Hoàn tất: {s} thành công, {f} thất bại")
+        )
+        self._set_status(f"Hoàn tất đăng Reels: {success}/{total}", "success" if failed == 0 else "warning")
+
+    def _post_reel_to_page(self, page: Dict, caption: str, hashtags: str):
+        """Đăng Reels lên một Page"""
+        # TODO: Implement actual posting via CDP
+        # This is a placeholder - actual implementation would:
+        # 1. Open browser with page profile
+        # 2. Navigate to Reels creator
+        # 3. Upload video
+        # 4. Add caption + hashtags
+        # 5. Post
+
+        print(f"[ReelsPage] Posting to {page.get('page_name')}...")
+        print(f"[ReelsPage] Video: {self.video_path}")
+        print(f"[ReelsPage] Caption: {caption[:50]}...")
+        print(f"[ReelsPage] Hashtags: {hashtags}")
+
+        # Simulate delay
+        time.sleep(2)
+
+    def _stop_posting(self):
+        """Dừng đăng"""
+        self._is_posting = False
+        self.stop_btn.configure(state="disabled")
+        self._set_status("Đã dừng đăng", "warning")
+
+    # ========== SCHEDULING ==========
+
+    def _show_schedule_dialog(self):
+        """Hiển thị dialog lên lịch"""
+        if not self.video_path:
+            self._set_status("Vui lòng chọn video!", "error")
+            return
+
+        if not self.selected_page_ids:
+            self._set_status("Vui lòng chọn ít nhất 1 Page!", "error")
+            return
+
+        # Create schedule dialog
+        dialog = ScheduleDialog(self, self._on_schedule_confirm)
+        dialog.grab_set()
+
+    def _on_schedule_confirm(self, schedule_time: datetime):
+        """Xử lý khi confirm lên lịch"""
+        caption = self.caption_text.get("1.0", "end-1c").strip()
+        hashtags = self.hashtags_entry.get().strip()
+
+        try:
+            delay_min = int(self.delay_min_entry.get() or "30")
+            delay_max = int(self.delay_max_entry.get() or "60")
+        except ValueError:
+            delay_min, delay_max = 30, 60
+
+        # Save schedule for each selected page
+        for page_id in self.selected_page_ids:
+            page = next((p for p in self.pages if p.get('id') == page_id), None)
+            if not page:
+                continue
+
+            schedule_data = {
+                'profile_uuid': self.current_profile_uuid,
+                'page_id': page_id,
+                'page_name': page.get('page_name', ''),
+                'video_path': self.video_path,
+                'cover_path': self.cover_path or '',
+                'caption': caption,
+                'hashtags': hashtags,
+                'scheduled_time': schedule_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'delay_min': delay_min,
+                'delay_max': delay_max,
+                'status': 'pending'
+            }
+            save_reel_schedule(schedule_data)
+
+        self._set_status(f"Đã lên lịch đăng Reels cho {len(self.selected_page_ids)} Pages", "success")
+        self._load_schedules()
+        self.tabview.set("📅 Lên lịch")
+
+    def _load_schedules(self):
+        """Load danh sách lịch đăng"""
+        def load():
+            schedules = get_reel_schedules(self.current_profile_uuid if self.current_profile_uuid else None)
+            self.after(0, lambda s=schedules: self._update_schedules_list(s))
+
+        threading.Thread(target=load, daemon=True).start()
+
+    def _update_schedules_list(self, schedules: List[Dict]):
+        """Cập nhật danh sách lịch đăng"""
+        for widget in self.schedule_scroll.winfo_children():
+            widget.destroy()
+
+        if not schedules:
+            self.no_schedule_label = ctk.CTkLabel(
+                self.schedule_scroll,
+                text="Chưa có lịch đăng nào",
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text_secondary"]
+            )
+            self.no_schedule_label.pack(pady=50)
+            return
+
+        for schedule in schedules:
+            self._render_schedule_item(schedule)
+
+    def _render_schedule_item(self, schedule: Dict):
+        """Render một schedule item"""
+        frame = ctk.CTkFrame(self.schedule_scroll, fg_color=COLORS["bg_secondary"], corner_radius=8)
+        frame.pack(fill="x", pady=5, padx=10)
+
+        # Status indicator
+        status = schedule.get('status', 'pending')
+        status_colors = {
+            'pending': COLORS["warning"],
+            'completed': COLORS["success"],
+            'failed': COLORS["error"]
+        }
+        status_text = {'pending': '⏳', 'completed': '✅', 'failed': '❌'}
+
+        ctk.CTkLabel(
+            frame,
+            text=status_text.get(status, '⏳'),
+            font=ctk.CTkFont(size=20),
+            text_color=status_colors.get(status, COLORS["text_secondary"])
+        ).pack(side="left", padx=10, pady=10)
+
+        # Info
+        info_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        info_frame.pack(side="left", fill="x", expand=True, pady=10)
+
+        page_name = schedule.get('page_name', 'Unknown Page')
+        ctk.CTkLabel(
+            info_frame,
+            text=page_name,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w")
+
+        scheduled_time = schedule.get('scheduled_time', '')
+        ctk.CTkLabel(
+            info_frame,
+            text=f"📅 {scheduled_time}",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        ).pack(anchor="w")
+
+        caption = schedule.get('caption', '')[:50]
+        if caption:
+            ctk.CTkLabel(
+                info_frame,
+                text=f"✏️ {caption}...",
+                font=ctk.CTkFont(size=10),
+                text_color=COLORS["text_secondary"]
+            ).pack(anchor="w")
+
+        # Actions
+        if status == 'pending':
+            action_frame = ctk.CTkFrame(frame, fg_color="transparent")
+            action_frame.pack(side="right", padx=10)
+
+            ctk.CTkButton(
+                action_frame,
+                text="Xóa",
+                width=60,
+                height=28,
+                fg_color=COLORS["error"],
+                hover_color="#ff5555",
+                command=lambda s=schedule: self._delete_schedule(s)
+            ).pack()
+
+    def _delete_schedule(self, schedule: Dict):
+        """Xóa lịch đăng"""
+        schedule_id = schedule.get('id')
+        if schedule_id:
+            delete_reel_schedule(schedule_id)
+            self._load_schedules()
+            self._set_status("Đã xóa lịch đăng", "info")
+
+    # ========== HISTORY ==========
+
+    def _load_history(self):
+        """Load lịch sử đăng"""
+        # TODO: Implement history loading
+        pass
+
+    def _on_history_filter_change(self, selection):
+        """Xử lý khi thay đổi filter"""
+        self._history_page = 0
+        self._load_history()
+
+    def _history_prev_page(self):
+        """Trang trước"""
+        if self._history_page > 0:
+            self._history_page -= 1
+            self._load_history()
+
+    def _history_next_page(self):
+        """Trang sau"""
+        self._history_page += 1
+        self._load_history()
+
+    # ========== HELPERS ==========
+
+    def _set_status(self, text: str, status_type: str = "info"):
+        """Cập nhật status"""
+        if self.status_callback:
+            self.status_callback(text, status_type)
+
+
+class ScheduleDialog(ctk.CTkToplevel):
+    """Dialog lên lịch đăng Reels"""
+
+    def __init__(self, parent, callback):
+        super().__init__(parent)
+
+        self.callback = callback
+
+        self.title("📅 Lên lịch đăng Reels")
+        self.geometry("400x300")
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.transient(parent)
+
+        self._create_ui()
+
+    def _create_ui(self):
+        """Tạo giao diện"""
+        ctk.CTkLabel(
+            self,
+            text="📅 Chọn thời gian đăng",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(pady=20)
+
+        # Date selection
+        date_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=10)
+        date_frame.pack(fill="x", padx=30, pady=10)
+
+        ctk.CTkLabel(
+            date_frame,
+            text="Ngày:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=15, pady=(10, 5))
+
+        date_input = ctk.CTkFrame(date_frame, fg_color="transparent")
+        date_input.pack(fill="x", padx=15, pady=(0, 10))
+
+        now = datetime.now()
+
+        self.day_entry = ModernEntry(date_input, width=60, placeholder="DD")
+        self.day_entry.pack(side="left")
+        self.day_entry.insert(0, str(now.day))
+
+        ctk.CTkLabel(date_input, text="/", text_color=COLORS["text_secondary"]).pack(side="left", padx=5)
+
+        self.month_entry = ModernEntry(date_input, width=60, placeholder="MM")
+        self.month_entry.pack(side="left")
+        self.month_entry.insert(0, str(now.month))
+
+        ctk.CTkLabel(date_input, text="/", text_color=COLORS["text_secondary"]).pack(side="left", padx=5)
+
+        self.year_entry = ModernEntry(date_input, width=80, placeholder="YYYY")
+        self.year_entry.pack(side="left")
+        self.year_entry.insert(0, str(now.year))
+
+        # Time selection
+        time_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=10)
+        time_frame.pack(fill="x", padx=30, pady=10)
+
+        ctk.CTkLabel(
+            time_frame,
+            text="Giờ:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=15, pady=(10, 5))
+
+        time_input = ctk.CTkFrame(time_frame, fg_color="transparent")
+        time_input.pack(fill="x", padx=15, pady=(0, 10))
+
+        self.hour_entry = ModernEntry(time_input, width=60, placeholder="HH")
+        self.hour_entry.pack(side="left")
+        self.hour_entry.insert(0, str(now.hour))
+
+        ctk.CTkLabel(time_input, text=":", text_color=COLORS["text_secondary"]).pack(side="left", padx=5)
+
+        self.minute_entry = ModernEntry(time_input, width=60, placeholder="MM")
+        self.minute_entry.pack(side="left")
+        self.minute_entry.insert(0, str(now.minute))
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=30, pady=20)
+
+        ModernButton(
+            btn_frame,
+            text="Xác nhận",
+            icon="✅",
+            variant="primary",
+            command=self._confirm,
+            width=120
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            btn_frame,
+            text="Hủy",
+            icon="❌",
+            variant="secondary",
+            command=self.destroy,
+            width=100
+        ).pack(side="left", padx=5)
+
+    def _confirm(self):
+        """Xác nhận lên lịch"""
+        try:
+            day = int(self.day_entry.get())
+            month = int(self.month_entry.get())
+            year = int(self.year_entry.get())
+            hour = int(self.hour_entry.get())
+            minute = int(self.minute_entry.get())
+
+            schedule_time = datetime(year, month, day, hour, minute)
+
+            if schedule_time < datetime.now():
+                # Show error
+                return
+
+            self.callback(schedule_time)
+            self.destroy()
+
+        except ValueError:
+            pass
