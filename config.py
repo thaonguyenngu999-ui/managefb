@@ -16,6 +16,7 @@ COLORS = {
     "success": "#00d9a5",
     "warning": "#ffc107",
     "error": "#dc3545",
+    "danger": "#dc3545",
     "text_primary": "#ffffff",
     "text_secondary": "#a0a0a0",
     "border": "#2a2a4a"

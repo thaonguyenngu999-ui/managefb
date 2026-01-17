@@ -3,6 +3,5 @@ Pillow==10.2.0
 requests==2.31.0
 pyinstaller==6.3.0
 tkcalendar==1.6.1
-selenium==4.16.0
 beautifulsoup4==4.12.2
-webdriver-manager==4.0.1
+websocket-client==1.7.0

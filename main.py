@@ -5,7 +5,7 @@ Tích hợp Hidemium Browser API
 import customtkinter as ctk
 from config import COLORS, WINDOW_WIDTH, WINDOW_HEIGHT, APP_NAME, APP_VERSION
 from widgets import StatusBar
-from tabs import ProfilesTab, ScriptsTab, PostsTab, ContentTab, GroupsTab
+from tabs import ProfilesTab, ScriptsTab, PostsTab, ContentTab, GroupsTab, LoginTab, PagesTab
 
 
 class FBManagerApp(ctk.CTk):
@@ -84,6 +84,8 @@ class FBManagerApp(ctk.CTk):
         self.nav_buttons = {}
         nav_items = [
             ("profiles", "📋", "Quản lý Profiles"),
+            ("login", "🔐", "Login FB"),
+            ("pages", "📄", "Quản lý Page"),
             ("content", "✏️", "Soạn tin"),
             ("groups", "👥", "Đăng Nhóm"),
             ("scripts", "📜", "Kịch bản"),
@@ -163,6 +165,18 @@ class FBManagerApp(ctk.CTk):
             status_callback=self._update_status
         )
 
+        # Login FB tab
+        self.tabs["login"] = LoginTab(
+            self.main_frame,
+            status_callback=self._update_status
+        )
+
+        # Pages tab (Quản lý Page)
+        self.tabs["pages"] = PagesTab(
+            self.main_frame,
+            status_callback=self._update_status
+        )
+
         # Content tab (Soạn tin)
         self.tabs["content"] = ContentTab(
             self.main_frame,
@@ -197,17 +211,21 @@ class FBManagerApp(ctk.CTk):
         # Hide all tabs
         for tab in self.tabs.values():
             tab.pack_forget()
-        
+
         # Update nav buttons
         for btn_id, btn in self.nav_buttons.items():
             if btn_id == tab_id:
                 btn.configure(fg_color=COLORS["accent"])
             else:
                 btn.configure(fg_color="transparent")
-        
+
         # Show selected tab
         if tab_id in self.tabs:
             self.tabs[tab_id].pack(fill="both", expand=True, before=self.status_bar)
+
+            # Auto-refresh posts tab when shown (to show new posts from groups tab)
+            if tab_id == "posts" and hasattr(self.tabs[tab_id], '_load_data'):
+                self.tabs[tab_id]._load_data()
     
     def _update_status(self, text: str, status_type: str = "info"):
         """Cập nhật status bar"""
