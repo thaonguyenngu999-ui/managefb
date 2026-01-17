@@ -1238,10 +1238,66 @@ class ReelsPageTab(ctk.CTkFrame):
             if 'no_post_button_found' in str(click_result):
                 raise Exception("Không tìm thấy nút đăng")
 
-            # Đợi đăng xong
-            time.sleep(10)
+            # Đợi đăng xong và lấy link Reel
+            print(f"[ReelsPage] Waiting for Reel to be posted...")
+            time.sleep(15)  # Đợi lâu hơn để đăng xong
 
-            print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name}")
+            # Bước 10: Lấy link Reel đã đăng
+            reel_url = None
+            js_get_reel_url = '''
+            (function() {
+                // Cách 1: Check URL hiện tại nếu đã redirect đến Reel
+                var currentUrl = window.location.href;
+                if (currentUrl.includes('/reel/') || currentUrl.includes('/reels/')) {
+                    return currentUrl;
+                }
+
+                // Cách 2: Tìm trong page có link đến Reel vừa tạo
+                var links = document.querySelectorAll('a[href*="/reel/"], a[href*="/reels/"]');
+                for (var i = links.length - 1; i >= 0; i--) {
+                    var href = links[i].href;
+                    if (href.includes('/reel/') && href.match(/\\/reel\\/\\d+/)) {
+                        return href;
+                    }
+                }
+
+                // Cách 3: Tìm trong notification/success message
+                var successMsgs = document.querySelectorAll('[role="dialog"] a, [role="alert"] a');
+                for (var i = 0; i < successMsgs.length; i++) {
+                    var href = successMsgs[i].href || '';
+                    if (href.includes('/reel/')) {
+                        return href;
+                    }
+                }
+
+                // Cách 4: Check body có chứa reel ID pattern không
+                var bodyText = document.body.innerHTML;
+                var match = bodyText.match(/\\/reel\\/(\\d+)/);
+                if (match) {
+                    return 'https://www.facebook.com/reel/' + match[1];
+                }
+
+                return 'no_reel_url_found';
+            })();
+            '''
+
+            # Thử lấy URL nhiều lần
+            for attempt in range(5):
+                reel_url = self._cdp_evaluate(ws, js_get_reel_url)
+                print(f"[ReelsPage] Attempt {attempt + 1} - Reel URL: {reel_url}")
+
+                if reel_url and 'no_reel_url_found' not in str(reel_url) and '/reel/' in str(reel_url):
+                    break
+                time.sleep(3)
+
+            if reel_url and 'no_reel_url_found' not in str(reel_url):
+                print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name}")
+                print(f"[ReelsPage] REEL URL: {reel_url}")
+                # Có thể lưu URL vào database để dùng cho comment sau
+                return reel_url
+            else:
+                print(f"[ReelsPage] SUCCESS - Đã đăng Reels lên {page_name} (không lấy được link)")
+                return None
 
         except Exception as e:
             print(f"[ReelsPage] ERROR: {e}")
