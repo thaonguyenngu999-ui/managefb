@@ -2,35 +2,40 @@
 Tab Đăng Nhóm - Quét nhóm, đăng bài và đẩy tin vào các nhóm Facebook
 """
 import customtkinter as ctk
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import threading
 import random
 import os
 import re
 import time
+import unicodedata
 from datetime import datetime, date
 from tkinter import filedialog
 from config import COLORS
 from widgets import ModernButton, ModernEntry
 from db import (
-    get_profiles, get_groups, save_group, delete_group,
+    get_profiles, get_groups, get_groups_for_profiles, save_group, delete_group,
     update_group_selection, get_selected_groups, sync_groups, clear_groups,
     get_contents, get_categories, save_post_history, get_post_history,
     get_post_history_filtered, get_post_history_count
 )
 from api_service import api
+from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
 
 # Import for web scraping
+import requests
 try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
     from bs4 import BeautifulSoup
-    SELENIUM_AVAILABLE = True
+    BS4_AVAILABLE = True
 except ImportError:
-    SELENIUM_AVAILABLE = False
+    BS4_AVAILABLE = False
+
+# Import CDP MAX helper (optional, for improved automation)
+try:
+    from automation import CDPHelper
+    CDP_MAX_AVAILABLE = True
+except ImportError:
+    CDP_MAX_AVAILABLE = False
 
 
 class GroupsTab(ctk.CTkFrame):
@@ -58,6 +63,13 @@ class GroupsTab(ctk.CTkFrame):
         self._boost_posts_cache: List[Dict] = []  # Cache current page posts
         self._boost_widgets_cache: Dict[int, ctk.CTkFrame] = {}  # Cache widgets by post id
 
+        # Multi-profile support
+        self.selected_profile_uuids: List[str] = []
+        self.folders: List[Dict] = []
+        self.profile_checkbox_vars: Dict = {}
+        self.group_checkbox_widgets: Dict = {}
+        self.group_checkbox_vars: Dict = {}
+
         # Widget caches for optimized rendering
         self._scan_checkbox_vars: Dict[int, ctk.BooleanVar] = {}  # group_id -> BooleanVar
         self._post_checkbox_vars: Dict[int, ctk.BooleanVar] = {}  # group_id -> BooleanVar
@@ -67,48 +79,118 @@ class GroupsTab(ctk.CTkFrame):
 
     def _create_ui(self):
         """Tạo giao diện"""
-        # ========== HEADER - Profile Selector ==========
+        # ========== HEADER - Profile Selector with Multi-select ==========
         header = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
         header.pack(fill="x", padx=15, pady=(15, 10))
 
-        header_inner = ctk.CTkFrame(header, fg_color="transparent")
-        header_inner.pack(fill="x", padx=15, pady=12)
+        # Row 1: Folder filter & Refresh
+        header_row1 = ctk.CTkFrame(header, fg_color="transparent")
+        header_row1.pack(fill="x", padx=15, pady=(12, 5))
 
         ctk.CTkLabel(
-            header_inner,
-            text="📱 Chọn Profile:",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            header_row1,
+            text="📁 Thư mục:",
+            font=ctk.CTkFont(size=12),
             text_color=COLORS["text_primary"]
         ).pack(side="left")
 
-        self.profile_var = ctk.StringVar(value="-- Chọn profile --")
-        self.profile_menu = ctk.CTkOptionMenu(
-            header_inner,
-            variable=self.profile_var,
-            values=["-- Chọn profile --"],
+        self.folder_var = ctk.StringVar(value="-- Tất cả --")
+        self.folder_menu = ctk.CTkOptionMenu(
+            header_row1,
+            variable=self.folder_var,
+            values=["-- Tất cả --"],
             fg_color=COLORS["bg_card"],
             button_color=COLORS["accent"],
-            width=300,
-            command=self._on_profile_change
+            width=180,
+            command=self._on_folder_change
         )
-        self.profile_menu.pack(side="left", padx=15)
+        self.folder_menu.pack(side="left", padx=10)
 
         ModernButton(
-            header_inner,
+            header_row1,
             text="Làm mới",
             icon="🔄",
             variant="secondary",
             command=self._load_profiles,
             width=100
-        ).pack(side="left")
+        ).pack(side="left", padx=5)
 
         self.profile_status = ctk.CTkLabel(
-            header_inner,
+            header_row1,
             text="",
             font=ctk.CTkFont(size=12),
             text_color=COLORS["text_secondary"]
         )
         self.profile_status.pack(side="right")
+
+        # Row 2: Profile selection
+        header_row2 = ctk.CTkFrame(header, fg_color="transparent")
+        header_row2.pack(fill="x", padx=15, pady=(0, 12))
+
+        ctk.CTkLabel(
+            header_row2,
+            text="📱 Profiles:",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        # Profile dropdown for quick single select
+        self.profile_var = ctk.StringVar(value="-- Chọn profile --")
+        self.profile_menu = ctk.CTkOptionMenu(
+            header_row2,
+            variable=self.profile_var,
+            values=["-- Chọn profile --"],
+            fg_color=COLORS["bg_card"],
+            button_color=COLORS["accent"],
+            width=250,
+            command=self._on_profile_change
+        )
+        self.profile_menu.pack(side="left", padx=10)
+
+        # Multi-select toggle
+        self.multi_profile_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            header_row2,
+            text="Multi-select",
+            variable=self.multi_profile_var,
+            fg_color=COLORS["accent"],
+            font=ctk.CTkFont(size=11),
+            command=self._toggle_multi_profile
+        ).pack(side="left", padx=10)
+
+        # Selected profiles count
+        self.selected_profiles_label = ctk.CTkLabel(
+            header_row2,
+            text="Đã chọn: 0",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["accent"]
+        )
+        self.selected_profiles_label.pack(side="left", padx=5)
+
+        # Load groups button (for multi-select mode)
+        self.load_groups_btn = ModernButton(
+            header_row2,
+            text="Load nhóm",
+            icon="📥",
+            variant="secondary",
+            command=self._load_groups_for_selected_profiles,
+            width=100
+        )
+        self.load_groups_btn.pack(side="left", padx=5)
+
+        # Multi-profile selection panel (hidden by default)
+        self.multi_profile_panel = ctk.CTkFrame(header, fg_color=COLORS["bg_card"], corner_radius=8, height=120)
+        self.multi_profile_panel.pack_propagate(False)
+        # Don't pack initially - will be shown when multi-select is enabled
+
+        # Inner scrollable list
+        self.profile_list_scroll = ctk.CTkScrollableFrame(self.multi_profile_panel, fg_color="transparent", height=100)
+        self.profile_list_scroll.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Store profile checkbox vars
+        self.profile_checkbox_vars = {}
+        self.selected_profile_uuids = []
+        self.folders = []
 
         # ========== TABVIEW - 3 Sub-tabs ==========
         self.tabview = ctk.CTkTabview(
@@ -240,9 +322,30 @@ class GroupsTab(ctk.CTkFrame):
         )
         self.post_stats.pack(anchor="w", padx=10, pady=(0, 5))
 
+        # Search/Filter row
+        filter_row = ctk.CTkFrame(left_panel, fg_color="transparent")
+        filter_row.pack(fill="x", padx=10, pady=(0, 5))
+
+        ctk.CTkLabel(filter_row, text="🔍", width=20).pack(side="left")
+        self.group_filter_var = ctk.StringVar()
+        self.group_filter_var.trace_add("write", self._on_group_filter_change)
+        self.group_filter_entry = ctk.CTkEntry(
+            filter_row,
+            placeholder_text="Lọc theo tên nhóm...",
+            textvariable=self.group_filter_var,
+            fg_color=COLORS["bg_secondary"],
+            width=280,
+            height=28
+        )
+        self.group_filter_entry.pack(side="left", padx=5)
+
         # Groups checkboxes list
         self.post_groups_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
         self.post_groups_list.pack(fill="both", expand=True, padx=5, pady=(0, 10))
+
+        # Store checkbox widgets for optimization
+        self.group_checkbox_widgets = {}
+        self.group_checkbox_vars = {}
 
         self.post_empty_label = ctk.CTkLabel(
             self.post_groups_list,
@@ -412,6 +515,33 @@ class GroupsTab(ctk.CTkFrame):
             fg_color=COLORS["accent"],
             font=ctk.CTkFont(size=11)
         ).pack(side="left", padx=10)
+
+        # Like/React options
+        react_frame = ctk.CTkFrame(options_frame, fg_color="transparent")
+        react_frame.pack(fill="x", padx=10, pady=(0, 8))
+
+        self.auto_like_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            react_frame,
+            text="Tự động thích bài",
+            variable=self.auto_like_var,
+            fg_color=COLORS["accent"],
+            font=ctk.CTkFont(size=11)
+        ).pack(side="left")
+
+        ctk.CTkLabel(react_frame, text="Loại:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(15, 5))
+        self.react_type_var = ctk.StringVar(value="👍 Like")
+        self.react_dropdown = ctk.CTkOptionMenu(
+            react_frame,
+            variable=self.react_type_var,
+            values=["👍 Like", "❤️ Yêu thích", "😆 Haha", "😮 Wow", "😢 Buồn", "😡 Phẫn nộ"],
+            width=120,
+            height=28,
+            font=ctk.CTkFont(size=11),
+            fg_color=COLORS["bg_secondary"],
+            button_color=COLORS["accent"]
+        )
+        self.react_dropdown.pack(side="left")
 
         # Post buttons
         post_btn_frame = ctk.CTkFrame(right_scroll, fg_color="transparent")
@@ -708,13 +838,26 @@ class GroupsTab(ctk.CTkFrame):
     # ==================== PROFILE MANAGEMENT ====================
 
     def _load_profiles(self):
-        """Load danh sách profiles"""
+        """Load danh sách profiles và folders"""
         self.profiles = get_profiles()
+
+        # Load folders từ Hidemium
+        try:
+            self.folders = api.get_folders()
+        except:
+            self.folders = []
+
+        # Update folder menu
+        folder_options = ["-- Tất cả --"]
+        for f in self.folders:
+            folder_options.append(f.get('name', 'Unknown'))
+        self.folder_menu.configure(values=folder_options)
 
         if not self.profiles:
             self.profile_menu.configure(values=["-- Chưa có profile --"])
             self.profile_var.set("-- Chưa có profile --")
             self.profile_status.configure(text="Chưa có profile")
+            self._render_profile_list()
             return
 
         profile_options = ["-- Chọn profile --"]
@@ -726,6 +869,137 @@ class GroupsTab(ctk.CTkFrame):
         self.profile_menu.configure(values=profile_options)
         self.profile_var.set("-- Chọn profile --")
         self.profile_status.configure(text=f"Có {len(self.profiles)} profiles")
+        self._render_profile_list()
+
+    def _on_folder_change(self, choice: str):
+        """Khi đổi folder filter"""
+        if choice == "-- Tất cả --":
+            # Load all profiles
+            self.profiles = get_profiles()
+        else:
+            # Load profiles by folder
+            folder_id = None
+            for f in self.folders:
+                if f.get('name') == choice:
+                    folder_id = f.get('uuid') or f.get('id')
+                    break
+            if folder_id:
+                try:
+                    self.profiles = api.get_profiles(folder_id=[folder_id])
+                except:
+                    self.profiles = get_profiles()
+            else:
+                self.profiles = get_profiles()
+
+        # Update dropdown
+        profile_options = ["-- Chọn profile --"]
+        for p in self.profiles:
+            name = p.get('name', 'Unknown')
+            uuid = p.get('uuid', '')[:8]
+            profile_options.append(f"{name} ({uuid})")
+
+        self.profile_menu.configure(values=profile_options)
+        self.profile_var.set("-- Chọn profile --")
+        self.profile_status.configure(text=f"Có {len(self.profiles)} profiles")
+        self._render_profile_list()
+
+    def _toggle_multi_profile(self):
+        """Toggle multi-profile mode"""
+        if self.multi_profile_var.get():
+            self.multi_profile_panel.pack(fill="x", padx=15, pady=(0, 12))
+            self.profile_menu.configure(state="disabled")
+            # Không auto-load để tránh lag
+        else:
+            self.multi_profile_panel.pack_forget()
+            self.profile_menu.configure(state="normal")
+            self.selected_profile_uuids = []
+            self._update_selected_profiles_label()
+            # Clear groups list khi tắt multi-mode
+            self.groups = []
+            self._render_scan_list()
+            self._render_post_groups_list(force_rebuild=True)
+
+    def _render_profile_list(self):
+        """Render danh sách profiles với checkbox"""
+        for widget in self.profile_list_scroll.winfo_children():
+            widget.destroy()
+        self.profile_checkbox_vars = {}
+
+        if not self.profiles:
+            ctk.CTkLabel(
+                self.profile_list_scroll,
+                text="Không có profile",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS["text_secondary"]
+            ).pack(pady=10)
+            return
+
+        for p in self.profiles:
+            uuid = p.get('uuid', '')
+            name = p.get('name', 'Unknown')
+
+            var = ctk.BooleanVar(value=uuid in self.selected_profile_uuids)
+            self.profile_checkbox_vars[uuid] = var
+
+            cb = ctk.CTkCheckBox(
+                self.profile_list_scroll,
+                text=f"{name} ({uuid[:8]})",
+                variable=var,
+                fg_color=COLORS["accent"],
+                font=ctk.CTkFont(size=10),
+                command=lambda u=uuid, v=var: self._toggle_profile_selection(u, v)
+            )
+            cb.pack(anchor="w", pady=1)
+
+    def _toggle_profile_selection(self, uuid: str, var: ctk.BooleanVar):
+        """Toggle chọn profile - không auto-reload để tránh lag"""
+        if var.get():
+            if uuid not in self.selected_profile_uuids:
+                self.selected_profile_uuids.append(uuid)
+        else:
+            if uuid in self.selected_profile_uuids:
+                self.selected_profile_uuids.remove(uuid)
+        self._update_selected_profiles_label()
+        # Không auto-reload để tránh lag - user sẽ bấm nút Load hoặc Quét
+
+    def _update_selected_profiles_label(self):
+        """Cập nhật label số profiles đã chọn"""
+        count = len(self.selected_profile_uuids)
+        self.selected_profiles_label.configure(text=f"Đã chọn: {count}")
+
+    def _load_groups_for_selected_profiles(self):
+        """Load groups từ các profiles đã chọn - chạy background"""
+        if not self.selected_profile_uuids and not self.current_profile_uuid:
+            self._set_status("Vui lòng chọn profile trước!", "warning")
+            return
+
+        self._set_status("Đang load nhóm...", "info")
+
+        def do_load():
+            try:
+                # Load groups
+                if self.multi_profile_var.get() and self.selected_profile_uuids:
+                    groups = get_groups_for_profiles(self.selected_profile_uuids)
+                elif self.current_profile_uuid:
+                    groups = get_groups(self.current_profile_uuid)
+                else:
+                    groups = []
+
+                # Update UI on main thread
+                self.after(0, lambda: self._on_groups_loaded(groups))
+            except Exception as e:
+                self.after(0, lambda: self._set_status(f"Lỗi: {e}", "error"))
+
+        threading.Thread(target=do_load, daemon=True).start()
+
+    def _on_groups_loaded(self, groups: List[Dict]):
+        """Callback khi load groups xong"""
+        self.groups = groups
+        self.selected_group_ids = [g['id'] for g in self.groups if g.get('is_selected')]
+        self._render_scan_list()
+        self._render_post_groups_list(force_rebuild=True)
+        self._update_stats()
+        self._set_status(f"Đã load {len(groups)} nhóm!", "success")
 
     def _on_profile_change(self, choice: str):
         """Khi chọn profile khác"""
@@ -753,9 +1027,21 @@ class GroupsTab(ctk.CTkFrame):
 
     # ==================== SCAN TAB ====================
 
+    def _get_profiles_to_scan(self) -> List[str]:
+        """Lấy danh sách profile UUIDs cần quét"""
+        if self.multi_profile_var.get():
+            # Multi-select mode
+            return self.selected_profile_uuids.copy()
+        elif self.current_profile_uuid:
+            # Single-select mode
+            return [self.current_profile_uuid]
+        return []
+
     def _scan_groups(self):
         """Quét danh sách nhóm"""
-        if not self.current_profile_uuid:
+        profiles_to_scan = self._get_profiles_to_scan()
+
+        if not profiles_to_scan:
             self._set_status("Vui lòng chọn profile trước!", "warning")
             return
 
@@ -764,25 +1050,267 @@ class GroupsTab(ctk.CTkFrame):
 
         self._is_scanning = True
         self.scan_progress.set(0)
-        self._set_status("Đang quét nhóm...", "info")
+        self._scan_completed_count = 0
+        self._scan_total_count = len(profiles_to_scan)
 
-        def do_scan():
-            try:
-                result = self._execute_group_scan()
-                self.after(0, lambda: self._on_scan_complete(result))
-            except Exception as e:
-                self.after(0, lambda: self._on_scan_error(str(e)))
+        if len(profiles_to_scan) > 1:
+            self._set_status(f"Đang mở {len(profiles_to_scan)} profiles song song...", "info")
+        else:
+            self._set_status("Đang quét nhóm...", "info")
 
-        threading.Thread(target=do_scan, daemon=True).start()
+        def do_parallel_scan():
+            """Quét song song nhiều profiles"""
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def _execute_group_scan(self) -> List[Dict]:
-        """Thực hiện quét nhóm từ Facebook"""
-        if not SELENIUM_AVAILABLE:
-            self.after(0, lambda: self._set_status("Cần cài selenium: pip install selenium beautifulsoup4", "error"))
+            all_groups = []
+            total = len(profiles_to_scan)
+
+            def scan_single_profile(profile_uuid: str) -> List[Dict]:
+                """Quét 1 profile"""
+                try:
+                    return self._execute_group_scan_for_profile(profile_uuid)
+                except Exception as e:
+                    print(f"[ERROR] Scan profile {profile_uuid}: {e}")
+                    return []
+
+            # Chạy song song tất cả profiles
+            with ThreadPoolExecutor(max_workers=min(total, 10)) as executor:
+                # Submit tất cả tasks
+                future_to_uuid = {
+                    executor.submit(scan_single_profile, uuid): uuid
+                    for uuid in profiles_to_scan
+                }
+
+                # Thu thập kết quả khi hoàn thành
+                for future in as_completed(future_to_uuid):
+                    if not self._is_scanning:
+                        break
+
+                    uuid = future_to_uuid[future]
+                    try:
+                        result = future.result()
+                        all_groups.extend(result)
+
+                        # Update progress
+                        self._scan_completed_count += 1
+                        progress = self._scan_completed_count / total
+                        self.after(0, lambda p=progress, c=self._scan_completed_count, t=total:
+                                   self._update_scan_progress(p, c, t))
+                    except Exception as e:
+                        print(f"[ERROR] Future {uuid}: {e}")
+
+            self.after(0, lambda: self._on_scan_complete(all_groups))
+
+        threading.Thread(target=do_parallel_scan, daemon=True).start()
+
+    def _update_scan_progress(self, progress: float, completed: int, total: int):
+        """Cập nhật progress khi quét song song"""
+        self.scan_progress.set(progress)
+        self._set_status(f"Hoàn thành {completed}/{total} profiles...", "info")
+
+    def _execute_group_scan_for_profile(self, profile_uuid: str) -> List[Dict]:
+        """Quét nhóm cho 1 profile cụ thể (thread-safe)"""
+        if not BS4_AVAILABLE:
             return []
 
         groups_found = []
-        driver = None
+        slot_id = acquire_window_slot()
+
+        try:
+            # Bước 1: Mở browser qua Hidemium API
+            result = api.open_browser(profile_uuid)
+            print(f"[DEBUG] open_browser {profile_uuid[:8]}: {result.get('status', result.get('type', 'unknown'))}")
+
+            # Kiểm tra response
+            status = result.get('status') or result.get('type')
+            if status not in ['successfully', 'success', True]:
+                if 'already' not in str(result).lower() and 'running' not in str(result).lower():
+                    release_window_slot(slot_id)
+                    return []
+
+            # Lấy thông tin CDP
+            data = result.get('data', {})
+            remote_port = data.get('remote_port')
+            ws_url = data.get('web_socket', '')
+
+            if not remote_port:
+                match = re.search(r':(\d+)/', ws_url)
+                if match:
+                    remote_port = int(match.group(1))
+
+            if not remote_port:
+                release_window_slot(slot_id)
+                return []
+
+            cdp_base = f"http://127.0.0.1:{remote_port}"
+
+            # Đợi browser khởi động
+            time.sleep(1)
+
+            # Set window bounds - thu nhỏ và sắp xếp cửa sổ
+            try:
+                import websocket
+                import json as json_module
+                resp = requests.get(f"{cdp_base}/json", timeout=5)
+                tabs = resp.json()
+                page_ws = None
+                for tab in tabs:
+                    if tab.get('type') == 'page':
+                        page_ws = tab.get('webSocketDebuggerUrl')
+                        break
+                if page_ws:
+                    ws_tmp = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
+                    x, y, w, h = get_window_bounds(slot_id)
+                    ws_tmp.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
+                    win_res = json_module.loads(ws_tmp.recv())
+                    if win_res and 'result' in win_res and 'windowId' in win_res['result']:
+                        window_id = win_res['result']['windowId']
+                        ws_tmp.send(json_module.dumps({
+                            "id": 2, "method": "Browser.setWindowBounds",
+                            "params": {"windowId": window_id, "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}}
+                        }))
+                        ws_tmp.recv()
+                    ws_tmp.close()
+            except Exception as e:
+                print(f"[Groups] Window bounds error: {e}")
+
+            time.sleep(2)
+
+            # Bước 2: Lấy danh sách tabs qua CDP
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                tabs = resp.json()
+            except Exception as e:
+                print(f"[DEBUG] CDP error for {profile_uuid[:8]}: {e}")
+                return []
+
+            # Tìm tab page
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    page_ws = tab.get('webSocketDebuggerUrl')
+                    break
+
+            if not page_ws:
+                return []
+
+            # Bước 3: Kết nối WebSocket
+            import websocket
+            import json as json_module
+
+            ws = None
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+            except:
+                try:
+                    ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
+                except:
+                    try:
+                        ws = websocket.create_connection(page_ws, timeout=30)
+                    except:
+                        return []
+
+            if not ws:
+                return []
+
+            # Navigate đến trang nhóm
+            groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
+            ws.send(json_module.dumps({
+                "id": 1,
+                "method": "Page.navigate",
+                "params": {"url": groups_url}
+            }))
+            ws.recv()
+
+            # Đợi trang load
+            time.sleep(8)
+
+            # Scroll để load nhóm
+            for i in range(10):
+                ws.send(json_module.dumps({
+                    "id": 100 + i,
+                    "method": "Runtime.evaluate",
+                    "params": {"expression": "window.scrollTo(0, document.body.scrollHeight);"}
+                }))
+                ws.recv()
+                time.sleep(2)
+
+            # Lấy HTML content
+            ws.send(json_module.dumps({
+                "id": 200,
+                "method": "Runtime.evaluate",
+                "params": {"expression": "document.documentElement.outerHTML"}
+            }))
+            result = json_module.loads(ws.recv())
+            html_content = result.get('result', {}).get('result', {}).get('value', '')
+
+            ws.close()
+
+            if not html_content:
+                return []
+
+            # Parse HTML
+            soup = BeautifulSoup(html_content, 'html.parser')
+            links = soup.find_all('a', {'aria-label': 'Xem nhóm'})
+
+            for link in links:
+                href = link.get('href', '')
+                if '/groups/' in href:
+                    match = re.search(r'/groups/([^/?]+)', href)
+                    if match:
+                        group_id = match.group(1)
+
+                        if group_id in ['joins', 'feed', 'discover']:
+                            continue
+
+                        group_name = group_id
+
+                        # Tìm tên nhóm
+                        parent = link
+                        for _ in range(10):
+                            parent = parent.find_parent()
+                            if parent is None:
+                                break
+                            spans = parent.find_all(['span', 'div'], recursive=False)
+                            for span in spans:
+                                text = span.get_text(strip=True)
+                                if text and len(text) > 3 and text != "Xem nhóm" and not text.startswith('http'):
+                                    if len(text) < 150:
+                                        group_name = text
+                                        break
+                            if group_name != group_id:
+                                break
+
+                        group_url = f"https://www.facebook.com/groups/{group_id}/"
+
+                        if not any(g['group_id'] == group_id for g in groups_found):
+                            groups_found.append({
+                                'group_id': group_id,
+                                'group_name': group_name,
+                                'group_url': group_url,
+                                'member_count': 0,
+                                'profile_uuid': profile_uuid  # Lưu profile nào quét được
+                            })
+
+            # Lưu vào database cho profile này
+            if groups_found:
+                sync_groups(profile_uuid, groups_found)
+
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Scan {profile_uuid[:8]}: {traceback.format_exc()}")
+        finally:
+            release_window_slot(slot_id)
+
+        return groups_found
+
+    def _execute_group_scan(self) -> List[Dict]:
+        """Thực hiện quét nhóm từ Facebook sử dụng CDP"""
+        if not BS4_AVAILABLE:
+            self.after(0, lambda: self._set_status("Cần cài: pip install beautifulsoup4", "error"))
+            return []
+
+        groups_found = []
 
         try:
             # Bước 1: Mở browser qua Hidemium API
@@ -790,140 +1318,205 @@ class GroupsTab(ctk.CTkFrame):
             self.after(0, lambda: self.scan_progress.set(0.05))
 
             result = api.open_browser(self.current_profile_uuid)
+            print(f"[DEBUG] open_browser response: {result}")
 
-            if result.get('status') != 'successfully':
-                error = result.get('message', 'Không thể mở browser')
-                self.after(0, lambda e=error: self._set_status(f"Lỗi: {e}", "error"))
+            # Kiểm tra response
+            status = result.get('status') or result.get('type')
+            if status not in ['successfully', 'success', True]:
+                if 'already' not in str(result).lower() and 'running' not in str(result).lower():
+                    error = result.get('message') or result.get('title') or str(result)
+                    self.after(0, lambda e=error: self._set_status(f"Lỗi mở browser: {e}", "error"))
+                    return []
+
+            # Lấy thông tin CDP
+            data = result.get('data', {})
+            remote_port = data.get('remote_port')
+            ws_url = data.get('web_socket', '')
+
+            if not remote_port:
+                match = re.search(r':(\d+)/', ws_url)
+                if match:
+                    remote_port = int(match.group(1))
+
+            if not remote_port:
+                self.after(0, lambda: self._set_status("Không lấy được remote_port", "error"))
                 return []
 
-            # Lấy debugger address để kết nối Selenium
-            debugger_address = result.get('data', {}).get('debugger_address') or result.get('debugger_address')
+            cdp_base = f"http://127.0.0.1:{remote_port}"
+            print(f"[DEBUG] CDP base: {cdp_base}")
 
-            if not debugger_address:
-                browser_data = result.get('data', {})
-                if isinstance(browser_data, dict):
-                    debugger_address = browser_data.get('debugger_address')
-
-            if not debugger_address:
-                self.after(0, lambda: self._set_status("Không lấy được debugger address", "error"))
-                return []
-
-            # ĐỢI BROWSER MỞ HOÀN TOÀN
+            # Đợi browser khởi động
             self.after(0, lambda: self._set_status("Đợi browser khởi động...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.1))
-            time.sleep(5)  # Đợi 5 giây để browser mở hoàn toàn
+            time.sleep(3)
 
-            # Bước 2: Kết nối Selenium đến browser đang chạy
-            self.after(0, lambda: self._set_status("Đang kết nối Selenium...", "info"))
+            # Bước 2: Lấy danh sách tabs qua CDP
+            self.after(0, lambda: self._set_status("Đang kết nối CDP...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.15))
 
-            chrome_options = Options()
-            chrome_options.add_experimental_option("debuggerAddress", debugger_address)
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                tabs = resp.json()
+                print(f"[DEBUG] Found {len(tabs)} tabs")
+            except Exception as e:
+                print(f"[DEBUG] CDP connection error: {e}")
+                self.after(0, lambda err=str(e): self._set_status(f"Lỗi kết nối CDP: {err}", "error"))
+                return []
 
-            driver = webdriver.Chrome(options=chrome_options)
+            # Tìm tab page (không phải devtools, extension...)
+            page_ws = None
+            for tab in tabs:
+                if tab.get('type') == 'page':
+                    page_ws = tab.get('webSocketDebuggerUrl')
+                    break
 
-            # Đợi kết nối ổn định
-            time.sleep(2)
+            if not page_ws:
+                self.after(0, lambda: self._set_status("Không tìm thấy tab page", "error"))
+                return []
 
-            # Bước 3: Mở trang danh sách nhóm đã tham gia
+            print(f"[DEBUG] Page WebSocket: {page_ws}")
+
+            # Bước 3: Kết nối WebSocket và điều khiển browser
+            import websocket
+            import json as json_module
+
             self.after(0, lambda: self._set_status("Đang mở trang nhóm...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.2))
 
-            groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
-            driver.get(groups_url)
+            # Kết nối WebSocket - thử nhiều cách để bypass CORS
+            ws = None
+            connection_error = None
 
-            # ĐỢI TRANG LOAD - quan trọng!
+            # Cách 1: Không gửi Origin (suppress_origin)
+            try:
+                ws = websocket.create_connection(
+                    page_ws,
+                    timeout=30,
+                    suppress_origin=True
+                )
+                print("[DEBUG] WebSocket connected (suppress_origin)")
+            except Exception as e1:
+                connection_error = str(e1)
+                print(f"[DEBUG] suppress_origin failed: {e1}")
+
+            # Cách 2: Dùng origin parameter
+            if ws is None:
+                try:
+                    ws = websocket.create_connection(
+                        page_ws,
+                        timeout=30,
+                        origin=f"http://127.0.0.1:{remote_port}"
+                    )
+                    print("[DEBUG] WebSocket connected (origin param)")
+                except Exception as e2:
+                    connection_error = str(e2)
+                    print(f"[DEBUG] origin param failed: {e2}")
+
+            # Cách 3: Không có gì đặc biệt
+            if ws is None:
+                try:
+                    ws = websocket.create_connection(page_ws, timeout=30)
+                    print("[DEBUG] WebSocket connected (default)")
+                except Exception as e3:
+                    connection_error = str(e3)
+                    print(f"[DEBUG] default failed: {e3}")
+
+            if ws is None:
+                self.after(0, lambda err=connection_error: self._set_status(f"Lỗi WebSocket: {err}", "error"))
+                return []
+
+            # Navigate đến trang nhóm
+            groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
+            ws.send(json_module.dumps({
+                "id": 1,
+                "method": "Page.navigate",
+                "params": {"url": groups_url}
+            }))
+            ws.recv()  # Nhận response
+
+            # Đợi trang load
             self.after(0, lambda: self._set_status("Đợi trang load...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.25))
-            time.sleep(5)  # Đợi trang load
+            time.sleep(8)
 
-            # Đợi thêm cho JavaScript render
-            try:
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
-            except:
-                pass
-
-            time.sleep(3)  # Đợi thêm cho Facebook load AJAX
-
-            # Bước 4: Scroll để load thêm nhóm
+            # Bước 4: Scroll để load nhóm
             self.after(0, lambda: self._set_status("Đang scroll load nhóm...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.3))
 
-            last_height = driver.execute_script("return document.body.scrollHeight")
-            scroll_attempts = 0
-            max_scrolls = 15  # Tăng số lần scroll
+            for i in range(10):
+                # Scroll xuống
+                ws.send(json_module.dumps({
+                    "id": 100 + i,
+                    "method": "Runtime.evaluate",
+                    "params": {"expression": "window.scrollTo(0, document.body.scrollHeight);"}
+                }))
+                ws.recv()
+                time.sleep(2)
 
-            while scroll_attempts < max_scrolls:
-                # Scroll xuống cuối trang
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(3)  # Đợi lâu hơn để load
-
-                # Kiểm tra có scroll thêm được không
-                new_height = driver.execute_script("return document.body.scrollHeight")
-                if new_height == last_height:
-                    # Thử scroll thêm 1 lần nữa
-                    time.sleep(2)
-                    new_height = driver.execute_script("return document.body.scrollHeight")
-                    if new_height == last_height:
-                        break
-
-                last_height = new_height
-                scroll_attempts += 1
-
-                progress = 0.3 + (scroll_attempts / max_scrolls) * 0.4
-                self.after(0, lambda p=progress, s=scroll_attempts: self._set_status(f"Scroll lần {s}...", "info"))
+                progress = 0.3 + (i / 10) * 0.4
+                self.after(0, lambda p=progress, s=i+1: self._set_status(f"Scroll lần {s}...", "info"))
                 self.after(0, lambda p=progress: self.scan_progress.set(p))
 
-            # Bước 5: Parse HTML để lấy danh sách nhóm
-            self.after(0, lambda: self._set_status("Đang phân tích danh sách nhóm...", "info"))
+            # Bước 5: Lấy HTML content
+            self.after(0, lambda: self._set_status("Đang lấy nội dung trang...", "info"))
             self.after(0, lambda: self.scan_progress.set(0.75))
 
-            html_content = driver.page_source
-            soup = BeautifulSoup(html_content, 'html.parser')
+            ws.send(json_module.dumps({
+                "id": 200,
+                "method": "Runtime.evaluate",
+                "params": {"expression": "document.documentElement.outerHTML"}
+            }))
+            result = json_module.loads(ws.recv())
+            html_content = result.get('result', {}).get('result', {}).get('value', '')
 
-            # Tìm các link nhóm với aria-label "Xem nhóm"
+            ws.close()
+
+            if not html_content:
+                self.after(0, lambda: self._set_status("Không lấy được HTML", "error"))
+                return []
+
+            print(f"[DEBUG] Got HTML length: {len(html_content)}")
+
+            # Bước 6: Parse HTML
+            self.after(0, lambda: self._set_status("Đang phân tích...", "info"))
+            self.after(0, lambda: self.scan_progress.set(0.85))
+
+            soup = BeautifulSoup(html_content, 'html.parser')
             links = soup.find_all('a', {'aria-label': 'Xem nhóm'})
 
+            print(f"[DEBUG] Found {len(links)} group links")
             self.after(0, lambda n=len(links): self._set_status(f"Tìm thấy {n} link nhóm...", "info"))
 
             for link in links:
                 href = link.get('href', '')
                 if '/groups/' in href:
-                    # Extract group ID từ URL
                     match = re.search(r'/groups/([^/?]+)', href)
                     if match:
                         group_id = match.group(1)
 
-                        # Bỏ qua nếu là "joins" hoặc "feed"
                         if group_id in ['joins', 'feed', 'discover']:
                             continue
 
-                        # Lấy tên nhóm - tìm trong các parent elements
-                        group_name = group_id  # Default là group_id
+                        group_name = group_id
 
-                        # Tìm parent chứa tên nhóm
+                        # Tìm tên nhóm
                         parent = link
-                        for _ in range(10):  # Tìm lên 10 cấp
+                        for _ in range(10):
                             parent = parent.find_parent()
                             if parent is None:
                                 break
-                            # Tìm span hoặc div có text
                             spans = parent.find_all(['span', 'div'], recursive=False)
                             for span in spans:
                                 text = span.get_text(strip=True)
                                 if text and len(text) > 3 and text != "Xem nhóm" and not text.startswith('http'):
-                                    if len(text) < 150:  # Tên nhóm hợp lệ
+                                    if len(text) < 150:
                                         group_name = text
                                         break
                             if group_name != group_id:
                                 break
 
-                        # Tạo full URL
                         group_url = f"https://www.facebook.com/groups/{group_id}/"
 
-                        # Kiểm tra không trùng lặp
                         if not any(g['group_id'] == group_id for g in groups_found):
                             groups_found.append({
                                 'group_id': group_id,
@@ -941,14 +1534,6 @@ class GroupsTab(ctk.CTkFrame):
             print(f"Scan error: {error_detail}")
             self.after(0, lambda err=str(e): self._set_status(f"Lỗi: {err}", "error"))
 
-        finally:
-            # Đóng kết nối Selenium nhưng KHÔNG đóng browser
-            if driver:
-                try:
-                    driver.quit()
-                except:
-                    pass
-
         return groups_found
 
     def _on_scan_complete(self, groups: List[Dict]):
@@ -957,14 +1542,21 @@ class GroupsTab(ctk.CTkFrame):
         self.scan_progress.set(1)
 
         if groups:
-            # Lưu vào database
-            sync_groups(self.current_profile_uuid, groups)
+            # Groups đã được lưu trong _execute_group_scan_for_profile cho từng profile
+            # Reload groups cho profile hiện tại hoặc profile đầu tiên
+            if self.multi_profile_var.get() and self.selected_profile_uuids:
+                # Multi-mode: set first profile as current và load groups
+                self.current_profile_uuid = self.selected_profile_uuids[0]
+
             self._load_groups_for_profile()
-            self._set_status(f"Đã quét và lưu {len(groups)} nhóm!", "success")
+
+            # Đếm số nhóm unique và số profiles
+            profile_uuids = set(g.get('profile_uuid', '') for g in groups if g.get('profile_uuid'))
+            self._set_status(f"Đã quét {len(groups)} nhóm từ {len(profile_uuids)} profiles!", "success")
         else:
             self._load_groups_for_profile()
-            if not SELENIUM_AVAILABLE:
-                self._set_status("Cần cài: pip install selenium beautifulsoup4 webdriver-manager", "warning")
+            if not BS4_AVAILABLE:
+                self._set_status("Cần cài: pip install beautifulsoup4 websocket-client", "warning")
             else:
                 self._set_status("Không tìm thấy nhóm nào hoặc chưa đăng nhập Facebook", "warning")
 
@@ -975,15 +1567,19 @@ class GroupsTab(ctk.CTkFrame):
         self._set_status(f"Lỗi: {error}", "error")
 
     def _load_groups_for_profile(self):
-        """Load nhóm của profile"""
-        if not self.current_profile_uuid:
-            self.groups = []
-        else:
+        """Load nhóm của profile - hỗ trợ multi-profile mode"""
+        if self.multi_profile_var.get() and self.selected_profile_uuids:
+            # Multi-profile mode: load groups từ tất cả profiles đã chọn
+            self.groups = get_groups_for_profiles(self.selected_profile_uuids)
+        elif self.current_profile_uuid:
+            # Single-profile mode
             self.groups = get_groups(self.current_profile_uuid)
+        else:
+            self.groups = []
 
         self.selected_group_ids = [g['id'] for g in self.groups if g.get('is_selected')]
         self._render_scan_list()
-        self._render_post_groups_list()
+        self._render_post_groups_list(force_rebuild=True)  # Rebuild khi load profile mới
         self._update_stats()
 
     def _render_scan_list(self):
@@ -1058,6 +1654,10 @@ class GroupsTab(ctk.CTkFrame):
         elif not is_selected and group_id in self.selected_group_ids:
             self.selected_group_ids.remove(group_id)
 
+        # Sync với checkbox trong post tab (không render lại)
+        if group_id in self.group_checkbox_vars:
+            self.group_checkbox_vars[group_id].set(is_selected)
+
         self._update_stats()
         # Sync checkbox state in post_groups_list without full re-render
         self._sync_checkbox_state(group_id, is_selected, 'post')
@@ -1086,10 +1686,62 @@ class GroupsTab(ctk.CTkFrame):
 
     # ==================== POST TAB ====================
 
-    def _render_post_groups_list(self):
-        """Render danh sách nhóm với checkbox"""
-        for widget in self.post_groups_list.winfo_children():
-            widget.destroy()
+    def _on_group_filter_change(self, *args):
+        """Khi filter thay đổi"""
+        self._apply_group_filter()
+
+    def _normalize_vietnamese(self, text: str) -> str:
+        """Chuẩn hóa text tiếng Việt để tìm kiếm - bỏ dấu, lowercase"""
+        if not text:
+            return ""
+        # Lowercase
+        text = text.lower()
+        # Normalize unicode
+        text = unicodedata.normalize('NFD', text)
+        # Remove diacritics (combining characters)
+        text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+        # Normalize back
+        text = unicodedata.normalize('NFC', text)
+        # Thay thế đ -> d
+        text = text.replace('đ', 'd').replace('Đ', 'd')
+        return text
+
+    def _apply_group_filter(self):
+        """Áp dụng filter cho danh sách nhóm - hỗ trợ tiếng Việt"""
+        filter_text = self.group_filter_var.get().strip()
+
+        if not filter_text:
+            # Hiển thị tất cả nếu không có filter
+            for widget in self.group_checkbox_widgets.values():
+                widget.pack(fill="x", pady=1)
+            return
+
+        # Chuẩn hóa filter text
+        filter_normalized = self._normalize_vietnamese(filter_text)
+        filter_lower = filter_text.lower()
+
+        for group_id, widget in self.group_checkbox_widgets.items():
+            group = next((g for g in self.groups if g['id'] == group_id), None)
+            if group:
+                group_name = group.get('group_name', '')
+                # Kiểm tra cả 2 cách: có dấu và không dấu
+                name_lower = group_name.lower()
+                name_normalized = self._normalize_vietnamese(group_name)
+
+                # Match nếu tìm thấy trong bản gốc hoặc bản không dấu
+                if filter_lower in name_lower or filter_normalized in name_normalized:
+                    widget.pack(fill="x", pady=1)
+                else:
+                    widget.pack_forget()
+
+    def _render_post_groups_list(self, force_rebuild=False):
+        """Render danh sách nhóm với checkbox - tối ưu"""
+        # Chỉ rebuild khi cần thiết
+        if force_rebuild or not self.group_checkbox_widgets:
+            for widget in self.post_groups_list.winfo_children():
+                widget.destroy()
+            self.group_checkbox_widgets = {}
+            self.group_checkbox_vars = {}
 
         # Clear cache when re-rendering
         self._post_checkbox_vars.clear()
@@ -1104,25 +1756,39 @@ class GroupsTab(ctk.CTkFrame):
             self.post_empty_label.pack(pady=30)
             return
 
+        # Tạo hoặc cập nhật widgets
         for group in self.groups:
-            row = ctk.CTkFrame(self.post_groups_list, fg_color="transparent", height=30)
-            row.pack(fill="x", pady=1)
-            row.pack_propagate(False)
+            group_id = group['id']
 
-            var = ctk.BooleanVar(value=group['id'] in self.selected_group_ids)
-            # Cache the BooleanVar for later sync
-            self._post_checkbox_vars[group['id']] = var
+            if group_id in self.group_checkbox_widgets:
+                # Cập nhật giá trị checkbox
+                self.group_checkbox_vars[group_id].set(group_id in self.selected_group_ids)
+            else:
+                # Tạo mới
+                row = ctk.CTkFrame(self.post_groups_list, fg_color="transparent", height=28)
+                row.pack(fill="x", pady=1)
+                row.pack_propagate(False)
 
-            cb = ctk.CTkCheckBox(
-                row,
-                text=group.get('group_name', 'Unknown')[:30],
-                variable=var, width=280,
-                checkbox_width=16, checkbox_height=16,
-                fg_color=COLORS["accent"],
-                font=ctk.CTkFont(size=10),
-                command=lambda gid=group['id'], v=var: self._toggle_group_selection_post(gid, v)
-            )
-            cb.pack(side="left", padx=3)
+                var = ctk.BooleanVar(value=group_id in self.selected_group_ids)
+                self.group_checkbox_vars[group_id] = var
+                # Cache for sync function
+                self._post_checkbox_vars[group_id] = var
+
+                cb = ctk.CTkCheckBox(
+                    row,
+                    text=group.get('group_name', 'Unknown')[:35],
+                    variable=var, width=300,
+                    checkbox_width=16, checkbox_height=16,
+                    fg_color=COLORS["accent"],
+                    font=ctk.CTkFont(size=10),
+                    command=lambda gid=group_id, v=var: self._toggle_group_selection_post(gid, v)
+                )
+                cb.pack(side="left", padx=3)
+
+                self.group_checkbox_widgets[group_id] = row
+
+        # Áp dụng filter
+        self._apply_group_filter()
 
     def _toggle_group_selection_post(self, group_id: int, var: ctk.BooleanVar):
         """Toggle group từ tab Đăng - optimized to avoid full re-render"""
@@ -1155,19 +1821,45 @@ class GroupsTab(ctk.CTkFrame):
         if var is not None:
             var.set(is_selected)
 
+    def _get_visible_group_ids(self) -> List[int]:
+        """Lấy danh sách group IDs đang hiển thị (sau khi lọc)"""
+        visible_ids = []
+        for group_id, widget in self.group_checkbox_widgets.items():
+            # Check if widget is currently visible (packed)
+            try:
+                if widget.winfo_ismapped():
+                    visible_ids.append(group_id)
+            except:
+                pass
+        return visible_ids
+
     def _toggle_select_all(self):
-        """Toggle chọn tất cả"""
-        if self.select_all_var.get():
-            self.selected_group_ids = [g['id'] for g in self.groups]
-            for g in self.groups:
-                update_group_selection(g['id'], 1)
+        """Toggle chọn tất cả - chỉ chọn các nhóm đang hiển thị"""
+        select_all = self.select_all_var.get()
+
+        # Lấy danh sách group IDs đang hiển thị (sau filter)
+        visible_group_ids = self._get_visible_group_ids()
+
+        if select_all:
+            # Chỉ chọn các nhóm đang hiển thị
+            for gid in visible_group_ids:
+                if gid not in self.selected_group_ids:
+                    self.selected_group_ids.append(gid)
+                update_group_selection(gid, 1)
+                # Sync checkbox
+                if gid in self.group_checkbox_vars:
+                    self.group_checkbox_vars[gid].set(True)
         else:
-            for gid in self.selected_group_ids:
+            # Bỏ chọn các nhóm đang hiển thị
+            for gid in visible_group_ids:
+                if gid in self.selected_group_ids:
+                    self.selected_group_ids.remove(gid)
                 update_group_selection(gid, 0)
-            self.selected_group_ids = []
+                # Sync checkbox
+                if gid in self.group_checkbox_vars:
+                    self.group_checkbox_vars[gid].set(False)
 
         self._render_scan_list()
-        self._render_post_groups_list()
         self._update_stats()
 
     def _load_contents(self):
@@ -1303,7 +1995,14 @@ class GroupsTab(ctk.CTkFrame):
 
     def _start_posting(self):
         """Bắt đầu đăng bài"""
-        if not self.current_profile_uuid:
+        # Lấy profile để dùng
+        profile_uuid = None
+        if self.multi_profile_var.get() and self.selected_profile_uuids:
+            profile_uuid = self.selected_profile_uuids[0]  # Dùng profile đầu tiên
+        elif self.current_profile_uuid:
+            profile_uuid = self.current_profile_uuid
+
+        if not profile_uuid:
             self._set_status("Vui lòng chọn profile!", "warning")
             return
 
@@ -1324,21 +2023,107 @@ class GroupsTab(ctk.CTkFrame):
         self._render_posted_urls()
 
         selected_groups = [g for g in self.groups if g['id'] in self.selected_group_ids]
+        self._posting_profile_uuid = profile_uuid
 
         def do_post():
             try:
-                self._execute_posting(selected_groups)
+                self._execute_posting(selected_groups, profile_uuid)
             except Exception as e:
+                import traceback
+                print(f"[ERROR] Posting: {traceback.format_exc()}")
                 self.after(0, lambda: self._on_posting_error(str(e)))
 
         threading.Thread(target=do_post, daemon=True).start()
 
-    def _execute_posting(self, groups: List[Dict]):
-        """Thực hiện đăng bài"""
+    def _execute_posting(self, groups: List[Dict], profile_uuid: str):
+        """Thực hiện đăng bài qua CDP"""
         import time
+        import websocket
+        import json as json_module
 
         total = len(groups)
+        self.after(0, lambda: self._set_status("Đang kết nối browser...", "info"))
 
+        # Mở browser và lấy thông tin CDP
+        result = api.open_browser(profile_uuid)
+        if result.get('type') == 'error':
+            self.after(0, lambda: self._on_posting_error(f"Không mở được browser: {result.get('title', '')}"))
+            return
+
+        data = result.get('data', {})
+        remote_port = data.get('remote_port')
+        ws_url = data.get('web_socket', '')
+
+        if not remote_port:
+            match = re.search(r':(\d+)/', ws_url)
+            if match:
+                remote_port = int(match.group(1))
+
+        if not remote_port:
+            self.after(0, lambda: self._on_posting_error("Không lấy được remote_port"))
+            return
+
+        cdp_base = f"http://127.0.0.1:{remote_port}"
+        self._posting_port = remote_port  # Lưu để dùng cho tab mới
+        time.sleep(2)  # Đợi browser khởi động
+
+        # Đóng hết tab cũ, chỉ giữ lại 1 tab
+        try:
+            resp = requests.get(f"{cdp_base}/json", timeout=10)
+            all_pages = resp.json()
+            page_targets = [p for p in all_pages if p.get('type') == 'page']
+            # Giữ lại tab đầu tiên, đóng các tab còn lại
+            if len(page_targets) > 1:
+                for p in page_targets[1:]:
+                    target_id = p.get('id')
+                    if target_id:
+                        requests.get(f"{cdp_base}/json/close/{target_id}", timeout=5)
+                time.sleep(1)
+                print(f"[INFO] Đã đóng {len(page_targets) - 1} tab cũ")
+        except Exception as e:
+            print(f"[WARN] Không đóng được tab cũ: {e}")
+
+        # Lấy page websocket
+        page_ws = None
+        for attempt in range(5):
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('type') == 'page':
+                        page_ws = p.get('webSocketDebuggerUrl')
+                        break
+                if page_ws:
+                    break
+            except:
+                time.sleep(1)
+
+        if not page_ws:
+            self.after(0, lambda: self._on_posting_error("Không kết nối được CDP"))
+            return
+
+        # Kết nối WebSocket
+        ws = None
+        try:
+            ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+        except:
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
+            except:
+                try:
+                    ws = websocket.create_connection(page_ws, timeout=30)
+                except Exception as e:
+                    self.after(0, lambda: self._on_posting_error(f"WebSocket error: {e}"))
+                    return
+
+        if not ws:
+            self.after(0, lambda: self._on_posting_error("Không kết nối được WebSocket"))
+            return
+
+        self._posting_ws = ws
+        self._cdp_id = 1
+
+        success_count = 0
         for i, group in enumerate(groups):
             if not self._is_posting:
                 break
@@ -1367,15 +2152,12 @@ class GroupsTab(ctk.CTkFrame):
                     img_count = 5
                 images = self._get_random_images(folder, img_count)
 
-            # TODO: Implement actual posting via Hidemium API
-            result = self._post_to_group(group, content_text, images)
-
-            # Generate fake URL for demo
-            post_url = f"https://facebook.com/groups/{group.get('group_id', '')}/posts/{random.randint(100000, 999999)}"
+            # Đăng bài qua CDP
+            result, post_url = self._post_to_group_cdp(ws, group, content_text, images)
 
             # Save to history
             save_post_history({
-                'profile_uuid': self.current_profile_uuid,
+                'profile_uuid': profile_uuid,
                 'group_id': group.get('group_id'),
                 'content_id': content.get('id'),
                 'post_url': post_url if result else '',
@@ -1385,6 +2167,7 @@ class GroupsTab(ctk.CTkFrame):
 
             # Add to posted URLs
             if result:
+                success_count += 1
                 self.posted_urls.append({
                     'group_name': group_name,
                     'post_url': post_url,
@@ -1395,7 +2178,7 @@ class GroupsTab(ctk.CTkFrame):
             # Delay
             if i < total - 1:
                 if self.random_delay_var.get():
-                    delay = random.uniform(1, 10)
+                    delay = random.uniform(3, 10)
                 else:
                     try:
                         delay = float(self.delay_entry.get())
@@ -1403,13 +2186,774 @@ class GroupsTab(ctk.CTkFrame):
                         delay = 5
                 time.sleep(delay)
 
-        self.after(0, lambda: self._on_posting_complete(total))
+        # Đóng WebSocket
+        try:
+            ws.close()
+        except:
+            pass
+
+        self.after(0, lambda: self._on_posting_complete(success_count))
 
     def _post_to_group(self, group: Dict, content: str, images: List[str]) -> bool:
-        """Đăng bài vào group - placeholder"""
-        import time
-        time.sleep(1)
+        """Đăng bài vào group - placeholder (dùng _post_to_group_cdp thay thế)"""
         return True
+
+    def _cdp_send(self, ws, method: str, params: Dict = None) -> Dict:
+        """Gửi CDP command và nhận response"""
+        import json as json_module
+        self._cdp_id += 1
+        msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+        ws.send(json_module.dumps(msg))
+
+        # Đợi response
+        while True:
+            try:
+                ws.settimeout(30)
+                resp = ws.recv()
+                data = json_module.loads(resp)
+                if data.get('id') == self._cdp_id:
+                    return data
+            except:
+                return {}
+
+    def _cdp_evaluate(self, ws, expression: str) -> Any:
+        """Evaluate JavaScript trong browser"""
+        result = self._cdp_send(ws, "Runtime.evaluate", {
+            "expression": expression,
+            "returnByValue": True,
+            "awaitPromise": True
+        })
+        return result.get('result', {}).get('result', {}).get('value')
+
+    def _move_mouse_human(self, ws, target_x: int, target_y: int, steps: int = 20):
+        """Di chuyển chuột theo đường cong như người thật"""
+        import time
+        import math
+
+        # Lấy vị trí hiện tại (giả sử từ góc trên)
+        current_x = random.randint(100, 300)
+        current_y = random.randint(100, 200)
+
+        # Tạo đường cong Bezier đơn giản
+        # Control point ngẫu nhiên để tạo đường cong tự nhiên
+        ctrl_x = (current_x + target_x) / 2 + random.randint(-100, 100)
+        ctrl_y = (current_y + target_y) / 2 + random.randint(-50, 50)
+
+        for i in range(steps + 1):
+            t = i / steps
+            # Quadratic Bezier curve
+            x = int((1-t)**2 * current_x + 2*(1-t)*t * ctrl_x + t**2 * target_x)
+            y = int((1-t)**2 * current_y + 2*(1-t)*t * ctrl_y + t**2 * target_y)
+
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mouseMoved",
+                "x": x,
+                "y": y
+            })
+            # Tốc độ di chuyển không đều
+            time.sleep(random.uniform(0.005, 0.02))
+
+    def _click_at_element(self, ws, selector: str) -> bool:
+        """Click vào element với mouse movement trước"""
+        import time
+
+        # Lấy vị trí element
+        get_pos_js = f'''
+        (function() {{
+            let el = document.querySelector('{selector}');
+            if (!el) return null;
+            let rect = el.getBoundingClientRect();
+            return {{
+                x: rect.left + rect.width / 2 + (Math.random() * 10 - 5),
+                y: rect.top + rect.height / 2 + (Math.random() * 6 - 3)
+            }};
+        }})()
+        '''
+        pos = self._cdp_evaluate(ws, get_pos_js)
+        if not pos:
+            return False
+
+        # Di chuyển chuột đến element
+        self._move_mouse_human(ws, int(pos['x']), int(pos['y']))
+        time.sleep(random.uniform(0.1, 0.3))
+
+        # Click
+        self._cdp_send(ws, "Input.dispatchMouseEvent", {
+            "type": "mousePressed",
+            "x": int(pos['x']),
+            "y": int(pos['y']),
+            "button": "left",
+            "clickCount": 1
+        })
+        time.sleep(random.uniform(0.05, 0.15))
+        self._cdp_send(ws, "Input.dispatchMouseEvent", {
+            "type": "mouseReleased",
+            "x": int(pos['x']),
+            "y": int(pos['y']),
+            "button": "left",
+            "clickCount": 1
+        })
+        return True
+
+    def _scroll_page(self, ws, direction: str = "down", amount: int = None):
+        """Scroll trang như người thật"""
+        import time
+
+        if amount is None:
+            amount = random.randint(200, 500)
+
+        if direction == "up":
+            amount = -amount
+
+        # Scroll từ từ, nhiều bước nhỏ
+        steps = random.randint(3, 6)
+        step_amount = amount // steps
+
+        for _ in range(steps):
+            self._cdp_evaluate(ws, f"window.scrollBy(0, {step_amount})")
+            time.sleep(random.uniform(0.05, 0.15))
+
+        time.sleep(random.uniform(0.3, 0.7))
+
+    def _type_like_human(self, ws, text: str):
+        """Gõ từng ký tự như người thật với typo và pause"""
+        import time
+
+        # Các ký tự hay bị gõ nhầm (adjacent keys)
+        typo_map = {
+            'a': ['s', 'q', 'z'], 'b': ['v', 'n', 'g'], 'c': ['x', 'v', 'd'],
+            'd': ['s', 'f', 'e'], 'e': ['w', 'r', 'd'], 'f': ['d', 'g', 'r'],
+            'g': ['f', 'h', 't'], 'h': ['g', 'j', 'y'], 'i': ['u', 'o', 'k'],
+            'j': ['h', 'k', 'u'], 'k': ['j', 'l', 'i'], 'l': ['k', 'o', 'p'],
+            'm': ['n', 'k'], 'n': ['b', 'm', 'h'], 'o': ['i', 'p', 'l'],
+            'p': ['o', 'l'], 'q': ['w', 'a'], 'r': ['e', 't', 'f'],
+            's': ['a', 'd', 'w'], 't': ['r', 'y', 'g'], 'u': ['y', 'i', 'j'],
+            'v': ['c', 'b', 'f'], 'w': ['q', 'e', 's'], 'x': ['z', 'c', 's'],
+            'y': ['t', 'u', 'h'], 'z': ['x', 'a']
+        }
+
+        # Chia text thành các đoạn (theo dòng hoặc câu)
+        paragraphs = text.split('\n')
+
+        for p_idx, paragraph in enumerate(paragraphs):
+            if not paragraph.strip():
+                # Gõ newline
+                self._cdp_send(ws, "Input.insertText", {"text": "\n"})
+                time.sleep(random.uniform(0.3, 0.8))
+                continue
+
+            # Chia paragraph thành các câu
+            sentences = paragraph.replace('. ', '.|').replace('! ', '!|').replace('? ', '?|').split('|')
+
+            for s_idx, sentence in enumerate(sentences):
+                for i, char in enumerate(sentence):
+                    # Random typo (3% chance cho chữ thường)
+                    if char.lower() in typo_map and random.random() < 0.03:
+                        # Gõ sai
+                        wrong_char = random.choice(typo_map[char.lower()])
+                        self._cdp_send(ws, "Input.insertText", {"text": wrong_char})
+                        time.sleep(random.uniform(0.05, 0.15))
+
+                        # Nhận ra sai, dừng lại
+                        time.sleep(random.uniform(0.2, 0.5))
+
+                        # Xóa (Backspace)
+                        self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                            "type": "keyDown",
+                            "key": "Backspace",
+                            "code": "Backspace"
+                        })
+                        self._cdp_send(ws, "Input.dispatchKeyEvent", {
+                            "type": "keyUp",
+                            "key": "Backspace",
+                            "code": "Backspace"
+                        })
+                        time.sleep(random.uniform(0.1, 0.2))
+
+                    # Gõ ký tự đúng
+                    self._cdp_send(ws, "Input.insertText", {"text": char})
+
+                    # Delay khác nhau tùy ký tự
+                    if char in ' .,!?':
+                        # Sau dấu câu chậm hơn
+                        time.sleep(random.uniform(0.08, 0.2))
+                    elif char.isupper():
+                        # Chữ hoa chậm hơn (phải giữ Shift)
+                        time.sleep(random.uniform(0.06, 0.15))
+                    else:
+                        # Chữ thường nhanh hơn
+                        time.sleep(random.uniform(0.03, 0.1))
+
+                # Pause giữa các câu
+                if s_idx < len(sentences) - 1:
+                    time.sleep(random.uniform(0.3, 0.8))
+
+            # Gõ newline giữa các paragraph
+            if p_idx < len(paragraphs) - 1:
+                self._cdp_send(ws, "Input.insertText", {"text": "\n"})
+                # Pause lâu hơn giữa các đoạn
+                time.sleep(random.uniform(0.5, 1.2))
+
+    def _post_to_group_cdp(self, ws, group: Dict, content: str, images: List[str]) -> tuple:
+        """Đăng bài vào group qua CDP"""
+        import time
+        import base64
+
+        group_id = group.get('group_id', '')
+        group_url = f"https://www.facebook.com/groups/{group_id}"
+
+        try:
+            # Bước 1: Navigate đến group
+            self._cdp_send(ws, "Page.navigate", {"url": group_url})
+            time.sleep(random.uniform(3, 5))  # Đợi page load
+
+            # Đợi page load xong
+            for _ in range(10):
+                ready = self._cdp_evaluate(ws, "document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(random.uniform(1, 2))
+
+            # Scroll xuống một chút như người thật đọc trang
+            if random.random() < 0.7:  # 70% scroll
+                self._scroll_page(ws, "down", random.randint(100, 300))
+                time.sleep(random.uniform(0.5, 1.5))
+                # Scroll lên lại để thấy composer
+                self._scroll_page(ws, "up", random.randint(50, 150))
+                time.sleep(random.uniform(0.3, 0.8))
+
+            # Bước 2: Click vào "Bạn viết gì đi..." với mouse movement
+            # Tìm vị trí composer button
+            get_composer_pos_js = '''
+            (function() {
+                let divs = document.querySelectorAll('div[tabindex="0"]');
+                for (let div of divs) {
+                    if (div.innerText && div.innerText.includes("Bạn viết gì đi")) {
+                        let rect = div.getBoundingClientRect();
+                        return {
+                            x: rect.left + rect.width / 2 + (Math.random() * 20 - 10),
+                            y: rect.top + rect.height / 2 + (Math.random() * 6 - 3)
+                        };
+                    }
+                }
+                // Fallback
+                let spans = document.querySelectorAll('span');
+                for (let span of spans) {
+                    if (span.innerText && span.innerText.includes("Bạn viết gì đi")) {
+                        let rect = span.getBoundingClientRect();
+                        return {
+                            x: rect.left + rect.width / 2,
+                            y: rect.top + rect.height / 2
+                        };
+                    }
+                }
+                return null;
+            })()
+            '''
+            composer_pos = self._cdp_evaluate(ws, get_composer_pos_js)
+            if not composer_pos:
+                print(f"[WARN] Không tìm thấy nút tạo bài trong group {group_id}")
+                return (False, "")
+
+            # Di chuyển chuột đến composer và click
+            self._move_mouse_human(ws, int(composer_pos['x']), int(composer_pos['y']))
+            time.sleep(random.uniform(0.1, 0.3))
+
+            # Click với mouse events
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mousePressed",
+                "x": int(composer_pos['x']),
+                "y": int(composer_pos['y']),
+                "button": "left",
+                "clickCount": 1
+            })
+            time.sleep(random.uniform(0.05, 0.12))
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mouseReleased",
+                "x": int(composer_pos['x']),
+                "y": int(composer_pos['y']),
+                "button": "left",
+                "clickCount": 1
+            })
+
+            time.sleep(random.uniform(2, 3))  # Đợi popup mở
+
+            # Bước 3: Tìm và focus vào textarea (contenteditable)
+            focus_textarea_js = '''
+            (function() {
+                // Tìm tất cả contenteditable với aria-label null (textarea chính)
+                let editors = document.querySelectorAll('[contenteditable="true"]');
+                for (let i = 0; i < editors.length; i++) {
+                    let ed = editors[i];
+                    // Thường textarea post có aria-label null hoặc chứa "Bạn đang nghĩ gì"
+                    let ariaLabel = ed.getAttribute('aria-label');
+                    if (ariaLabel === null || ariaLabel === '' || ariaLabel.includes('nghĩ gì')) {
+                        ed.focus();
+                        return true;
+                    }
+                }
+                // Fallback: focus editor cuối
+                if (editors.length > 0) {
+                    editors[editors.length - 1].focus();
+                    return true;
+                }
+                return false;
+            })()
+            '''
+            focused = self._cdp_evaluate(ws, focus_textarea_js)
+            if not focused:
+                print(f"[WARN] Không focus được textarea trong group {group_id}")
+                return (False, "")
+
+            time.sleep(random.uniform(0.5, 1))
+
+            # Bước 4: Gõ nội dung từng ký tự
+            self._type_like_human(ws, content)
+            time.sleep(random.uniform(1, 2))
+
+            # Bước 5: Upload ảnh nếu có
+            if images:
+                # Tìm và set files trực tiếp vào input (không click nút Ảnh/video để tránh mở dialog)
+                # Đầu tiên get document
+                doc_result = self._cdp_send(ws, "DOM.getDocument", {})
+                root_id = doc_result.get('result', {}).get('root', {}).get('nodeId', 0)
+
+                if root_id:
+                    # Tìm tất cả input[type="file"]
+                    query_result = self._cdp_send(ws, "DOM.querySelectorAll", {
+                        "nodeId": root_id,
+                        "selector": 'input[type="file"]'
+                    })
+                    node_ids = query_result.get('result', {}).get('nodeIds', [])
+
+                    # Thử từng input cho đến khi upload được
+                    uploaded = False
+                    for node_id in node_ids:
+                        if uploaded:
+                            break
+                        try:
+                            # Set tất cả files một lần
+                            self._cdp_send(ws, "DOM.setFileInputFiles", {
+                                "nodeId": node_id,
+                                "files": images
+                            })
+                            time.sleep(1)
+
+                            # Kiểm tra xem có preview ảnh không
+                            check_preview_js = '''
+                            (function() {
+                                // Tìm preview images
+                                let imgs = document.querySelectorAll('img[src*="blob:"]');
+                                return imgs.length > 0;
+                            })()
+                            '''
+                            has_preview = self._cdp_evaluate(ws, check_preview_js)
+                            if has_preview:
+                                uploaded = True
+                                print(f"[OK] Đã upload {len(images)} ảnh")
+                        except Exception as e:
+                            print(f"[DEBUG] Input {node_id} failed: {e}")
+                            continue
+
+                    if not uploaded:
+                        print(f"[WARN] Không upload được ảnh cho group {group_id}")
+
+                time.sleep(random.uniform(2, 3))  # Đợi upload xong
+
+            # Bước 6: Click nút Đăng với mouse movement
+            # Tìm vị trí nút Đăng
+            get_post_btn_pos_js = '''
+            (function() {
+                let btns = document.querySelectorAll('[role="button"]');
+                for (let btn of btns) {
+                    let text = btn.innerText ? btn.innerText.trim() : '';
+                    if (text === "Đăng") {
+                        let rect = btn.getBoundingClientRect();
+                        return {
+                            x: rect.left + rect.width / 2 + (Math.random() * 10 - 5),
+                            y: rect.top + rect.height / 2 + (Math.random() * 4 - 2)
+                        };
+                    }
+                }
+                // Fallback: tìm aria-label
+                let postBtn = document.querySelector('[aria-label="Đăng"]');
+                if (postBtn) {
+                    let rect = postBtn.getBoundingClientRect();
+                    return {
+                        x: rect.left + rect.width / 2,
+                        y: rect.top + rect.height / 2
+                    };
+                }
+                return null;
+            })()
+            '''
+            post_btn_pos = self._cdp_evaluate(ws, get_post_btn_pos_js)
+            if not post_btn_pos:
+                print(f"[WARN] Không tìm thấy nút Đăng trong group {group_id}")
+                return (False, "")
+
+            # Di chuyển chuột đến nút Đăng
+            self._move_mouse_human(ws, int(post_btn_pos['x']), int(post_btn_pos['y']))
+            time.sleep(random.uniform(0.15, 0.4))
+
+            # Click với mouse events
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mousePressed",
+                "x": int(post_btn_pos['x']),
+                "y": int(post_btn_pos['y']),
+                "button": "left",
+                "clickCount": 1
+            })
+            time.sleep(random.uniform(0.05, 0.12))
+            self._cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": "mouseReleased",
+                "x": int(post_btn_pos['x']),
+                "y": int(post_btn_pos['y']),
+                "button": "left",
+                "clickCount": 1
+            })
+
+            time.sleep(random.uniform(5, 8))  # Đợi đăng xong (đợi lâu hơn cho duyệt tự động)
+
+            # Bước 7: Mở tab mới để lấy URL (tránh dialog leave site)
+            # Kiểm tra có cần like không
+            should_like = self.auto_like_var.get()
+            react_type = self.react_type_var.get() if should_like else None
+
+            post_url = self._get_post_url_new_tab(ws, group_url, group_id, should_like, react_type)
+
+            print(f"[OK] Đã đăng bài vào group {group_id}: {post_url}")
+            return (True, post_url)
+
+        except Exception as e:
+            print(f"[ERROR] Lỗi đăng bài group {group_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return (False, "")
+
+    def _get_post_url_new_tab(self, ws, group_url: str, group_id: str, should_like: bool = False, react_type: str = None) -> str:
+        """Mở tab mới để lấy URL bài viết vừa đăng và like nếu cần"""
+        import time
+        import websocket as ws_module
+
+        # Tạo tab mới
+        result = self._cdp_send(ws, "Target.createTarget", {"url": group_url})
+        target_id = result.get('result', {}).get('targetId')
+
+        if not target_id:
+            return f"https://www.facebook.com/groups/{group_id}"
+
+        time.sleep(random.uniform(3, 5))  # Đợi tab mới load
+
+        # Lấy WebSocket của tab mới
+        new_ws_url = None
+        try:
+            cdp_base = f"http://127.0.0.1:{self._posting_port}"
+            resp = requests.get(f"{cdp_base}/json", timeout=10)
+            pages = resp.json()
+            for p in pages:
+                if p.get('id') == target_id:
+                    new_ws_url = p.get('webSocketDebuggerUrl')
+                    break
+        except:
+            pass
+
+        if not new_ws_url:
+            # Đóng tab mới
+            self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+            return f"https://www.facebook.com/groups/{group_id}"
+
+        # Kết nối WebSocket tab mới
+        new_ws = None
+        try:
+            new_ws = ws_module.create_connection(new_ws_url, timeout=30, suppress_origin=True)
+        except:
+            try:
+                new_ws = ws_module.create_connection(new_ws_url, timeout=30)
+            except:
+                self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+                return f"https://www.facebook.com/groups/{group_id}"
+
+        # Đợi page load
+        time.sleep(random.uniform(2, 3))
+
+        # Tìm bài vừa đăng trong tab mới
+        get_post_url_js = '''
+        (function() {
+            let posts = document.querySelectorAll('[data-pagelet*="FeedUnit"], [role="article"]');
+            for (let post of posts) {
+                let timeText = post.innerText || '';
+                let hasRecentTime = timeText.includes('Vừa xong') ||
+                                   timeText.includes('Just now') ||
+                                   timeText.includes('1 phút') ||
+                                   timeText.includes('2 phút') ||
+                                   timeText.includes('3 phút') ||
+                                   timeText.includes('4 phút') ||
+                                   timeText.includes('5 phút') ||
+                                   timeText.includes('1 minute') ||
+                                   timeText.includes('2 minutes') ||
+                                   timeText.includes('Đang chờ') ||
+                                   timeText.includes('Pending');
+                if (hasRecentTime) {
+                    let links = post.querySelectorAll('a[href*="/posts/"], a[href*="pfbid"], a[href*="permalink"]');
+                    for (let link of links) {
+                        if (link.href && (link.href.includes('/posts/') || link.href.includes('pfbid'))) {
+                            return link.href;
+                        }
+                    }
+                }
+            }
+            let postLinks = document.querySelectorAll('a[href*="/posts/"]');
+            return postLinks.length > 0 ? postLinks[0].href : null;
+        })()
+        '''
+
+        # Helper để gửi CDP command đến tab mới
+        def send_new(method, params=None):
+            import json as json_module
+            self._cdp_id += 1
+            msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+            new_ws.send(json_module.dumps(msg))
+            while True:
+                try:
+                    new_ws.settimeout(30)
+                    resp = new_ws.recv()
+                    data = json_module.loads(resp)
+                    if data.get('id') == self._cdp_id:
+                        return data
+                except:
+                    return {}
+
+        def eval_new(expr):
+            result = send_new("Runtime.evaluate", {
+                "expression": expr,
+                "returnByValue": True,
+                "awaitPromise": True
+            })
+            return result.get('result', {}).get('result', {}).get('value')
+
+        # Thử lấy URL trong tab mới
+        post_url = None
+        for attempt in range(3):
+            post_url = eval_new(get_post_url_js)
+            if post_url and ('/posts/' in post_url or 'pfbid' in post_url):
+                break
+
+            if attempt < 2:
+                time.sleep(random.uniform(2, 3))
+                # Reload tab mới
+                send_new("Page.reload", {})
+                time.sleep(random.uniform(3, 4))
+
+        # Like/React nếu được yêu cầu
+        if should_like and post_url and ('/posts/' in post_url or 'pfbid' in post_url):
+            try:
+                # Navigate đến bài viết
+                send_new("Page.navigate", {"url": post_url})
+                time.sleep(random.uniform(4, 6))
+
+                # Đợi page load hoàn toàn
+                for _ in range(10):
+                    ready = eval_new("document.readyState")
+                    if ready == 'complete':
+                        break
+                    time.sleep(1)
+
+                time.sleep(random.uniform(1, 2))
+
+                # Scroll xuống một chút để thấy nút Like
+                eval_new("window.scrollBy(0, 200);")
+                time.sleep(random.uniform(0.5, 1))
+
+                # Map react type to aria-label (cả tiếng Việt và tiếng Anh)
+                react_map = {
+                    "👍 Like": ["Thích", "Like"],
+                    "❤️ Yêu thích": ["Yêu thích", "Love"],
+                    "😆 Haha": ["Haha", "Haha"],
+                    "😮 Wow": ["Wow", "Wow"],
+                    "😢 Buồn": ["Buồn", "Sad"],
+                    "😡 Phẫn nộ": ["Phẫn nộ", "Angry"]
+                }
+                react_labels = react_map.get(react_type, ["Thích", "Like"])
+
+                # Tìm nút Like với nhiều cách
+                find_like_btn_js = '''
+                (function() {
+                    // Cách 1: Tìm theo aria-label
+                    let btn = document.querySelector('[aria-label="Thích"]');
+                    if (!btn) btn = document.querySelector('[aria-label="Like"]');
+
+                    // Cách 2: Tìm theo role và text
+                    if (!btn) {
+                        let buttons = document.querySelectorAll('[role="button"]');
+                        for (let b of buttons) {
+                            let text = b.innerText || b.textContent || '';
+                            if (text.trim() === 'Thích' || text.trim() === 'Like') {
+                                btn = b;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Cách 3: Tìm trong action bar của bài viết
+                    if (!btn) {
+                        let spans = document.querySelectorAll('span');
+                        for (let span of spans) {
+                            let text = span.innerText || '';
+                            if (text === 'Thích' || text === 'Like') {
+                                // Tìm parent có role=button
+                                let parent = span.closest('[role="button"]');
+                                if (parent) {
+                                    btn = parent;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (btn) {
+                        let rect = btn.getBoundingClientRect();
+                        return {
+                            x: rect.left + rect.width/2,
+                            y: rect.top + rect.height/2,
+                            found: true
+                        };
+                    }
+                    return {found: false};
+                })()
+                '''
+                like_info = eval_new(find_like_btn_js)
+                print(f"[DEBUG] Like button info: {like_info}")
+
+                if like_info and like_info.get('found'):
+                    like_x = int(like_info['x'])
+                    like_y = int(like_info['y'])
+
+                    if react_labels[0] == "Thích" or react_labels[1] == "Like":
+                        # Click đơn giản cho Like
+                        # Di chuyển chuột đến nút
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mouseMoved",
+                            "x": like_x,
+                            "y": like_y
+                        })
+                        time.sleep(0.3)
+
+                        # Click
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mousePressed",
+                            "x": like_x,
+                            "y": like_y,
+                            "button": "left",
+                            "clickCount": 1
+                        })
+                        time.sleep(0.1)
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mouseReleased",
+                            "x": like_x,
+                            "y": like_y,
+                            "button": "left",
+                            "clickCount": 1
+                        })
+                        print(f"[OK] Đã click Like tại ({like_x}, {like_y})")
+                    else:
+                        # Hover để hiện reactions popup
+                        send_new("Input.dispatchMouseEvent", {
+                            "type": "mouseMoved",
+                            "x": like_x,
+                            "y": like_y
+                        })
+                        time.sleep(2.5)  # Đợi popup reactions hiện
+
+                        # Tìm và click reaction cụ thể
+                        react_label_vi = react_labels[0]
+                        react_label_en = react_labels[1]
+                        click_react_js = f'''
+                        (function() {{
+                            // Tìm reaction button trong popup
+                            let reacts = document.querySelectorAll('[aria-label="{react_label_vi}"], [aria-label="{react_label_en}"]');
+                            for (let r of reacts) {{
+                                let rect = r.getBoundingClientRect();
+                                if (rect.width > 0 && rect.height > 0) {{
+                                    return {{
+                                        x: rect.left + rect.width/2,
+                                        y: rect.top + rect.height/2,
+                                        found: true
+                                    }};
+                                }}
+                            }}
+
+                            // Fallback: tìm theo data-testid hoặc title
+                            let allBtns = document.querySelectorAll('[role="button"]');
+                            for (let btn of allBtns) {{
+                                let label = btn.getAttribute('aria-label') || '';
+                                if (label.includes('{react_label_vi}') || label.includes('{react_label_en}')) {{
+                                    let rect = btn.getBoundingClientRect();
+                                    if (rect.width > 0 && rect.height > 0) {{
+                                        return {{
+                                            x: rect.left + rect.width/2,
+                                            y: rect.top + rect.height/2,
+                                            found: true
+                                        }};
+                                    }}
+                                }}
+                            }}
+                            return {{found: false}};
+                        }})()
+                        '''
+                        react_info = eval_new(click_react_js)
+                        print(f"[DEBUG] React button info: {react_info}")
+
+                        if react_info and react_info.get('found'):
+                            react_x = int(react_info['x'])
+                            react_y = int(react_info['y'])
+
+                            # Click vào reaction
+                            send_new("Input.dispatchMouseEvent", {
+                                "type": "mouseMoved",
+                                "x": react_x,
+                                "y": react_y
+                            })
+                            time.sleep(0.3)
+                            send_new("Input.dispatchMouseEvent", {
+                                "type": "mousePressed",
+                                "x": react_x,
+                                "y": react_y,
+                                "button": "left",
+                                "clickCount": 1
+                            })
+                            time.sleep(0.1)
+                            send_new("Input.dispatchMouseEvent", {
+                                "type": "mouseReleased",
+                                "x": react_x,
+                                "y": react_y,
+                                "button": "left",
+                                "clickCount": 1
+                            })
+                            print(f"[OK] Đã click {react_type} tại ({react_x}, {react_y})")
+                        else:
+                            print(f"[WARN] Không tìm thấy nút {react_type}")
+                else:
+                    print(f"[WARN] Không tìm thấy nút Like")
+
+                time.sleep(random.uniform(1, 2))
+                print(f"[OK] Hoàn tất {react_type} bài viết")
+            except Exception as e:
+                print(f"[WARN] Không thể like: {e}")
+
+        # Đóng tab mới
+        try:
+            new_ws.close()
+        except:
+            pass
+        self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+
+        if not post_url:
+            post_url = f"https://www.facebook.com/groups/{group_id}"
+
+        return post_url
 
     def _on_posting_complete(self, total: int):
         """Hoàn tất đăng bài"""
@@ -1430,6 +2974,12 @@ class GroupsTab(ctk.CTkFrame):
         if self._is_posting:
             self._is_posting = False
             self._set_status("Đã dừng", "warning")
+
+    def _open_url(self, url: str):
+        """Mở URL trong browser mặc định"""
+        import webbrowser
+        if url:
+            webbrowser.open(url)
 
     def _render_posted_urls(self):
         """Render danh sách URLs đã đăng"""
@@ -1455,12 +3005,15 @@ class GroupsTab(ctk.CTkFrame):
                          font=ctk.CTkFont(size=9), text_color=COLORS["text_primary"],
                          anchor="w").pack(side="left", padx=3)
 
-            url_label = ctk.CTkLabel(row, text=item['post_url'][:40], width=250,
+            url = item['post_url']
+            url_label = ctk.CTkLabel(row, text=url[:45], width=280,
                                      font=ctk.CTkFont(size=9), text_color=COLORS["accent"],
                                      anchor="w", cursor="hand2")
             url_label.pack(side="left", padx=3)
+            # Bind click để mở URL trong browser
+            url_label.bind("<Button-1>", lambda e, u=url: self._open_url(u))
 
-            ctk.CTkLabel(row, text=item['time'], width=80,
+            ctk.CTkLabel(row, text=item['time'], width=60,
                          font=ctk.CTkFont(size=9), text_color=COLORS["text_secondary"]).pack(side="left")
 
     # ==================== BOOST TAB ====================
@@ -1648,10 +3201,85 @@ class GroupsTab(ctk.CTkFrame):
         threading.Thread(target=do_comment, daemon=True).start()
 
     def _execute_commenting(self, posts: List[Dict], comments: List[str]):
-        """Thực hiện bình luận"""
+        """Thực hiện bình luận qua CDP"""
         import time
+        import websocket
 
         total = len(posts)
+        profile_uuid = self.current_profile_uuid
+
+        self.after(0, lambda: self._set_status("Đang kết nối browser...", "info"))
+
+        # Mở browser
+        result = api.open_browser(profile_uuid)
+        if result.get('type') == 'error':
+            self.after(0, lambda: self._on_commenting_error(f"Không mở được browser"))
+            return
+
+        data = result.get('data', {})
+        remote_port = data.get('remote_port')
+        ws_url = data.get('web_socket', '')
+
+        if not remote_port:
+            match = re.search(r':(\d+)/', ws_url)
+            if match:
+                remote_port = int(match.group(1))
+
+        if not remote_port:
+            self.after(0, lambda: self._on_commenting_error("Không lấy được remote_port"))
+            return
+
+        cdp_base = f"http://127.0.0.1:{remote_port}"
+        self._commenting_port = remote_port  # Lưu để dùng cho tab mới
+        time.sleep(2)
+
+        # Đóng hết tab cũ
+        try:
+            resp = requests.get(f"{cdp_base}/json", timeout=10)
+            all_pages = resp.json()
+            page_targets = [p for p in all_pages if p.get('type') == 'page']
+            if len(page_targets) > 1:
+                for p in page_targets[1:]:
+                    target_id = p.get('id')
+                    if target_id:
+                        requests.get(f"{cdp_base}/json/close/{target_id}", timeout=5)
+                time.sleep(1)
+        except:
+            pass
+
+        # Lấy page websocket
+        page_ws = None
+        for _ in range(5):
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('type') == 'page':
+                        page_ws = p.get('webSocketDebuggerUrl')
+                        break
+                if page_ws:
+                    break
+            except:
+                time.sleep(1)
+
+        if not page_ws:
+            self.after(0, lambda: self._on_commenting_error("Không kết nối được CDP"))
+            return
+
+        # Kết nối WebSocket
+        ws = None
+        try:
+            ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
+        except:
+            try:
+                ws = websocket.create_connection(page_ws, timeout=30)
+            except:
+                self.after(0, lambda: self._on_commenting_error("WebSocket error"))
+                return
+
+        self._commenting_ws = ws
+        self._cdp_id = 1
+        success_count = 0
 
         for i, post in enumerate(posts):
             if not self._is_boosting:
@@ -1667,18 +3295,21 @@ class GroupsTab(ctk.CTkFrame):
             # Random comment
             comment = random.choice(comments)
 
-            # TODO: Implement actual commenting via Hidemium API
-            result = self._comment_on_post(post, comment)
+            # Thực hiện comment qua CDP
+            result = self._comment_on_post_cdp(ws, url, comment)
 
             # Log
             timestamp = datetime.now().strftime('%H:%M:%S')
-            log_text = f"[{timestamp}] {'OK' if result else 'FAIL'}: {url[:50]}... - '{comment[:30]}...'"
+            status = 'OK' if result else 'FAIL'
+            if result:
+                success_count += 1
+            log_text = f"[{timestamp}] {status}: {url[:40]}... - '{comment[:25]}...'"
             self.after(0, lambda t=log_text: self._append_comment_log(t))
 
             # Delay
             if i < total - 1:
                 if self.random_comment_delay_var.get():
-                    delay = random.uniform(1, 5)
+                    delay = random.uniform(2, 6)
                 else:
                     try:
                         delay = float(self.comment_delay_entry.get())
@@ -1686,13 +3317,209 @@ class GroupsTab(ctk.CTkFrame):
                         delay = 3
                 time.sleep(delay)
 
-        self.after(0, lambda: self._on_commenting_complete(total))
+        # Đóng WebSocket
+        try:
+            ws.close()
+        except:
+            pass
+
+        self.after(0, lambda: self._on_commenting_complete(success_count))
 
     def _comment_on_post(self, post: Dict, comment: str) -> bool:
         """Bình luận vào bài - placeholder"""
-        import time
-        time.sleep(0.5)
         return True
+
+    def _comment_on_post_cdp(self, ws, post_url: str, comment: str) -> bool:
+        """Bình luận vào bài qua CDP - Mở tab mới để tránh dialog"""
+        import time
+        import websocket as ws_module
+        import json as json_module
+
+        if not post_url or 'facebook.com' not in post_url:
+            return False
+
+        try:
+            # Tạo tab mới để tránh Leave site dialog
+            result = self._cdp_send(ws, "Target.createTarget", {"url": post_url})
+            target_id = result.get('result', {}).get('targetId')
+
+            if not target_id:
+                print(f"[WARN] Không tạo được tab mới cho: {post_url}")
+                return False
+
+            time.sleep(random.uniform(3, 5))  # Đợi tab mới load
+
+            # Lấy WebSocket của tab mới
+            new_ws_url = None
+            try:
+                cdp_base = f"http://127.0.0.1:{self._commenting_port}"
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('id') == target_id:
+                        new_ws_url = p.get('webSocketDebuggerUrl')
+                        break
+            except:
+                pass
+
+            if not new_ws_url:
+                # Đóng tab mới
+                self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+                return False
+
+            # Kết nối WebSocket tab mới
+            new_ws = None
+            try:
+                new_ws = ws_module.create_connection(new_ws_url, timeout=30, suppress_origin=True)
+            except:
+                try:
+                    new_ws = ws_module.create_connection(new_ws_url, timeout=30)
+                except:
+                    self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+                    return False
+
+            # Helper để gửi CDP command đến tab mới
+            def send_new(method, params=None):
+                self._cdp_id += 1
+                msg = {"id": self._cdp_id, "method": method, "params": params or {}}
+                new_ws.send(json_module.dumps(msg))
+                while True:
+                    try:
+                        new_ws.settimeout(30)
+                        resp = new_ws.recv()
+                        data = json_module.loads(resp)
+                        if data.get('id') == self._cdp_id:
+                            return data
+                    except:
+                        return {}
+
+            def eval_new(expr):
+                result = send_new("Runtime.evaluate", {
+                    "expression": expr,
+                    "returnByValue": True,
+                    "awaitPromise": True
+                })
+                return result.get('result', {}).get('result', {}).get('value')
+
+            def type_in_new_tab(text):
+                """Gõ text trong tab mới với kiểu giống người"""
+                for char in text:
+                    # Random typo (3% chance)
+                    if random.random() < 0.03:
+                        wrong_char = random.choice('abcdefghijklmnopqrstuvwxyz')
+                        send_new("Input.insertText", {"text": wrong_char})
+                        time.sleep(random.uniform(0.05, 0.15))
+                        send_new("Input.dispatchKeyEvent", {
+                            "type": "keyDown",
+                            "key": "Backspace",
+                            "code": "Backspace"
+                        })
+                        send_new("Input.dispatchKeyEvent", {
+                            "type": "keyUp",
+                            "key": "Backspace",
+                            "code": "Backspace"
+                        })
+                        time.sleep(random.uniform(0.1, 0.2))
+
+                    send_new("Input.insertText", {"text": char})
+                    time.sleep(random.uniform(0.03, 0.12))
+
+            # Đợi page load
+            for _ in range(10):
+                ready = eval_new("document.readyState")
+                if ready == 'complete':
+                    break
+                time.sleep(1)
+
+            time.sleep(random.uniform(1, 2))
+
+            # Scroll xuống một chút để thấy comment box
+            eval_new("window.scrollBy(0, 300);")
+            time.sleep(random.uniform(0.5, 1))
+
+            # Tìm và click vào ô comment
+            click_comment_js = '''
+            (function() {
+                // Tìm ô "Viết bình luận..." hoặc "Write a comment..."
+                let placeholders = document.querySelectorAll('[contenteditable="true"]');
+                for (let el of placeholders) {
+                    let placeholder = el.getAttribute('aria-placeholder') || el.getAttribute('placeholder') || '';
+                    if (placeholder.includes('bình luận') || placeholder.includes('comment') ||
+                        placeholder.includes('Viết') || placeholder.includes('Write')) {
+                        el.focus();
+                        el.click();
+                        return true;
+                    }
+                }
+
+                // Fallback: tìm theo aria-label
+                let commentBox = document.querySelector('[aria-label*="bình luận"]');
+                if (!commentBox) commentBox = document.querySelector('[aria-label*="comment"]');
+                if (!commentBox) commentBox = document.querySelector('[aria-label*="Viết"]');
+                if (commentBox) {
+                    commentBox.focus();
+                    commentBox.click();
+                    return true;
+                }
+
+                // Fallback 2: click vào text "Viết bình luận"
+                let spans = document.querySelectorAll('span');
+                for (let span of spans) {
+                    if (span.innerText && (span.innerText.includes('Viết bình luận') ||
+                        span.innerText.includes('Write a comment'))) {
+                        span.click();
+                        return true;
+                    }
+                }
+                return false;
+            })()
+            '''
+            clicked = eval_new(click_comment_js)
+            if not clicked:
+                print(f"[WARN] Không tìm thấy ô comment: {post_url}")
+                # Đóng tab mới
+                try:
+                    new_ws.close()
+                except:
+                    pass
+                self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+                return False
+
+            time.sleep(random.uniform(1, 2))
+
+            # Gõ comment từng ký tự
+            type_in_new_tab(comment)
+            time.sleep(random.uniform(0.5, 1))
+
+            # Nhấn Enter để gửi comment
+            send_new("Input.dispatchKeyEvent", {
+                "type": "keyDown",
+                "key": "Enter",
+                "code": "Enter"
+            })
+            time.sleep(0.1)
+            send_new("Input.dispatchKeyEvent", {
+                "type": "keyUp",
+                "key": "Enter",
+                "code": "Enter"
+            })
+
+            time.sleep(random.uniform(2, 3))
+
+            print(f"[OK] Đã comment: {post_url[:50]}")
+
+            # Đóng tab mới
+            try:
+                new_ws.close()
+            except:
+                pass
+            self._cdp_send(ws, "Target.closeTarget", {"targetId": target_id})
+
+            return True
+
+        except Exception as e:
+            print(f"[ERROR] Lỗi comment: {e}")
+            return False
 
     def _on_commenting_complete(self, total: int):
         """Hoàn tất bình luận"""

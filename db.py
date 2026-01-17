@@ -127,6 +127,25 @@ def init_database():
             )
         """)
 
+        # ============ PAGES TABLE ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_uuid TEXT NOT NULL,
+                page_id TEXT NOT NULL,
+                page_name TEXT,
+                page_url TEXT,
+                category TEXT,
+                follower_count INTEGER DEFAULT 0,
+                role TEXT DEFAULT 'admin',
+                note TEXT,
+                is_selected INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(profile_uuid, page_id)
+            )
+        """)
+
         # ============ GROUPS TABLE ============
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS groups (
@@ -158,6 +177,29 @@ def init_database():
             )
         """)
 
+        # ============ SCHEDULES TABLE ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                folder_id TEXT,
+                folder_name TEXT,
+                time_slots TEXT,
+                content_category_id INTEGER,
+                image_folder TEXT,
+                group_ids TEXT,
+                delay_min INTEGER DEFAULT 30,
+                delay_max INTEGER DEFAULT 60,
+                is_active INTEGER DEFAULT 1,
+                post_count INTEGER DEFAULT 0,
+                success_count INTEGER DEFAULT 0,
+                error_count INTEGER DEFAULT 0,
+                last_run_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Tạo category mặc định nếu chưa có
         cursor.execute("SELECT COUNT(*) FROM categories")
         if cursor.fetchone()[0] == 0:
@@ -170,6 +212,7 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contents_category ON contents(category_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_profiles_uuid ON profiles(uuid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scripts_type ON scripts(type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pages_profile ON pages(profile_uuid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_groups_profile ON groups(profile_uuid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_profile ON post_history(profile_uuid)")
         # Performance indexes for post_history filtering
@@ -692,6 +735,155 @@ def migrate_from_json():
                 print(f"Error migrating {name}: {e}")
 
 
+# ==================== PAGES ====================
+
+def get_pages(profile_uuid: str = None) -> List[Dict]:
+    """Lấy danh sách pages, có thể lọc theo profile"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if profile_uuid:
+            cursor.execute(
+                "SELECT * FROM pages WHERE profile_uuid = ? ORDER BY page_name",
+                (profile_uuid,)
+            )
+        else:
+            cursor.execute("SELECT * FROM pages ORDER BY page_name")
+        return rows_to_list(cursor.fetchall())
+
+
+def get_pages_for_profiles(profile_uuids: List[str]) -> List[Dict]:
+    """Lấy danh sách pages từ nhiều profiles"""
+    if not profile_uuids:
+        return []
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join(['?' for _ in profile_uuids])
+        cursor.execute(
+            f"SELECT * FROM pages WHERE profile_uuid IN ({placeholders}) ORDER BY profile_uuid, page_name",
+            profile_uuids
+        )
+        return rows_to_list(cursor.fetchall())
+
+
+def get_page_by_id(page_id: int) -> Optional[Dict]:
+    """Lấy page theo ID"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM pages WHERE id = ?", (page_id,))
+        return row_to_dict(cursor.fetchone())
+
+
+def save_page(data: Dict) -> Dict:
+    """Lưu page (tạo mới hoặc cập nhật)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        # Check if page already exists for this profile
+        cursor.execute(
+            "SELECT id FROM pages WHERE profile_uuid = ? AND page_id = ?",
+            (data.get('profile_uuid'), data.get('page_id'))
+        )
+        existing = cursor.fetchone()
+
+        if existing:
+            # Update
+            cursor.execute("""
+                UPDATE pages
+                SET page_name = ?, page_url = ?, category = ?, follower_count = ?,
+                    role = ?, note = ?, is_selected = ?, updated_at = ?
+                WHERE id = ?
+            """, (
+                data.get('page_name', ''),
+                data.get('page_url', ''),
+                data.get('category', ''),
+                data.get('follower_count', 0),
+                data.get('role', 'admin'),
+                data.get('note', ''),
+                data.get('is_selected', 0),
+                now,
+                existing['id']
+            ))
+            data['id'] = existing['id']
+        else:
+            # Insert
+            cursor.execute("""
+                INSERT INTO pages (profile_uuid, page_id, page_name, page_url, category,
+                    follower_count, role, note, is_selected, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get('profile_uuid', ''),
+                data.get('page_id', ''),
+                data.get('page_name', ''),
+                data.get('page_url', ''),
+                data.get('category', ''),
+                data.get('follower_count', 0),
+                data.get('role', 'admin'),
+                data.get('note', ''),
+                data.get('is_selected', 0),
+                now, now
+            ))
+            data['id'] = cursor.lastrowid
+
+        return data
+
+
+def delete_page(page_id: int) -> bool:
+    """Xóa page"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM pages WHERE id = ?", (page_id,))
+        return cursor.rowcount > 0
+
+
+def delete_pages_bulk(page_ids: List[int]) -> int:
+    """Xóa nhiều pages"""
+    if not page_ids:
+        return 0
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join(['?' for _ in page_ids])
+        cursor.execute(f"DELETE FROM pages WHERE id IN ({placeholders})", page_ids)
+        return cursor.rowcount
+
+
+def update_page_selection(page_id: int, is_selected: int) -> bool:
+    """Cập nhật trạng thái chọn page"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            UPDATE pages SET is_selected = ?, updated_at = ? WHERE id = ?
+        """, (is_selected, now, page_id))
+        return cursor.rowcount > 0
+
+
+def sync_pages(profile_uuid: str, pages_from_scan: List[Dict]):
+    """Đồng bộ pages từ scan vào database"""
+    for page in pages_from_scan:
+        page['profile_uuid'] = profile_uuid
+        save_page(page)
+
+
+def clear_pages(profile_uuid: str) -> bool:
+    """Xóa tất cả pages của profile"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM pages WHERE profile_uuid = ?", (profile_uuid,))
+        return cursor.rowcount > 0
+
+
+def get_pages_count(profile_uuid: str = None) -> int:
+    """Đếm số pages"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if profile_uuid:
+            cursor.execute("SELECT COUNT(*) FROM pages WHERE profile_uuid = ?", (profile_uuid,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM pages")
+        return cursor.fetchone()[0]
+
+
 # ==================== GROUPS ====================
 
 def get_groups(profile_uuid: str = None) -> List[Dict]:
@@ -705,6 +897,20 @@ def get_groups(profile_uuid: str = None) -> List[Dict]:
             )
         else:
             cursor.execute("SELECT * FROM groups ORDER BY group_name")
+        return rows_to_list(cursor.fetchall())
+
+
+def get_groups_for_profiles(profile_uuids: List[str]) -> List[Dict]:
+    """Lấy danh sách groups từ nhiều profiles"""
+    if not profile_uuids:
+        return []
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join(['?' for _ in profile_uuids])
+        cursor.execute(
+            f"SELECT * FROM groups WHERE profile_uuid IN ({placeholders}) ORDER BY profile_uuid, group_name",
+            profile_uuids
+        )
         return rows_to_list(cursor.fetchall())
 
 
@@ -937,6 +1143,112 @@ def get_post_history_count(
 
         cursor.execute(f"SELECT COUNT(*) FROM post_history WHERE {where_clause}", params)
         return cursor.fetchone()[0]
+
+
+# ==================== SCHEDULES ====================
+
+def get_schedules(active_only: bool = False) -> List[Dict]:
+    """Lấy danh sách schedules"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if active_only:
+            cursor.execute("SELECT * FROM schedules WHERE is_active = 1 ORDER BY id")
+        else:
+            cursor.execute("SELECT * FROM schedules ORDER BY id")
+        return rows_to_list(cursor.fetchall())
+
+
+def get_schedule(schedule_id: int) -> Optional[Dict]:
+    """Lấy schedule theo ID"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
+        row = cursor.fetchone()
+        return row_to_dict(row)
+
+
+def save_schedule(data: Dict) -> Dict:
+    """Lưu schedule (insert hoặc update)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        if data.get('id'):
+            # Update
+            cursor.execute("""
+                UPDATE schedules SET
+                    name = ?, folder_id = ?, folder_name = ?, time_slots = ?,
+                    content_category_id = ?, image_folder = ?, group_ids = ?,
+                    delay_min = ?, delay_max = ?, is_active = ?, updated_at = ?
+                WHERE id = ?
+            """, (
+                data.get('name', ''),
+                data.get('folder_id', ''),
+                data.get('folder_name', ''),
+                data.get('time_slots', ''),
+                data.get('content_category_id'),
+                data.get('image_folder', ''),
+                data.get('group_ids', ''),
+                data.get('delay_min', 30),
+                data.get('delay_max', 60),
+                data.get('is_active', 1),
+                now,
+                data['id']
+            ))
+        else:
+            # Insert
+            cursor.execute("""
+                INSERT INTO schedules (name, folder_id, folder_name, time_slots,
+                    content_category_id, image_folder, group_ids, delay_min, delay_max,
+                    is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get('name', ''),
+                data.get('folder_id', ''),
+                data.get('folder_name', ''),
+                data.get('time_slots', ''),
+                data.get('content_category_id'),
+                data.get('image_folder', ''),
+                data.get('group_ids', ''),
+                data.get('delay_min', 30),
+                data.get('delay_max', 60),
+                data.get('is_active', 1),
+                now, now
+            ))
+            data['id'] = cursor.lastrowid
+        return data
+
+
+def delete_schedule(schedule_id: int) -> bool:
+    """Xóa schedule"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+        return cursor.rowcount > 0
+
+
+def update_schedule_stats(schedule_id: int, post_count: int = None,
+                          success_count: int = None, error_count: int = None):
+    """Cập nhật thống kê schedule"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        updates = ["last_run_at = ?"]
+        values = [now]
+
+        if post_count is not None:
+            updates.append("post_count = post_count + ?")
+            values.append(post_count)
+        if success_count is not None:
+            updates.append("success_count = success_count + ?")
+            values.append(success_count)
+        if error_count is not None:
+            updates.append("error_count = error_count + ?")
+            values.append(error_count)
+
+        values.append(schedule_id)
+        cursor.execute(f"UPDATE schedules SET {', '.join(updates)} WHERE id = ?", values)
 
 
 # Khởi tạo database khi import module
