@@ -172,6 +172,11 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scripts_type ON scripts(type)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_groups_profile ON groups(profile_uuid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_profile ON post_history(profile_uuid)")
+        # Performance indexes for post_history filtering
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_created ON post_history(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_status ON post_history(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_profile_date ON post_history(profile_uuid, created_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_post_history_composite ON post_history(profile_uuid, status, created_at DESC)")
 
 
 def row_to_dict(row) -> Dict:
@@ -841,6 +846,97 @@ def save_post_history(data: Dict) -> Dict:
         ))
         data['id'] = cursor.lastrowid
         return data
+
+
+def get_post_history_filtered(
+    profile_uuid: str,
+    date_from: str = None,
+    status: str = None,
+    limit: int = 50,
+    offset: int = 0
+) -> List[Dict]:
+    """
+    Lấy lịch sử đăng bài với filtering tại SQL level (tối ưu hiệu suất).
+
+    Args:
+        profile_uuid: UUID của profile
+        date_from: Ngày bắt đầu (format: 'YYYY-MM-DD'), None = không lọc ngày
+        status: Status filter ('success', 'failed', 'pending'), None = tất cả
+        limit: Số records tối đa trả về
+        offset: Số records bỏ qua (cho pagination)
+
+    Returns:
+        List[Dict]: Danh sách post history đã lọc
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        # Build query dynamically based on filters
+        conditions = ["profile_uuid = ?"]
+        params = [profile_uuid]
+
+        if date_from:
+            conditions.append("DATE(created_at) >= ?")
+            params.append(date_from)
+
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+
+        # Only include posts with URLs
+        conditions.append("post_url IS NOT NULL AND post_url != ''")
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
+            SELECT id, profile_uuid, group_id, content_id, post_url, status, error_message, created_at
+            FROM post_history
+            WHERE {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        params.extend([limit, offset])
+
+        cursor.execute(query, params)
+        return rows_to_list(cursor.fetchall())
+
+
+def get_post_history_count(
+    profile_uuid: str,
+    date_from: str = None,
+    status: str = None
+) -> int:
+    """
+    Đếm số lượng post history với filtering (cho pagination).
+
+    Args:
+        profile_uuid: UUID của profile
+        date_from: Ngày bắt đầu (format: 'YYYY-MM-DD')
+        status: Status filter
+
+    Returns:
+        int: Tổng số records
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        conditions = ["profile_uuid = ?"]
+        params = [profile_uuid]
+
+        if date_from:
+            conditions.append("DATE(created_at) >= ?")
+            params.append(date_from)
+
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+
+        conditions.append("post_url IS NOT NULL AND post_url != ''")
+
+        where_clause = " AND ".join(conditions)
+
+        cursor.execute(f"SELECT COUNT(*) FROM post_history WHERE {where_clause}", params)
+        return cursor.fetchone()[0]
 
 
 # Khởi tạo database khi import module
