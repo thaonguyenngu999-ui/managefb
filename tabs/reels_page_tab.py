@@ -1184,42 +1184,85 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] Waiting for Reel to be posted...")
             time.sleep(15)
 
-            # Bước 11: Lấy link Reel
+            # Bước 11: Lấy link Reel - tìm trong nhiều nơi
             js_get_reel_url = '''
             (function() {
+                // 1. Check URL hiện tại
                 var url = window.location.href;
-                if (url.includes('/reel/')) return url;
+                var reelMatch = url.match(/\\/reel\\/(\\d+)/);
+                if (reelMatch) return 'https://www.facebook.com/reel/' + reelMatch[1];
 
-                var links = document.querySelectorAll('a[href*="/reel/"]');
-                for (var i = links.length - 1; i >= 0; i--) {
-                    if (links[i].href.match(/\\/reel\\/\\d+/)) return links[i].href;
+                // 2. Tìm link "Xem thước phim" hoặc "View reel"
+                var viewLinks = document.querySelectorAll('a[href*="/reel/"]');
+                for (var i = viewLinks.length - 1; i >= 0; i--) {
+                    var href = viewLinks[i].href;
+                    var match = href.match(/\\/reel\\/(\\d+)/);
+                    if (match) return 'https://www.facebook.com/reel/' + match[1];
                 }
 
-                var html = document.documentElement.innerHTML;
-                var match = html.match(/facebook\\.com\\/reel\\/(\\d+)/);
-                if (match) return 'https://www.facebook.com/reel/' + match[1];
+                // 3. Tìm trong thông báo/toast
+                var toasts = document.querySelectorAll('[role="alert"], [role="status"], [data-pagelet*="Toast"]');
+                for (var i = 0; i < toasts.length; i++) {
+                    var links = toasts[i].querySelectorAll('a[href*="/reel/"]');
+                    for (var j = 0; j < links.length; j++) {
+                        var match = links[j].href.match(/\\/reel\\/(\\d+)/);
+                        if (match) return 'https://www.facebook.com/reel/' + match[1];
+                    }
+                }
 
-                return 'no_reel_url';
+                // 4. Tìm trong HTML - pattern facebook.com/reel/ID
+                var html = document.body.innerHTML;
+                var patterns = [
+                    /facebook\\.com\\/reel\\/(\\d{10,})/g,
+                    /\\/reel\\/(\\d{10,})/g,
+                    /"reel_id":"(\\d+)"/g,
+                    /"video_id":"(\\d+)"/g
+                ];
+
+                for (var p = 0; p < patterns.length; p++) {
+                    var matches = html.match(patterns[p]);
+                    if (matches && matches.length > 0) {
+                        // Lấy ID từ match cuối cùng (thường là reel mới nhất)
+                        var lastMatch = matches[matches.length - 1];
+                        var idMatch = lastMatch.match(/(\\d{10,})/);
+                        if (idMatch) return 'https://www.facebook.com/reel/' + idMatch[1];
+                    }
+                }
+
+                // 5. Debug - list all reel links
+                var allReelLinks = [];
+                document.querySelectorAll('a').forEach(function(a) {
+                    if (a.href && a.href.includes('/reel/')) {
+                        allReelLinks.push(a.href);
+                    }
+                });
+                if (allReelLinks.length > 0) {
+                    console.log('Found reel links:', allReelLinks);
+                }
+
+                return 'no_reel_url_found';
             })();
             '''
 
             reel_url = None
-            for attempt in range(8):
+            for attempt in range(10):
                 reel_url = cdp.execute_js(js_get_reel_url)
-                print(f"[ReelsPage] Attempt {attempt + 1}/8 - Reel URL: {reel_url}")
+                print(f"[ReelsPage] Attempt {attempt + 1}/10 - Reel URL: {reel_url}")
 
-                if reel_url and 'no_reel_url' not in str(reel_url) and '/reel/' in str(reel_url):
-                    print(f"[ReelsPage] Found Reel URL!")
+                # Validate URL có chứa reel ID (số có ít nhất 10 chữ số)
+                if reel_url and re.search(r'/reel/\d{10,}', str(reel_url)):
+                    print(f"[ReelsPage] Found valid Reel URL!")
                     break
-                time.sleep(4)
+                time.sleep(3)
 
-            # Clean URL
+            # Clean URL - chỉ accept nếu có reel ID
             final_reel_url = None
-            if reel_url and 'no_reel_url' not in str(reel_url):
-                match = re.search(r'(https?://[^?#\s]+/reel/\d+)', str(reel_url))
-                final_reel_url = match.group(1) if match else str(reel_url).split('?')[0]
+            if reel_url:
+                match = re.search(r'(https?://[^\s]+/reel/\d{10,})', str(reel_url))
+                if match:
+                    final_reel_url = match.group(1).split('?')[0]  # Remove query params
 
-            print(f"[ReelsPage] Clean Reel URL: {final_reel_url}")
+            print(f"[ReelsPage] Final Reel URL: {final_reel_url}")
 
             # Lưu vào database
             save_posted_reel({

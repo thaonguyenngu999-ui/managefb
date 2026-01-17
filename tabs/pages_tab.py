@@ -17,6 +17,7 @@ from db import (
 )
 from api_service import api
 from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
+from automation.cdp_helper import CDPHelper
 
 # Import BeautifulSoup for HTML parsing
 try:
@@ -605,12 +606,10 @@ class PagesTab(ctk.CTkFrame):
         threading.Thread(target=scan, daemon=True).start()
 
     def _scan_pages_for_profile(self, profile_uuid: str) -> List[Dict]:
-        """Scan pages cho 1 profile sử dụng CDP"""
-        if not BS4_AVAILABLE:
-            return []
-
+        """Scan pages cho 1 profile sử dụng CDPHelper"""
         pages_found = []
         slot_id = acquire_window_slot()
+        cdp = None
 
         try:
             # Bước 1: Mở browser qua Hidemium API
@@ -638,41 +637,11 @@ class PagesTab(ctk.CTkFrame):
                 release_window_slot(slot_id)
                 return []
 
-            cdp_base = f"http://127.0.0.1:{remote_port}"
-
             # Đợi browser khởi động
-            time.sleep(1)
-
-            # Set window bounds
-            try:
-                import websocket
-                import json as json_module
-                resp = requests.get(f"{cdp_base}/json", timeout=5)
-                tabs = resp.json()
-                page_ws = None
-                for tab in tabs:
-                    if tab.get('type') == 'page':
-                        page_ws = tab.get('webSocketDebuggerUrl')
-                        break
-                if page_ws:
-                    ws_tmp = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
-                    x, y, w, h = get_window_bounds(slot_id)
-                    ws_tmp.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
-                    win_res = json_module.loads(ws_tmp.recv())
-                    if win_res and 'result' in win_res and 'windowId' in win_res['result']:
-                        window_id = win_res['result']['windowId']
-                        ws_tmp.send(json_module.dumps({
-                            "id": 2, "method": "Browser.setWindowBounds",
-                            "params": {"windowId": window_id, "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}}
-                        }))
-                        ws_tmp.recv()
-                    ws_tmp.close()
-            except Exception as e:
-                print(f"[Pages] Window bounds error: {e}")
-
             time.sleep(2)
 
-            # Bước 2: Lấy danh sách tabs qua CDP
+            # Bước 2: Lấy WebSocket URL
+            cdp_base = f"http://127.0.0.1:{remote_port}"
             try:
                 resp = requests.get(f"{cdp_base}/json", timeout=10)
                 tabs = resp.json()
@@ -680,7 +649,6 @@ class PagesTab(ctk.CTkFrame):
                 print(f"[Pages] CDP error for {profile_uuid[:8]}: {e}")
                 return []
 
-            # Tìm tab page
             page_ws = None
             for tab in tabs:
                 if tab.get('type') == 'page':
@@ -688,63 +656,36 @@ class PagesTab(ctk.CTkFrame):
                     break
 
             if not page_ws:
+                print(f"[Pages] No page tab found")
                 return []
 
-            # Bước 3: Kết nối WebSocket
-            import websocket
-            import json as json_module
-
-            ws = None
-            try:
-                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
-            except:
-                try:
-                    ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
-                except:
-                    try:
-                        ws = websocket.create_connection(page_ws, timeout=30)
-                    except:
-                        return []
-
-            if not ws:
+            # Bước 3: Kết nối CDPHelper
+            cdp = CDPHelper()
+            if not cdp.connect(remote_port=remote_port, ws_url=page_ws):
+                print(f"[Pages] Failed to connect CDPHelper")
                 return []
+
+            print(f"[Pages] CDPHelper connected!")
+
+            # Set window bounds
+            bounds = get_window_bounds(slot_id)
+            if bounds:
+                x, y, w, h = bounds
+                cdp.set_window_bounds(x, y, w, h)
 
             # Navigate đến trang Pages
             pages_url = "https://www.facebook.com/pages/?category=your_pages&ref=bookmarks"
-            ws.send(json_module.dumps({
-                "id": 1,
-                "method": "Page.navigate",
-                "params": {"url": pages_url}
-            }))
-            ws.recv()
-
-            # Đợi trang load
-            time.sleep(8)
+            print(f"[Pages] Navigating to: {pages_url}")
+            cdp.navigate(pages_url)
+            cdp.wait_for_page_load(timeout_ms=15000)
+            time.sleep(5)
 
             # Scroll để load pages
             for i in range(5):
-                ws.send(json_module.dumps({
-                    "id": 100 + i,
-                    "method": "Runtime.evaluate",
-                    "params": {"expression": "window.scrollTo(0, document.body.scrollHeight);"}
-                }))
-                ws.recv()
-                time.sleep(2)
+                cdp.execute_js("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1.5)
 
-            # Lấy HTML content
-            ws.send(json_module.dumps({
-                "id": 200,
-                "method": "Runtime.evaluate",
-                "params": {"expression": "document.documentElement.outerHTML"}
-            }))
-            result = json_module.loads(ws.recv())
-            html_content = result.get('result', {}).get('result', {}).get('value', '')
-
-            if not html_content:
-                ws.close()
-                return []
-
-            # Sử dụng JavaScript để tìm pages - đáng tin cậy hơn với React
+            # Tìm pages bằng JavaScript
             js_find_pages = '''
             (function() {
                 var pages = [];
@@ -782,7 +723,6 @@ class PagesTab(ctk.CTkFrame):
                     // Tìm tên page từ aria-label hoặc text gần nhất
                     var ariaLabel = link.getAttribute('aria-label');
                     if (ariaLabel && ariaLabel.length > 2 && ariaLabel.length < 100) {
-                        // Loại bỏ prefix như "Ảnh đại diện của "
                         pageName = ariaLabel.replace(/^Ảnh đại diện của /i, '').replace(/^Avatar of /i, '');
                     }
 
@@ -823,16 +763,12 @@ class PagesTab(ctk.CTkFrame):
             })();
             '''
 
-            ws.send(json_module.dumps({
-                "id": 300,
-                "method": "Runtime.evaluate",
-                "params": {"expression": js_find_pages}
-            }))
-            result = json_module.loads(ws.recv())
-            pages_json = result.get('result', {}).get('result', {}).get('value', '[]')
+            pages_json = cdp.execute_js(js_find_pages)
+            print(f"[Pages] JS result: {pages_json[:200] if pages_json else 'None'}...")
 
             try:
-                js_pages = json_module.loads(pages_json)
+                import json as json_module
+                js_pages = json_module.loads(pages_json) if pages_json else []
                 print(f"[Pages] JS found {len(js_pages)} pages")
 
                 for p in js_pages:
@@ -850,18 +786,20 @@ class PagesTab(ctk.CTkFrame):
             except Exception as e:
                 print(f"[Pages] JS parse error: {e}")
 
-            # Đóng WebSocket sau khi đã thực hiện xong JavaScript
-            ws.close()
-
             # Lưu vào database
             if pages_found:
                 sync_pages(profile_uuid, pages_found)
-                print(f"[Pages] Found {len(pages_found)} pages for {profile_uuid[:8]}")
+                print(f"[Pages] Found and saved {len(pages_found)} pages for {profile_uuid[:8]}")
+            else:
+                print(f"[Pages] No pages found for {profile_uuid[:8]}")
 
         except Exception as e:
             import traceback
             print(f"[Pages] ERROR scan {profile_uuid[:8]}: {traceback.format_exc()}")
+
         finally:
+            if cdp:
+                cdp.close()
             release_window_slot(slot_id)
 
         return pages_found
