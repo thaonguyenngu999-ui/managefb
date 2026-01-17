@@ -900,11 +900,87 @@ class ReelsPageTab(ctk.CTkFrame):
                 cdp.set_window_bounds(x, y, w, h)
                 print(f"[ReelsPage] Window positioned at ({x}, {y})")
 
-            # Bước 3: Reset về profile cá nhân trước (để có thể chuyển sang page khác)
-            print(f"[ReelsPage] Resetting to personal profile first...")
-            cdp.navigate("https://www.facebook.com/me")
+            # Bước 3: Mở menu account switcher và chuyển về profile cá nhân
+            print(f"[ReelsPage] Opening account switcher to reset to personal profile...")
+            cdp.navigate("https://www.facebook.com")
             cdp.wait_for_page_load()
+            time.sleep(3)
+
+            # Click vào avatar/menu account ở góc phải
+            js_open_account_menu = '''
+            (function() {
+                // Tìm menu account switcher - thường là avatar ở góc phải trên
+                var menuSelectors = [
+                    '[aria-label="Tài khoản của bạn"]',
+                    '[aria-label="Your account"]',
+                    '[aria-label="Account"]',
+                    '[aria-label="Tài khoản"]',
+                    'div[role="navigation"] svg[aria-label]',
+                    'image[style*="border-radius"]'
+                ];
+
+                for (var sel of menuSelectors) {
+                    var el = document.querySelector(sel);
+                    if (el) {
+                        var clickable = el.closest('[role="button"]') || el.closest('div[tabindex="0"]') || el;
+                        if (clickable) {
+                            clickable.click();
+                            return 'clicked_menu: ' + sel;
+                        }
+                    }
+                }
+
+                // Fallback: tìm tất cả role="button" ở navigation
+                var navBtns = document.querySelectorAll('div[role="navigation"] [role="button"]');
+                if (navBtns.length > 0) {
+                    // Click vào button cuối cùng (thường là account menu)
+                    navBtns[navBtns.length - 1].click();
+                    return 'clicked_last_nav_btn';
+                }
+
+                return 'no_account_menu';
+            })();
+            '''
+            menu_result = cdp.execute_js(js_open_account_menu)
+            print(f"[ReelsPage] Account menu: {menu_result}")
             time.sleep(2)
+
+            # Click vào "Chuyển sang [Tên cá nhân]" - button có aria-label bắt đầu bằng "Chuyển sang"
+            js_switch_to_personal = '''
+            (function() {
+                // Tìm tất cả buttons có aria-label "Chuyển sang..."
+                var allButtons = document.querySelectorAll('[role="button"][aria-label*="Chuyển sang"], [role="button"][aria-label*="Switch to"]');
+                console.log('Found switch buttons:', allButtons.length);
+
+                for (var i = 0; i < allButtons.length; i++) {
+                    var btn = allButtons[i];
+                    var label = btn.getAttribute('aria-label') || '';
+                    console.log('Switch button:', label);
+
+                    // Click vào button đầu tiên tìm thấy (profile cá nhân thường ở đầu)
+                    if (btn.offsetParent !== null) {
+                        btn.click();
+                        return 'switched_to: ' + label;
+                    }
+                }
+
+                // Fallback: tìm trong listitem
+                var listItems = document.querySelectorAll('[role="listitem"] [role="button"]');
+                for (var i = 0; i < listItems.length; i++) {
+                    var btn = listItems[i];
+                    var label = btn.getAttribute('aria-label') || '';
+                    if (label.includes('Chuyển sang') || label.includes('Switch to')) {
+                        btn.click();
+                        return 'switched_via_listitem: ' + label;
+                    }
+                }
+
+                return 'no_switch_button';
+            })();
+            '''
+            switch_personal_result = cdp.execute_js(js_switch_to_personal)
+            print(f"[ReelsPage] Switch to personal: {switch_personal_result}")
+            time.sleep(3)
 
             # Bước 4: Navigate đến page để switch context
             print(f"[ReelsPage] Navigating to page: {page_url}")
