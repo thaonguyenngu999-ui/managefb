@@ -3048,7 +3048,7 @@ class GroupsTab(ctk.CTkFrame):
         ''')
         print(f"[Groups] DEBUG: Group post links in page = {debug_links}")
 
-        # Tìm bài vừa đăng trong tab mới - ưu tiên tìm theo tên fb_name
+        # Tìm bài vừa đăng trong tab mới - PHẢI XÁC MINH cả tên tác giả VÀ thời gian mới đăng
         # Escape fb_name để tránh lỗi JS
         fb_name_escaped = fb_name.replace("'", "\\'").replace('"', '\\"') if fb_name else ""
 
@@ -3060,86 +3060,225 @@ class GroupsTab(ctk.CTkFrame):
             console.log('FB Name:', fbName);
             console.log('Current URL:', window.location.href);
 
-            // Cách 1: Tìm bài viết theo tên tác giả (fb_name)
-            if (fbName) {{
-                let posts = document.querySelectorAll('[role="article"]');
-                console.log('Found articles:', posts.length);
-                for (let post of posts) {{
-                    // Tìm link tác giả trong post
-                    let authorLinks = post.querySelectorAll('a[role="link"]');
-                    let isMyPost = false;
-                    for (let aLink of authorLinks) {{
-                        // So sánh tên (không phân biệt hoa thường)
-                        if (aLink.innerText && aLink.innerText.toLowerCase().includes(fbName.toLowerCase())) {{
-                            isMyPost = true;
-                            console.log('Found post by author:', aLink.innerText);
-                            break;
-                        }}
-                    }}
+            // Các từ khóa thời gian "vừa đăng" - cả tiếng Việt lẫn tiếng Anh
+            const recentTimeKeywords = [
+                'vừa xong', 'vừaxong', 'vua xong', 'vuaxong',
+                'just now', 'justnow',
+                '1 phút', '2 phút', '3 phút', '4 phút', '5 phút',
+                '1 giây', '2 giây', '3 giây', '5 giây', '10 giây', '30 giây',
+                '1m', '2m', '3m', '4m', '5m',
+                '1 min', '2 min', '3 min', '4 min', '5 min',
+                '1 minute', '2 minutes', '3 minutes', '4 minutes', '5 minutes',
+                '1s', '2s', '3s', '5s', '10s', '30s',
+                'một phút', 'hai phút', 'ba phút', 'bốn phút', 'năm phút',
+                'một giây', 'vài giây', 'một vài giây', 'a few seconds'
+            ];
 
-                    if (isMyPost) {{
-                        // Tìm pcb link trong bài này
-                        let pcbLinks = post.querySelectorAll('a[href*="set=pcb."]');
-                        for (let link of pcbLinks) {{
-                            let match = link.href.match(/set=pcb\\.(\\d+)/);
-                            if (match && match[1]) {{
-                                let postId = match[1];
-                                let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
-                                console.log('Built post URL from author post:', postUrl);
-                                return postUrl;
-                            }}
-                        }}
-
-                        // Fallback: tìm link /posts/ trong bài này
-                        let postLinks = post.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
-                        for (let link of postLinks) {{
-                            if (link.href && !link.href.includes('notif_id')) {{
-                                console.log('Found direct URL from author post:', link.href);
-                                return link.href;
+            // Hàm lấy text thật từ element (FB scramble text bằng CSS)
+            function getRealText(element) {{
+                if (!element) return '';
+                // Lấy tất cả text nodes và spans trong element
+                let textContent = '';
+                let walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, null, false);
+                let node;
+                while (node = walker.nextNode()) {{
+                    if (node.nodeType === Node.TEXT_NODE) {{
+                        textContent += node.textContent;
+                    }} else if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'SPAN') {{
+                        // Lấy text trực tiếp của span (không lấy con)
+                        for (let child of node.childNodes) {{
+                            if (child.nodeType === Node.TEXT_NODE) {{
+                                textContent += child.textContent;
                             }}
                         }}
                     }}
                 }}
+                return textContent.toLowerCase().replace(/\\s+/g, ' ').trim();
             }}
 
-            // Cách 2: Tìm URL trực tiếp có /groups/.../posts/
-            let groupLinks = document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
-            console.log('Found direct group links:', groupLinks.length);
-            for (let link of groupLinks) {{
-                if (link.href && !link.href.includes('notif_id') && !link.href.includes('ref=notif')) {{
-                    console.log('Found direct group post URL:', link.href);
-                    return link.href;
+            // Hàm kiểm tra xem text có chứa từ khóa thời gian mới không
+            function isRecentTime(text) {{
+                let normalizedText = text.toLowerCase().replace(/\\s+/g, '');
+                for (let keyword of recentTimeKeywords) {{
+                    let normalizedKeyword = keyword.toLowerCase().replace(/\\s+/g, '');
+                    if (normalizedText.includes(normalizedKeyword)) {{
+                        return true;
+                    }}
+                }}
+                return false;
+            }}
+
+            // Hàm tìm thời gian trong bài viết - Facebook thường đặt trong link hoặc span gần tác giả
+            function findTimeInPost(post) {{
+                // 1. Các abbr, time elements
+                let timeElements = post.querySelectorAll('abbr, time, [data-utime]');
+                for (let el of timeElements) {{
+                    let text = getRealText(el) || el.getAttribute('title') || '';
+                    if (isRecentTime(text)) {{
+                        console.log('Found recent time in abbr/time:', text);
+                        return true;
+                    }}
+                }}
+
+                // 2. Tìm trong các span gần link tác giả
+                let authorLink = post.querySelector('a[role="link"] strong, a[role="link"] span');
+                if (authorLink) {{
+                    let parent = authorLink.closest('div');
+                    if (parent) {{
+                        let parentText = getRealText(parent);
+                        if (isRecentTime(parentText)) {{
+                            console.log('Found recent time near author:', parentText);
+                            return true;
+                        }}
+                    }}
+                }}
+
+                // 3. Tìm trong các link có aria-label chứa thời gian
+                let linksWithTime = post.querySelectorAll('a[aria-label]');
+                for (let link of linksWithTime) {{
+                    let label = link.getAttribute('aria-label') || '';
+                    if (isRecentTime(label)) {{
+                        console.log('Found recent time in aria-label:', label);
+                        return true;
+                    }}
+                }}
+
+                // 4. Tìm trực tiếp trong text của post (fallback)
+                let allText = post.innerText || '';
+                let firstPart = allText.substring(0, 500);  // 500 ký tự đầu
+                if (isRecentTime(firstPart)) {{
+                    console.log('Found recent time in post text:', firstPart.substring(0, 100));
+                    return true;
+                }}
+
+                return false;
+            }}
+
+            // Hàm kiểm tra bài viết có phải của mình không (theo tên)
+            function isMyPost(post, myName) {{
+                if (!myName) return false;
+                let myNameLower = myName.toLowerCase();
+
+                // 1. Tìm trong các link có role="link" và aria-label chứa tên
+                let allLinks = post.querySelectorAll('a[role="link"]');
+                for (let link of allLinks) {{
+                    let ariaLabel = (link.getAttribute('aria-label') || '').toLowerCase();
+                    let linkText = (link.innerText || '').toLowerCase();
+
+                    if (ariaLabel && ariaLabel.includes(myNameLower)) {{
+                        console.log('Found my name in aria-label:', ariaLabel);
+                        return true;
+                    }}
+                    if (linkText && linkText.includes(myNameLower)) {{
+                        console.log('Found my name in link text:', linkText);
+                        return true;
+                    }}
+                }}
+
+                // 2. Tìm trong strong tags (thường là tên tác giả)
+                let strongTags = post.querySelectorAll('strong');
+                for (let strong of strongTags) {{
+                    let text = (strong.innerText || '').toLowerCase();
+                    if (text.includes(myNameLower)) {{
+                        console.log('Found my name in strong tag:', text);
+                        return true;
+                    }}
+                }}
+
+                // 3. Tìm trong h2, h3, h4 (heading có tên tác giả)
+                let headings = post.querySelectorAll('h2, h3, h4');
+                for (let h of headings) {{
+                    let text = (h.innerText || '').toLowerCase();
+                    if (text.includes(myNameLower)) {{
+                        console.log('Found my name in heading:', text);
+                        return true;
+                    }}
+                }}
+
+                return false;
+            }}
+
+            // Hàm lấy post URL từ bài viết
+            function getPostUrlFromArticle(post) {{
+                // 1. Ưu tiên tìm pcb link (có trong ảnh)
+                let pcbLinks = post.querySelectorAll('a[href*="set=pcb."]');
+                for (let link of pcbLinks) {{
+                    let match = link.href.match(/set=pcb\\.(\\d+)/);
+                    if (match && match[1]) {{
+                        let postId = match[1];
+                        let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
+                        console.log('Got URL from pcb:', postUrl);
+                        return postUrl;
+                    }}
+                }}
+
+                // 2. Tìm link /groups/.../posts/ trực tiếp (không phải notification)
+                let postLinks = post.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
+                for (let link of postLinks) {{
+                    if (link.href && !link.href.includes('notif_id') && !link.href.includes('ref=notif')) {{
+                        console.log('Got direct post URL:', link.href);
+                        return link.href;
+                    }}
+                }}
+
+                // 3. Tìm permalink hoặc pfbid
+                let permalinks = post.querySelectorAll('a[href*="pfbid"], a[href*="permalink"]');
+                for (let link of permalinks) {{
+                    if (link.href && link.href.includes('/groups/')) {{
+                        console.log('Got permalink URL:', link.href);
+                        return link.href;
+                    }}
+                }}
+
+                return null;
+            }}
+
+            // === BẮT ĐẦU TÌM KIẾM ===
+            let posts = document.querySelectorAll('[role="article"]');
+            console.log('Found', posts.length, 'articles');
+
+            // Duyệt qua từng bài viết, PHẢI MATCH CẢ TÊN VÀ THỜI GIAN
+            for (let post of posts) {{
+                let hasMyName = isMyPost(post, fbName);
+                let hasRecentTime = findTimeInPost(post);
+
+                console.log('Post check - Name match:', hasMyName, ', Recent time:', hasRecentTime);
+
+                // CHỈ lấy URL nếu ĐÚNG TÊN VÀ THỜI GIAN MỚI ĐĂNG
+                if (hasMyName && hasRecentTime) {{
+                    let url = getPostUrlFromArticle(post);
+                    if (url) {{
+                        console.log('✓ VERIFIED POST - Name + Recent time matched:', url);
+                        return url;
+                    }}
                 }}
             }}
 
-            // Cách 3: Tìm post ID từ photo links (set=pcb.{{post_id}}) - BÀI ĐẦU TIÊN = MỚI NHẤT
-            let photoLinks = document.querySelectorAll('a[href*="set=pcb."]');
-            console.log('Found photo links with pcb:', photoLinks.length);
-            if (photoLinks.length > 0) {{
-                let firstLink = photoLinks[0];
-                let match = firstLink.href.match(/set=pcb\\.(\\d+)/);
-                if (match && match[1]) {{
-                    let postId = match[1];
-                    let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
-                    console.log('Built post URL from first photo:', postUrl);
-                    return postUrl;
+            // Fallback 1: Nếu không tìm được cả 2, thử chỉ với tên (lỏng hơn)
+            console.log('No exact match, trying name-only fallback...');
+            for (let post of posts) {{
+                if (isMyPost(post, fbName)) {{
+                    let url = getPostUrlFromArticle(post);
+                    if (url) {{
+                        console.log('⚠ FALLBACK (name only):', url);
+                        return url;
+                    }}
                 }}
             }}
 
-            // Cách 4: Tìm pcb trong bất kỳ link nào
-            let allLinks = document.querySelectorAll('a[href*="pcb."]');
-            console.log('Found any pcb links:', allLinks.length);
-            for (let link of allLinks) {{
-                let match = link.href.match(/pcb\\.(\\d+)/);
-                if (match && match[1]) {{
-                    let postId = match[1];
-                    let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
-                    console.log('Built post URL from pcb link:', postUrl);
-                    return postUrl;
+            // Fallback 2: Nếu vẫn không có, thử bài đầu tiên có thời gian mới (post mới nhất)
+            console.log('No name match, trying recent-time-only fallback...');
+            for (let post of posts) {{
+                if (findTimeInPost(post)) {{
+                    let url = getPostUrlFromArticle(post);
+                    if (url) {{
+                        console.log('⚠ FALLBACK (recent time only):', url);
+                        return url;
+                    }}
                 }}
             }}
 
-            console.log('No valid group post URL found');
+            console.log('✗ No valid post URL found');
             return null;
         }})()
         '''
