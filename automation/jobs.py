@@ -331,34 +331,42 @@ class PostToGroupJob(Job):
             )
 
         # Type content into post area
-        # Facebook uses contenteditable divs
-        escaped_content = content.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-        js = f'''
-            (function() {{
+        # Facebook uses contenteditable divs with Lexical editor
+
+        # Step 1: Focus element
+        focus_js = '''
+            (function() {
                 let textbox = document.querySelector('[role="textbox"][contenteditable="true"]');
-                if (!textbox) {{
+                if (!textbox) {
                     textbox = document.activeElement;
-                }}
-                if (!textbox || textbox.getAttribute('contenteditable') !== 'true') {{
+                }
+                if (!textbox || textbox.getAttribute('contenteditable') !== 'true') {
                     return false;
-                }}
+                }
 
                 textbox.focus();
                 textbox.innerHTML = '';
-
-                // Use execCommand for better compatibility
-                document.execCommand('insertText', false, `{escaped_content}`);
-
                 return true;
-            }})()
+            })()
         '''
 
-        result = cdp.execute_js(js)
+        result = cdp.execute_js(focus_js)
         if not result.success or not result.data:
             return StateResult(
                 success=False,
-                error="Failed to input content",
+                error="Failed to focus content area",
                 failure_type=FailureType.ELEMENT_NOT_FOUND
+            )
+
+        # Step 2: Dùng CDP Input.insertText (hoạt động với Lexical editor)
+        try:
+            cdp._send_command('Input.insertText', {'text': content})
+        except Exception as e:
+            print(f"[Jobs] Input.insertText error: {e}")
+            return StateResult(
+                success=False,
+                error=f"Failed to input content: {e}",
+                failure_type=FailureType.UNKNOWN
             )
 
         # Human-like pause after typing before clicking post
@@ -979,26 +987,37 @@ class PostToGroupJobMAX(JobMAX):
                 failure_type=FailureType.LOGIC_MISMATCH
             )
 
-        # Type content using JS (Facebook uses contenteditable)
-        escaped_content = content.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-        js = f'''
-            (function() {{
+        # Type content - Facebook uses Lexical editor với contenteditable
+
+        # Step 1: Focus element
+        focus_js = '''
+            (function() {
                 let textbox = document.querySelector('[role="textbox"][contenteditable="true"]');
                 if (!textbox) textbox = document.activeElement;
                 if (!textbox || textbox.getAttribute('contenteditable') !== 'true') return false;
 
                 textbox.focus();
                 textbox.innerHTML = '';
-                document.execCommand('insertText', false, `{escaped_content}`);
                 return true;
-            }})()
+            })()
         '''
 
-        if not cdp.execute(js):
+        if not cdp.execute(focus_js):
             return StateResult(
                 success=False,
-                error="Failed to input content",
+                error="Failed to focus content area",
                 failure_type=FailureType.ELEMENT_NOT_FOUND
+            )
+
+        # Step 2: Dùng CDP Input.insertText (hoạt động với Lexical editor)
+        try:
+            cdp.session.send_command('Input.insertText', {'text': content})
+        except Exception as e:
+            print(f"[Jobs] Input.insertText error: {e}")
+            return StateResult(
+                success=False,
+                error=f"Failed to input content: {e}",
+                failure_type=FailureType.UNKNOWN
             )
 
         # Human-like think pause

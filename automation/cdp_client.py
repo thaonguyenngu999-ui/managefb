@@ -442,23 +442,35 @@ class CDPClient:
                 # Type character by character for shorter texts
                 result = AntiDetection.gradual_type(self, selector, text)
             else:
-                # Paste for longer texts (still human-like to paste)
+                # Paste for longer texts - dùng CDP Input.insertText cho Lexical editor
                 escaped_text = text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n')
-                js = f'''
+
+                # Focus element trước
+                focus_js = f'''
                     (function() {{
                         let el = document.querySelector('{selector}');
-                        if (!el) return false;
+                        if (!el) return {{found: false}};
                         el.focus();
-                        if (el.contentEditable === 'true') {{
-                            document.execCommand('insertText', false, '{escaped_text}');
-                        }} else {{
+                        let isContentEditable = el.contentEditable === 'true';
+                        if (!isContentEditable) {{
                             el.value = '{escaped_text}';
                             el.dispatchEvent(new Event('input', {{bubbles: true}}));
                         }}
-                        return true;
+                        return {{found: true, isContentEditable: isContentEditable}};
                     }})()
                 '''
-                result = self._evaluate_js(js)
+                focus_result = self._evaluate_js(focus_js)
+
+                if focus_result and focus_result.get('isContentEditable'):
+                    # Dùng CDP Input.insertText cho contenteditable (hoạt động với Lexical)
+                    try:
+                        self._send_command('Input.insertText', {'text': text})
+                        result = True
+                    except Exception as e:
+                        print(f"[CDPClient] Input.insertText error: {e}")
+                        result = False
+                else:
+                    result = focus_result.get('found', False) if focus_result else False
 
             duration = int((datetime.now() - start).total_seconds() * 1000)
             self._log_operation('type_text', result, duration, {

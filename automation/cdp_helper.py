@@ -240,22 +240,14 @@ class CDPHelper:
             return self._type_with_typos(text)
 
     def _type_fast(self, text: str) -> bool:
-        """Type text quickly using execCommand"""
-        escaped = text.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-        js = f'''
-            (function() {{
-                let el = document.activeElement;
-                if (!el) return false;
-                if (el.getAttribute('contenteditable') === 'true') {{
-                    document.execCommand('insertText', false, `{escaped}`);
-                }} else if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {{
-                    el.value += `{escaped}`;
-                    el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                }}
-                return true;
-            }})()
-        '''
-        return self._client.execute(js)
+        """Type text quickly using CDP Input.insertText (works with Lexical editor)"""
+        try:
+            # CDP Input.insertText works directly with browser, bypassing Lexical DOM issues
+            self._client.session.send_command('Input.insertText', {'text': text})
+            return True
+        except Exception as e:
+            print(f"[CDPHelper] _type_fast error: {e}")
+            return False
 
     def _type_with_typos(self, text: str) -> bool:
         """Type with occasional typos and corrections"""
@@ -593,22 +585,26 @@ class CDPHelper:
         if not self.open_post_composer():
             return False, None
 
-        # Type content into contenteditable
-        escaped = content.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-        type_js = f'''
-            (function() {{
+        # Focus vào textbox trước
+        focus_js = '''
+            (function() {
                 let textbox = document.querySelector('[role="textbox"][contenteditable="true"]');
                 if (!textbox) textbox = document.activeElement;
                 if (!textbox || textbox.getAttribute('contenteditable') !== 'true') return false;
-
                 textbox.focus();
                 textbox.innerHTML = '';
-                document.execCommand('insertText', false, `{escaped}`);
                 return true;
-            }})()
+            })()
         '''
 
-        if not self._client.execute(type_js):
+        if not self._client.execute(focus_js):
+            return False, None
+
+        # Dùng CDP Input.insertText (hoạt động với Lexical editor)
+        try:
+            self._client.session.send_command('Input.insertText', {'text': content})
+        except Exception as e:
+            print(f"[CDPHelper] post_to_group type error: {e}")
             return False, None
 
         # Human-like think pause

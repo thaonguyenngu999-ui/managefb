@@ -300,19 +300,21 @@ class ActionExecutor:
         selector_escaped = selector.replace("'", "\\'")
         text_escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("`", "\\`")
 
-        js = f"""
+        # Step 1: Focus element và check type
+        focus_js = f"""
             (function() {{
                 let el = document.querySelector('{selector_escaped}');
                 if (!el) return {{success: false, error: 'not found'}};
 
                 el.focus();
 
-                // Check if contenteditable
-                if (el.getAttribute('contenteditable') === 'true') {{
+                let isContentEditable = el.getAttribute('contenteditable') === 'true';
+
+                if (isContentEditable) {{
                     if ({str(clear).lower()}) {{
                         el.innerHTML = '';
                     }}
-                    document.execCommand('insertText', false, '{text_escaped}');
+                    return {{success: true, isContentEditable: true}};
                 }} else {{
                     if ({str(clear).lower()}) {{
                         el.value = '';
@@ -320,13 +322,33 @@ class ActionExecutor:
                     el.value += '{text_escaped}';
                     el.dispatchEvent(new Event('input', {{bubbles: true}}));
                     el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    return {{success: true, isContentEditable: false, value: el.value}};
                 }}
-
-                return {{success: true, value: el.value || el.textContent}};
             }})()
         """
 
-        result = self._session.evaluate_js(js)
+        result = self._session.evaluate_js(focus_js)
+        if result.success and result.result:
+            type_result = result.result.get('result', {}).get('value', {})
+            if type_result.get('success') and type_result.get('isContentEditable'):
+                # Dùng CDP Input.insertText cho contenteditable (hoạt động với Lexical editor)
+                try:
+                    self._session.send_command('Input.insertText', {'text': text})
+                except Exception as e:
+                    print(f"[Actions] Input.insertText error: {e}")
+                    # Fallback to JS execCommand
+                    fallback_js = f"document.execCommand('insertText', false, '{text_escaped}');"
+                    self._session.evaluate_js(fallback_js)
+
+        # Verify type result
+        verify_js = f"""
+            (function() {{
+                let el = document.querySelector('{selector_escaped}');
+                if (!el) return {{success: false}};
+                return {{success: true, value: el.value || el.textContent}};
+            }})()
+        """
+        result = self._session.evaluate_js(verify_js)
         if not result.success or not result.result:
             elapsed = int((datetime.now() - start_time).total_seconds() * 1000)
             return ActionResult(
