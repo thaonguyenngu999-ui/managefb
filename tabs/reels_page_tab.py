@@ -798,6 +798,66 @@ class ReelsPageTab(ctk.CTkFrame):
         )
         self._set_status(f"Hoàn tất đăng Reels: {success}/{total}", "success" if failed == 0 else "warning")
 
+    def _open_browser_with_cdp(self, profile_uuid: str, max_browser_retries: int = 2):
+        """
+        Mở browser và kết nối CDP với logic retry.
+        Nếu CDP fail, đóng browser và mở lại.
+        Returns: (remote_port, tabs) hoặc raise Exception
+        """
+        import urllib.request
+
+        for browser_attempt in range(max_browser_retries):
+            # Mở browser
+            print(f"[ReelsPage] Opening browser (attempt {browser_attempt + 1}/{max_browser_retries})...")
+            result = api.open_browser(profile_uuid)
+
+            if not result or result.get('status') != 'successfully':
+                raise Exception(f"Không mở được browser: {result}")
+
+            browser_info = result.get('data', {})
+            remote_port = browser_info.get('remote_port') or browser_info.get('remote_debugging_port')
+
+            if not remote_port:
+                raise Exception("Không lấy được remote debugging port")
+
+            print(f"[ReelsPage] Browser opened, port: {remote_port}")
+            time.sleep(3)
+
+            # Thử kết nối CDP
+            cdp_base = f"http://127.0.0.1:{remote_port}"
+            tabs_url = f"{cdp_base}/json"
+
+            cdp_connected = False
+            tabs = None
+
+            for cdp_attempt in range(5):
+                try:
+                    with urllib.request.urlopen(tabs_url, timeout=10) as resp:
+                        tabs = json_module.loads(resp.read().decode())
+                        cdp_connected = True
+                        break
+                except Exception as e:
+                    print(f"[ReelsPage] CDP retry {cdp_attempt + 1}/5: {e}")
+                    time.sleep(2)
+
+            if cdp_connected and tabs:
+                print(f"[ReelsPage] CDP connected successfully!")
+                return remote_port, tabs
+
+            # CDP fail - đóng browser và thử lại
+            if browser_attempt < max_browser_retries - 1:
+                print(f"[ReelsPage] CDP connection failed, closing browser and retrying...")
+                try:
+                    api.close_browser(profile_uuid)
+                    time.sleep(3)
+                except Exception as e:
+                    print(f"[ReelsPage] Error closing browser: {e}")
+                    time.sleep(2)
+            else:
+                raise Exception("Không kết nối được CDP sau nhiều lần thử")
+
+        raise Exception("Không kết nối được CDP")
+
     def _post_reel_to_page(self, page: Dict, caption: str, hashtags: str):
         """Đăng Reels lên một Page qua CDP"""
         if not WEBSOCKET_AVAILABLE:
@@ -818,40 +878,11 @@ class ReelsPageTab(ctk.CTkFrame):
         ws = None
 
         try:
-            # Bước 1: Mở browser với profile
-            result = api.open_browser(profile_uuid)
-            # API trả về status: 'successfully' thay vì success: True
-            if not result or result.get('status') != 'successfully':
-                raise Exception(f"Không mở được browser: {result}")
-
-            browser_info = result.get('data', {})
-            # API trả về remote_port, không phải remote_debugging_port
-            remote_port = browser_info.get('remote_port') or browser_info.get('remote_debugging_port')
-
-            if not remote_port:
-                raise Exception("Không lấy được remote debugging port")
-
-            print(f"[ReelsPage] Browser opened, port: {remote_port}")
-            time.sleep(3)
+            # Bước 1 & 2: Mở browser và kết nối CDP với retry logic
+            remote_port, tabs = self._open_browser_with_cdp(profile_uuid)
 
             # Lưu bounds để set sau khi kết nối CDP
             bounds = get_window_bounds(slot_id)
-
-            # Bước 2: Kết nối CDP
-            cdp_base = f"http://127.0.0.1:{remote_port}"
-            import urllib.request
-            tabs_url = f"{cdp_base}/json"
-
-            for attempt in range(5):
-                try:
-                    with urllib.request.urlopen(tabs_url, timeout=10) as resp:
-                        tabs = json_module.loads(resp.read().decode())
-                        break
-                except Exception as e:
-                    print(f"[ReelsPage] CDP retry {attempt + 1}: {e}")
-                    time.sleep(2)
-            else:
-                raise Exception("Không kết nối được CDP")
 
             # Tìm tab Facebook
             page_ws = None
@@ -1762,35 +1793,8 @@ class ReelsPageTab(ctk.CTkFrame):
         ws = None
 
         try:
-            # Mở browser
-            result = api.open_browser(profile_uuid)
-            if not result or result.get('status') != 'successfully':
-                raise Exception(f"Không mở được browser: {result}")
-
-            browser_info = result.get('data', {})
-            remote_port = browser_info.get('remote_port') or browser_info.get('remote_debugging_port')
-
-            if not remote_port:
-                raise Exception("Không lấy được remote debugging port")
-
-            print(f"[ReelsPage] Browser opened for comment, port: {remote_port}")
-            time.sleep(3)
-
-            # Kết nối CDP
-            cdp_base = f"http://127.0.0.1:{remote_port}"
-            import urllib.request
-            tabs_url = f"{cdp_base}/json"
-
-            for attempt in range(5):
-                try:
-                    with urllib.request.urlopen(tabs_url, timeout=10) as resp:
-                        tabs = json_module.loads(resp.read().decode())
-                        break
-                except Exception as e:
-                    print(f"[ReelsPage] CDP retry {attempt + 1}: {e}")
-                    time.sleep(2)
-            else:
-                raise Exception("Không kết nối được CDP")
+            # Mở browser và kết nối CDP với retry logic
+            remote_port, tabs = self._open_browser_with_cdp(profile_uuid)
 
             # Tìm tab
             page_ws = None
