@@ -1182,90 +1182,6 @@ class ReelsPageTab(ctk.CTkFrame):
                 cdp.close()
             release_window_slot(slot_id)
 
-    def _cdp_send(self, ws, method: str, params: Dict = None) -> Dict:
-        """Gửi CDP command và nhận response"""
-        self._cdp_id += 1
-        msg = {"id": self._cdp_id, "method": method, "params": params or {}}
-        ws.send(json_module.dumps(msg))
-
-        while True:
-            try:
-                ws.settimeout(30)
-                resp = ws.recv()
-                data = json_module.loads(resp)
-                if data.get('id') == self._cdp_id:
-                    return data
-            except:
-                return {}
-
-    def _cdp_evaluate(self, ws, expression: str) -> Any:
-        """Evaluate JavaScript trong browser"""
-        result = self._cdp_send(ws, "Runtime.evaluate", {
-            "expression": expression,
-            "returnByValue": True,
-            "awaitPromise": True
-        })
-        return result.get('result', {}).get('result', {}).get('value')
-
-    def _cdp_type_human_like(self, ws, text: str, typo_chance: float = 0.03):
-        """
-        Gõ text từng ký tự như người thật qua CDP Input.insertText
-        - Tốc độ gõ random (50-150ms mỗi ký tự)
-        - Pause dài hơn sau dấu câu
-        - Occasionally có typo và sửa lại
-        """
-        # Typo map - các phím gần nhau
-        typo_map = {
-            'a': ['s', 'q'], 'b': ['v', 'n'], 'c': ['x', 'v'],
-            'd': ['s', 'f'], 'e': ['w', 'r'], 'f': ['d', 'g'],
-            'g': ['f', 'h'], 'h': ['g', 'j'], 'i': ['u', 'o'],
-            'j': ['h', 'k'], 'k': ['j', 'l'], 'l': ['k', 'o'],
-            'm': ['n', 'k'], 'n': ['b', 'm'], 'o': ['i', 'p'],
-            'p': ['o', 'l'], 'r': ['e', 't'], 's': ['a', 'd'],
-            't': ['r', 'y'], 'u': ['y', 'i'], 'v': ['c', 'b'],
-            'w': ['q', 'e'], 'x': ['z', 'c'], 'y': ['t', 'u'],
-        }
-
-        for char in text:
-            # Random typo cho lowercase letters
-            if char.lower() in typo_map and random.random() < typo_chance:
-                # Gõ sai
-                wrong_char = random.choice(typo_map[char.lower()])
-                self._cdp_send(ws, "Input.insertText", {"text": wrong_char})
-                time.sleep(random.uniform(0.1, 0.25))
-
-                # Nhận ra sai, pause một chút
-                time.sleep(random.uniform(0.15, 0.35))
-
-                # Backspace để xóa
-                self._cdp_send(ws, "Input.dispatchKeyEvent", {
-                    "type": "keyDown", "key": "Backspace", "code": "Backspace",
-                    "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8
-                })
-                self._cdp_send(ws, "Input.dispatchKeyEvent", {
-                    "type": "keyUp", "key": "Backspace", "code": "Backspace",
-                    "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8
-                })
-                time.sleep(random.uniform(0.08, 0.15))
-
-            # Gõ ký tự đúng
-            self._cdp_send(ws, "Input.insertText", {"text": char})
-
-            # Delay phụ thuộc vào loại ký tự
-            if char in ' .,!?;:':
-                # Pause dài hơn sau dấu câu/space
-                time.sleep(random.uniform(0.1, 0.25))
-            elif char == '\n':
-                # Pause dài sau xuống dòng
-                time.sleep(random.uniform(0.3, 0.6))
-            else:
-                # Tốc độ gõ bình thường: 50-150ms
-                time.sleep(random.uniform(0.05, 0.15))
-
-            # Occasionally pause dài (như đang nghĩ)
-            if random.random() < 0.02:
-                time.sleep(random.uniform(0.4, 1.0))
-
     def _stop_posting(self):
         """Dừng đăng"""
         self._is_posting = False
@@ -1588,158 +1504,81 @@ class ReelsPageTab(ctk.CTkFrame):
         self._load_history()
 
     def _post_comment_thread(self, profile_uuid: str, reel_url: str, comment_text: str):
-        """Thread để đăng comment lên Reel"""
-        if not WEBSOCKET_AVAILABLE:
-            print("[ReelsPage] ERROR: websocket-client chưa được cài đặt")
-            return
-
+        """Thread để đăng comment lên Reel - sử dụng CDPHelper"""
         slot_id = acquire_window_slot()
-        ws = None
+        cdp = None
 
         try:
-            # Mở browser và kết nối CDP với retry logic
+            # Mở browser và kết nối CDP
             remote_port, tabs = self._open_browser_with_cdp(profile_uuid)
 
-            # Tìm tab
+            # Tìm WebSocket URL
             page_ws = None
             for tab in tabs:
                 if tab.get('type') == 'page':
-                    ws_url = tab.get('webSocketDebuggerUrl', '')
-                    if ws_url:
-                        page_ws = ws_url
+                    page_ws = tab.get('webSocketDebuggerUrl', '')
+                    if page_ws:
                         break
 
             if not page_ws:
                 raise Exception("Không tìm thấy tab")
 
-            # Kết nối WebSocket
-            try:
-                ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
-            except:
-                ws = websocket.create_connection(page_ws, timeout=30)
+            # Kết nối CDPHelper
+            cdp = CDPHelper()
+            if not cdp.connect(remote_port=remote_port, ws_url=page_ws):
+                raise Exception("Không kết nối được CDPHelper")
 
             # Navigate đến Reel
             print(f"[ReelsPage] Navigating to Reel: {reel_url}")
-            self._cdp_send(ws, "Page.navigate", {"url": reel_url})
-            time.sleep(8)
-
-            # Đợi page load
-            for _ in range(10):
-                ready = self._cdp_evaluate(ws, "document.readyState")
-                if ready == 'complete':
-                    break
-                time.sleep(1)
-
+            cdp.navigate(reel_url)
+            cdp.wait_for_page_load(timeout_ms=15000)
             time.sleep(3)
 
-            # Tìm và click vào ô comment - ưu tiên Lexical editor với aria-label chứa "Bình luận"
-            js_click_comment_box = '''
+            # Click vào ô comment
+            js_click_comment = '''
             (function() {
-                // Debug: list all contenteditable elements
-                var allEditors = document.querySelectorAll('[contenteditable="true"]');
-                console.log('Found contenteditable elements:', allEditors.length);
-                for (var i = 0; i < allEditors.length; i++) {
-                    console.log('Editor ' + i + ':', allEditors[i].getAttribute('aria-label'));
-                }
-
-                // Ưu tiên 1: Tìm Lexical editor với aria-label chứa "Bình luận"
-                var lexicalEditors = document.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]');
-                for (var i = 0; i < lexicalEditors.length; i++) {
-                    var editor = lexicalEditors[i];
-                    var ariaLabel = (editor.getAttribute('aria-label') || '').toLowerCase();
-                    // Tìm ô bình luận (không phải caption/mô tả)
-                    if (ariaLabel.includes('bình luận') || ariaLabel.includes('comment')) {
-                        if (editor.offsetParent !== null) {
-                            editor.click();
-                            editor.focus();
-                            return 'clicked_lexical_comment: ' + editor.getAttribute('aria-label');
-                        }
+                var editors = document.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]');
+                for (var i = 0; i < editors.length; i++) {
+                    var label = (editors[i].getAttribute('aria-label') || '').toLowerCase();
+                    if (label.includes('bình luận') || label.includes('comment')) {
+                        editors[i].click();
+                        editors[i].focus();
+                        return 'clicked: ' + label;
                     }
                 }
-
-                // Ưu tiên 2: Tìm contenteditable với aria-label chứa bình luận
-                var commentInputs = document.querySelectorAll(
-                    '[contenteditable="true"][aria-label*="bình luận" i], ' +
-                    '[contenteditable="true"][aria-label*="comment" i]'
-                );
-                for (var i = 0; i < commentInputs.length; i++) {
-                    var input = commentInputs[i];
-                    if (input.offsetParent !== null) {
-                        input.click();
-                        input.focus();
-                        return 'clicked_comment_box: ' + input.getAttribute('aria-label');
-                    }
-                }
-
-                // Ưu tiên 3: Tìm role="textbox" với aria-label bình luận
-                var textboxes = document.querySelectorAll('[role="textbox"]');
-                for (var i = 0; i < textboxes.length; i++) {
-                    var tb = textboxes[i];
-                    var ariaLabel = (tb.getAttribute('aria-label') || '').toLowerCase();
-                    if (ariaLabel.includes('bình luận') || ariaLabel.includes('comment')) {
-                        if (tb.offsetParent !== null) {
-                            tb.click();
-                            tb.focus();
-                            return 'clicked_textbox: ' + tb.getAttribute('aria-label');
-                        }
-                    }
-                }
-
-                // Fallback: tìm div với text "Viết bình luận" hoặc "Write a comment"
-                var spans = document.querySelectorAll('span');
-                for (var i = 0; i < spans.length; i++) {
-                    var text = (spans[i].innerText || '').toLowerCase();
-                    if (text.includes('viết bình luận') || text.includes('write a comment')) {
-                        var parent = spans[i].closest('[role="button"]') || spans[i].parentElement;
-                        if (parent) {
-                            parent.click();
-                            return 'clicked_comment_placeholder';
-                        }
-                    }
-                }
-
-                return 'no_comment_box_found';
+                return 'no_comment_box';
             })();
             '''
-            click_result = self._cdp_evaluate(ws, js_click_comment_box)
+            click_result = cdp.execute_js(js_click_comment)
             print(f"[ReelsPage] Click comment box: {click_result}")
             time.sleep(2)
 
-            # Gõ comment từng ký tự như người thật
-            print(f"[ReelsPage] Typing comment human-like ({len(comment_text)} chars)...")
-            self._cdp_type_human_like(ws, comment_text, typo_chance=0.03)
+            # Gõ comment human-like
+            print(f"[ReelsPage] Typing comment ({len(comment_text)} chars)...")
+            cdp.type_human_like(comment_text)
             time.sleep(1)
 
-            # Click nút gửi comment
-            js_submit_comment = '''
+            # Gửi comment (Enter hoặc click nút)
+            js_submit = '''
             (function() {
-                // Tìm nút gửi (Enter hoặc nút Submit)
-                // Phương pháp 1: Tìm nút có icon gửi
-                var submitBtns = document.querySelectorAll(
-                    '[aria-label*="send" i], [aria-label*="gửi" i], ' +
-                    '[aria-label*="submit" i], [aria-label*="đăng" i]'
-                );
-
-                for (var i = 0; i < submitBtns.length; i++) {
-                    var btn = submitBtns[i];
-                    if (btn.offsetParent !== null) {
-                        btn.click();
+                var btns = document.querySelectorAll('[aria-label*="send" i], [aria-label*="gửi" i]');
+                for (var i = 0; i < btns.length; i++) {
+                    if (btns[i].offsetParent) {
+                        btns[i].click();
                         return 'clicked_submit';
                     }
                 }
-
-                // Phương pháp 2: Simulate Enter key
+                // Fallback: Enter key
                 var active = document.activeElement;
                 if (active) {
-                    active.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+                    active.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 13, bubbles: true}));
                     return 'sent_enter';
                 }
-
-                return 'no_submit_found';
+                return 'no_submit';
             })();
             '''
-            submit_result = self._cdp_evaluate(ws, js_submit_comment)
-            print(f"[ReelsPage] Submit comment: {submit_result}")
+            submit_result = cdp.execute_js(js_submit)
+            print(f"[ReelsPage] Submit: {submit_result}")
             time.sleep(3)
 
             print(f"[ReelsPage] SUCCESS - Comment đã được gửi!")
@@ -1748,12 +1587,10 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] ERROR commenting: {e}")
             import traceback
             traceback.print_exc()
+
         finally:
-            if ws:
-                try:
-                    ws.close()
-                except:
-                    pass
+            if cdp:
+                cdp.close()
             release_window_slot(slot_id)
 
     # ========== HELPERS ==========
