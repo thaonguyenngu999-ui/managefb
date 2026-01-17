@@ -2454,6 +2454,18 @@ class GroupsTab(ctk.CTkFrame):
             # Bước 1: Tạo tab MỚI với group URL (tránh leave site dialog)
             cdp_base = f"http://127.0.0.1:{self._posting_port}"
 
+            # Lưu ID tab cũ TRƯỚC khi tạo tab mới
+            old_target_id = None
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('type') == 'page':
+                        old_target_id = p.get('id')
+                        break
+            except:
+                pass
+
             # Tạo tab mới
             result = self._cdp_send(ws, "Target.createTarget", {"url": group_url})
             target_id = result.get('result', {}).get('targetId')
@@ -2470,9 +2482,15 @@ class GroupsTab(ctk.CTkFrame):
                 resp = requests.get(f"{cdp_base}/json", timeout=10)
                 pages = resp.json()
                 for p in pages:
-                    if p.get('id') == target_id or (p.get('type') == 'page' and group_id in p.get('url', '')):
+                    if p.get('id') == target_id:
                         new_ws_url = p.get('webSocketDebuggerUrl')
                         break
+                # Fallback: tìm theo URL
+                if not new_ws_url:
+                    for p in pages:
+                        if p.get('type') == 'page' and group_id in p.get('url', '') and p.get('id') != old_target_id:
+                            new_ws_url = p.get('webSocketDebuggerUrl')
+                            break
             except Exception as e:
                 print(f"[WARN] Không lấy được WS tab mới: {e}")
 
@@ -2491,30 +2509,23 @@ class GroupsTab(ctk.CTkFrame):
                     print(f"[WARN] Không kết nối được WS tab mới: {e}")
                     return (False, "", ws)
 
-            # Đóng tab CŨ (không có leave site vì đang ở tab khác)
-            try:
-                # Lấy target ID của tab cũ
-                resp = requests.get(f"{cdp_base}/json", timeout=10)
-                pages = resp.json()
-                for p in pages:
-                    if p.get('webSocketDebuggerUrl') and p.get('id') != target_id:
-                        old_target_id = p.get('id')
-                        if old_target_id:
-                            requests.get(f"{cdp_base}/json/close/{old_target_id}", timeout=5)
-                            print(f"[INFO] Đã đóng tab cũ")
-                            break
-            except Exception as e:
-                print(f"[WARN] Không đóng được tab cũ: {e}")
-
-            # Đóng WebSocket cũ
+            # Đóng WebSocket cũ TRƯỚC
             try:
                 ws.close()
             except:
                 pass
 
+            # Đóng tab CŨ bằng ID đã lưu (không có leave site vì đang ở tab khác)
+            if old_target_id and old_target_id != target_id:
+                try:
+                    requests.get(f"{cdp_base}/json/close/{old_target_id}", timeout=5)
+                    print(f"[INFO] Đã đóng tab cũ: {old_target_id[:8]}...")
+                except Exception as e:
+                    print(f"[WARN] Không đóng được tab cũ: {e}")
+
             # Từ giờ dùng new_ws
             ws = new_ws
-            time.sleep(random.uniform(2, 3))
+            time.sleep(random.uniform(1, 2))
 
             # Đợi page load xong
             for _ in range(10):
