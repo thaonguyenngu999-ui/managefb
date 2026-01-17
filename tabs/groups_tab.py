@@ -2199,8 +2199,8 @@ class GroupsTab(ctk.CTkFrame):
                     img_count = 5
                 images = self._get_random_images(folder, img_count)
 
-            # Đăng bài qua CDP
-            result, post_url = self._post_to_group_cdp(ws, group, content_text, images, fb_name)
+            # Đăng bài qua CDP - trả về (result, post_url, new_ws)
+            result, post_url, ws = self._post_to_group_cdp(ws, group, content_text, images, fb_name)
 
             # Save to history
             save_post_history({
@@ -2442,17 +2442,79 @@ class GroupsTab(ctk.CTkFrame):
                 time.sleep(random.uniform(0.5, 1.2))
 
     def _post_to_group_cdp(self, ws, group: Dict, content: str, images: List[str], fb_name: str = "") -> tuple:
-        """Đăng bài vào group qua CDP"""
+        """Đăng bài vào group qua CDP - trả về (success, post_url, new_ws)"""
         import time
         import base64
+        import websocket as ws_module
 
         group_id = group.get('group_id', '')
         group_url = f"https://www.facebook.com/groups/{group_id}"
 
         try:
-            # Bước 1: Navigate đến group
-            self._cdp_send(ws, "Page.navigate", {"url": group_url})
-            time.sleep(random.uniform(3, 5))  # Đợi page load
+            # Bước 1: Tạo tab MỚI với group URL (tránh leave site dialog)
+            cdp_base = f"http://127.0.0.1:{self._posting_port}"
+
+            # Tạo tab mới
+            result = self._cdp_send(ws, "Target.createTarget", {"url": group_url})
+            target_id = result.get('result', {}).get('targetId')
+
+            if not target_id:
+                print(f"[WARN] Không tạo được tab mới cho group {group_id}")
+                return (False, "", ws)
+
+            time.sleep(random.uniform(2, 3))
+
+            # Lấy WebSocket của tab mới
+            new_ws_url = None
+            try:
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('id') == target_id or (p.get('type') == 'page' and group_id in p.get('url', '')):
+                        new_ws_url = p.get('webSocketDebuggerUrl')
+                        break
+            except Exception as e:
+                print(f"[WARN] Không lấy được WS tab mới: {e}")
+
+            if not new_ws_url:
+                print(f"[WARN] Không tìm thấy WebSocket cho tab mới")
+                return (False, "", ws)
+
+            # Kết nối WebSocket tab mới
+            new_ws = None
+            try:
+                new_ws = ws_module.create_connection(new_ws_url, timeout=30, suppress_origin=True)
+            except:
+                try:
+                    new_ws = ws_module.create_connection(new_ws_url, timeout=30)
+                except Exception as e:
+                    print(f"[WARN] Không kết nối được WS tab mới: {e}")
+                    return (False, "", ws)
+
+            # Đóng tab CŨ (không có leave site vì đang ở tab khác)
+            try:
+                # Lấy target ID của tab cũ
+                resp = requests.get(f"{cdp_base}/json", timeout=10)
+                pages = resp.json()
+                for p in pages:
+                    if p.get('webSocketDebuggerUrl') and p.get('id') != target_id:
+                        old_target_id = p.get('id')
+                        if old_target_id:
+                            requests.get(f"{cdp_base}/json/close/{old_target_id}", timeout=5)
+                            print(f"[INFO] Đã đóng tab cũ")
+                            break
+            except Exception as e:
+                print(f"[WARN] Không đóng được tab cũ: {e}")
+
+            # Đóng WebSocket cũ
+            try:
+                ws.close()
+            except:
+                pass
+
+            # Từ giờ dùng new_ws
+            ws = new_ws
+            time.sleep(random.uniform(2, 3))
 
             # Đợi page load xong
             for _ in range(10):
@@ -2502,7 +2564,7 @@ class GroupsTab(ctk.CTkFrame):
             composer_pos = self._cdp_evaluate(ws, get_composer_pos_js)
             if not composer_pos:
                 print(f"[WARN] Không tìm thấy nút tạo bài trong group {group_id}")
-                return (False, "")
+                return (False, "", ws)
 
             # Di chuyển chuột đến composer và click
             self._move_mouse_human(ws, int(composer_pos['x']), int(composer_pos['y']))
@@ -2552,7 +2614,7 @@ class GroupsTab(ctk.CTkFrame):
             focused = self._cdp_evaluate(ws, focus_textarea_js)
             if not focused:
                 print(f"[WARN] Không focus được textarea trong group {group_id}")
-                return (False, "")
+                return (False, "", ws)
 
             time.sleep(random.uniform(0.5, 1))
 
@@ -2639,7 +2701,7 @@ class GroupsTab(ctk.CTkFrame):
             post_btn_pos = self._cdp_evaluate(ws, get_post_btn_pos_js)
             if not post_btn_pos:
                 print(f"[WARN] Không tìm thấy nút Đăng trong group {group_id}")
-                return (False, "")
+                return (False, "", ws)
 
             # Di chuyển chuột đến nút Đăng
             self._move_mouse_human(ws, int(post_btn_pos['x']), int(post_btn_pos['y']))
@@ -2672,13 +2734,13 @@ class GroupsTab(ctk.CTkFrame):
             post_url = self._get_post_url_new_tab(ws, group_url, group_id, should_like, react_type, fb_name)
 
             print(f"[OK] Đã đăng bài vào group {group_id}: {post_url}")
-            return (True, post_url)
+            return (True, post_url, ws)
 
         except Exception as e:
             print(f"[ERROR] Lỗi đăng bài group {group_id}: {e}")
             import traceback
             traceback.print_exc()
-            return (False, "")
+            return (False, "", ws)
 
     def _get_post_url_new_tab(self, ws, group_url: str, group_id: str, should_like: bool = False, react_type: str = None, fb_name: str = "") -> str:
         """Mở tab mới để lấy URL bài viết vừa đăng và like nếu cần"""
