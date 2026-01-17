@@ -15,7 +15,8 @@ from widgets import ModernButton, ModernEntry
 from db import (
     get_profiles, get_groups, save_group, delete_group,
     update_group_selection, get_selected_groups, sync_groups, clear_groups,
-    get_contents, get_categories, save_post_history, get_post_history
+    get_contents, get_categories, save_post_history, get_post_history,
+    get_post_history_filtered, get_post_history_count
 )
 from api_service import api
 
@@ -49,6 +50,17 @@ class GroupsTab(ctk.CTkFrame):
         self._is_scanning = False
         self._is_posting = False
         self._is_boosting = False
+
+        # Pagination state for boost tab
+        self._boost_page = 0
+        self._boost_page_size = 30  # Items per page
+        self._boost_total_count = 0
+        self._boost_posts_cache: List[Dict] = []  # Cache current page posts
+        self._boost_widgets_cache: Dict[int, ctk.CTkFrame] = {}  # Cache widgets by post id
+
+        # Widget caches for optimized rendering
+        self._scan_checkbox_vars: Dict[int, ctk.BooleanVar] = {}  # group_id -> BooleanVar
+        self._post_checkbox_vars: Dict[int, ctk.BooleanVar] = {}  # group_id -> BooleanVar
 
         self._create_ui()
         self._load_profiles()
@@ -544,7 +556,42 @@ class GroupsTab(ctk.CTkFrame):
 
         # Posted URLs list for boost
         self.boost_urls_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
-        self.boost_urls_list.pack(fill="both", expand=True, padx=5, pady=(0, 10))
+        self.boost_urls_list.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+
+        # Pagination controls
+        pagination_frame = ctk.CTkFrame(left_panel, fg_color="transparent", height=35)
+        pagination_frame.pack(fill="x", padx=5, pady=(0, 10))
+        pagination_frame.pack_propagate(False)
+
+        self.prev_page_btn = ctk.CTkButton(
+            pagination_frame,
+            text="< Trước",
+            width=70,
+            height=28,
+            fg_color=COLORS["bg_secondary"],
+            hover_color=COLORS["accent"],
+            command=self._prev_page
+        )
+        self.prev_page_btn.pack(side="left", padx=2)
+
+        self.page_label = ctk.CTkLabel(
+            pagination_frame,
+            text="Trang 1/1",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        )
+        self.page_label.pack(side="left", padx=10, expand=True)
+
+        self.next_page_btn = ctk.CTkButton(
+            pagination_frame,
+            text="Sau >",
+            width=70,
+            height=28,
+            fg_color=COLORS["bg_secondary"],
+            hover_color=COLORS["accent"],
+            command=self._next_page
+        )
+        self.next_page_btn.pack(side="right", padx=2)
 
         self.boost_empty_label = ctk.CTkLabel(
             self.boost_urls_list,
@@ -944,6 +991,9 @@ class GroupsTab(ctk.CTkFrame):
         for widget in self.scan_list.winfo_children():
             widget.destroy()
 
+        # Clear cache when re-rendering
+        self._scan_checkbox_vars.clear()
+
         if not self.groups:
             self.scan_empty_label = ctk.CTkLabel(
                 self.scan_list,
@@ -964,6 +1014,9 @@ class GroupsTab(ctk.CTkFrame):
         row.pack_propagate(False)
 
         var = ctk.BooleanVar(value=group['id'] in self.selected_group_ids)
+        # Cache the BooleanVar for later sync
+        self._scan_checkbox_vars[group['id']] = var
+
         cb = ctk.CTkCheckBox(
             row, text="", variable=var, width=25,
             checkbox_width=18, checkbox_height=18,
@@ -996,7 +1049,7 @@ class GroupsTab(ctk.CTkFrame):
                       command=lambda gid=group['id']: self._delete_group(gid)).pack(side="right", padx=3)
 
     def _toggle_group_selection(self, group_id: int, var: ctk.BooleanVar):
-        """Toggle chọn group"""
+        """Toggle chọn group - optimized to avoid full re-render"""
         is_selected = var.get()
         update_group_selection(group_id, 1 if is_selected else 0)
 
@@ -1006,7 +1059,8 @@ class GroupsTab(ctk.CTkFrame):
             self.selected_group_ids.remove(group_id)
 
         self._update_stats()
-        self._render_post_groups_list()
+        # Sync checkbox state in post_groups_list without full re-render
+        self._sync_checkbox_state(group_id, is_selected, 'post')
 
     def _delete_group(self, group_id: int):
         """Xóa group"""
@@ -1037,6 +1091,9 @@ class GroupsTab(ctk.CTkFrame):
         for widget in self.post_groups_list.winfo_children():
             widget.destroy()
 
+        # Clear cache when re-rendering
+        self._post_checkbox_vars.clear()
+
         if not self.groups:
             self.post_empty_label = ctk.CTkLabel(
                 self.post_groups_list,
@@ -1053,6 +1110,9 @@ class GroupsTab(ctk.CTkFrame):
             row.pack_propagate(False)
 
             var = ctk.BooleanVar(value=group['id'] in self.selected_group_ids)
+            # Cache the BooleanVar for later sync
+            self._post_checkbox_vars[group['id']] = var
+
             cb = ctk.CTkCheckBox(
                 row,
                 text=group.get('group_name', 'Unknown')[:30],
@@ -1065,7 +1125,7 @@ class GroupsTab(ctk.CTkFrame):
             cb.pack(side="left", padx=3)
 
     def _toggle_group_selection_post(self, group_id: int, var: ctk.BooleanVar):
-        """Toggle group từ tab Đăng"""
+        """Toggle group từ tab Đăng - optimized to avoid full re-render"""
         is_selected = var.get()
         update_group_selection(group_id, 1 if is_selected else 0)
 
@@ -1075,7 +1135,25 @@ class GroupsTab(ctk.CTkFrame):
             self.selected_group_ids.remove(group_id)
 
         self._update_stats()
-        self._render_scan_list()
+        # Sync checkbox state in scan_list without full re-render
+        self._sync_checkbox_state(group_id, is_selected, 'scan')
+
+    def _sync_checkbox_state(self, group_id: int, is_selected: bool, target: str):
+        """
+        Sync checkbox state between scan_list and post_groups_list without re-rendering.
+
+        Args:
+            group_id: ID of the group
+            is_selected: New selection state
+            target: 'scan' to sync scan_list, 'post' to sync post_groups_list
+        """
+        if target == 'scan':
+            var = self._scan_checkbox_vars.get(group_id)
+        else:
+            var = self._post_checkbox_vars.get(group_id)
+
+        if var is not None:
+            var.set(is_selected)
 
     def _toggle_select_all(self):
         """Toggle chọn tất cả"""
@@ -1388,40 +1466,105 @@ class GroupsTab(ctk.CTkFrame):
     # ==================== BOOST TAB ====================
 
     def _load_today_posts(self):
-        """Load bài đăng theo filter"""
+        """Load bài đăng theo filter với SQL filtering và pagination"""
         if not self.current_profile_uuid:
             return
 
+        # Reset to first page when filter changes
+        self._boost_page = 0
+
+        # Calculate date_from based on filter
         filter_val = self.date_filter_var.get()
-        if filter_val == "Hôm nay":
-            limit = 50
-        elif filter_val == "7 ngày":
-            limit = 100
-        elif filter_val == "30 ngày":
-            limit = 200
-        else:
-            limit = 500
-
-        posts = get_post_history(self.current_profile_uuid, limit)
-
-        # Filter by date
         today = date.today()
+        date_from = None
+
         if filter_val == "Hôm nay":
-            posts = [p for p in posts if p.get('created_at', '')[:10] == str(today)]
+            date_from = str(today)
         elif filter_val == "7 ngày":
             from datetime import timedelta
-            week_ago = today - timedelta(days=7)
-            posts = [p for p in posts if p.get('created_at', '')[:10] >= str(week_ago)]
+            date_from = str(today - timedelta(days=7))
         elif filter_val == "30 ngày":
             from datetime import timedelta
-            month_ago = today - timedelta(days=30)
-            posts = [p for p in posts if p.get('created_at', '')[:10] >= str(month_ago)]
+            date_from = str(today - timedelta(days=30))
+        # "Tất cả" -> date_from = None (no date filter)
 
-        # Only successful posts with URLs
-        posts = [p for p in posts if p.get('status') == 'success' and p.get('post_url')]
+        # Get total count for pagination (with SQL filtering)
+        self._boost_total_count = get_post_history_count(
+            profile_uuid=self.current_profile_uuid,
+            date_from=date_from,
+            status='success'
+        )
 
+        # Load current page with SQL filtering and pagination
+        self._load_boost_page(date_from)
+
+    def _load_boost_page(self, date_from: str = None):
+        """Load a specific page of boost posts"""
+        if not self.current_profile_uuid:
+            return
+
+        offset = self._boost_page * self._boost_page_size
+
+        # Fetch posts with SQL-level filtering and pagination
+        posts = get_post_history_filtered(
+            profile_uuid=self.current_profile_uuid,
+            date_from=date_from,
+            status='success',
+            limit=self._boost_page_size,
+            offset=offset
+        )
+
+        self._boost_posts_cache = posts
         self._render_boost_urls(posts)
-        self.boost_stats.configure(text=f"{len(posts)} bài")
+        self._update_pagination_ui()
+
+    def _update_pagination_ui(self):
+        """Update pagination buttons and label"""
+        total_pages = max(1, (self._boost_total_count + self._boost_page_size - 1) // self._boost_page_size)
+        current_page = self._boost_page + 1
+
+        self.page_label.configure(text=f"Trang {current_page}/{total_pages}")
+        self.boost_stats.configure(text=f"{self._boost_total_count} bài")
+
+        # Enable/disable buttons
+        self.prev_page_btn.configure(
+            state="normal" if self._boost_page > 0 else "disabled",
+            fg_color=COLORS["accent"] if self._boost_page > 0 else COLORS["bg_secondary"]
+        )
+        self.next_page_btn.configure(
+            state="normal" if current_page < total_pages else "disabled",
+            fg_color=COLORS["accent"] if current_page < total_pages else COLORS["bg_secondary"]
+        )
+
+    def _prev_page(self):
+        """Go to previous page"""
+        if self._boost_page > 0:
+            self._boost_page -= 1
+            self._reload_current_page()
+
+    def _next_page(self):
+        """Go to next page"""
+        total_pages = (self._boost_total_count + self._boost_page_size - 1) // self._boost_page_size
+        if self._boost_page + 1 < total_pages:
+            self._boost_page += 1
+            self._reload_current_page()
+
+    def _reload_current_page(self):
+        """Reload current page based on current filter"""
+        filter_val = self.date_filter_var.get()
+        today = date.today()
+        date_from = None
+
+        if filter_val == "Hôm nay":
+            date_from = str(today)
+        elif filter_val == "7 ngày":
+            from datetime import timedelta
+            date_from = str(today - timedelta(days=7))
+        elif filter_val == "30 ngày":
+            from datetime import timedelta
+            date_from = str(today - timedelta(days=30))
+
+        self._load_boost_page(date_from)
 
     def _on_date_filter_change(self, choice: str):
         """Khi đổi filter ngày"""
@@ -1493,8 +1636,8 @@ class GroupsTab(ctk.CTkFrame):
         self.comment_progress.set(0)
         self._clear_comment_log()
 
-        posts = get_post_history(self.current_profile_uuid, 500)
-        selected_posts = [p for p in posts if p.get('id') in selected_ids]
+        # Use cached posts instead of querying database again
+        selected_posts = [p for p in self._boost_posts_cache if p.get('id') in selected_ids]
 
         def do_comment():
             try:
