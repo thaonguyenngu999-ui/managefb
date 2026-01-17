@@ -14,7 +14,7 @@ from tkinter import filedialog
 from config import COLORS
 from widgets import ModernButton, ModernEntry
 from db import (
-    get_profiles, get_groups, get_groups_for_profiles, save_group, delete_group,
+    get_profiles, get_profile_by_uuid, get_groups, get_groups_for_profiles, save_group, delete_group,
     update_group_selection, get_selected_groups, sync_groups, clear_groups,
     get_contents, get_categories, save_post_history, get_post_history,
     get_post_history_filtered, get_post_history_count
@@ -2160,6 +2160,16 @@ class GroupsTab(ctk.CTkFrame):
         self._posting_ws = ws
         self._cdp_id = 1
 
+        # Lấy fb_name từ profile để tìm bài viết chính xác
+        fb_name = ""
+        try:
+            profile = get_profile_by_uuid(profile_uuid)
+            if profile:
+                fb_name = profile.get('fb_name', '') or ''
+                print(f"[Groups] Profile fb_name: {fb_name}")
+        except Exception as e:
+            print(f"[WARN] Không lấy được fb_name: {e}")
+
         success_count = 0
         for i, group in enumerate(groups):
             if not self._is_posting:
@@ -2190,7 +2200,7 @@ class GroupsTab(ctk.CTkFrame):
                 images = self._get_random_images(folder, img_count)
 
             # Đăng bài qua CDP
-            result, post_url = self._post_to_group_cdp(ws, group, content_text, images)
+            result, post_url = self._post_to_group_cdp(ws, group, content_text, images, fb_name)
 
             # Save to history
             save_post_history({
@@ -2431,7 +2441,7 @@ class GroupsTab(ctk.CTkFrame):
                 # Pause lâu hơn giữa các đoạn
                 time.sleep(random.uniform(0.5, 1.2))
 
-    def _post_to_group_cdp(self, ws, group: Dict, content: str, images: List[str]) -> tuple:
+    def _post_to_group_cdp(self, ws, group: Dict, content: str, images: List[str], fb_name: str = "") -> tuple:
         """Đăng bài vào group qua CDP"""
         import time
         import base64
@@ -2659,7 +2669,7 @@ class GroupsTab(ctk.CTkFrame):
             should_like = self.auto_like_var.get()
             react_type = self.react_type_var.get() if should_like else None
 
-            post_url = self._get_post_url_new_tab(ws, group_url, group_id, should_like, react_type)
+            post_url = self._get_post_url_new_tab(ws, group_url, group_id, should_like, react_type, fb_name)
 
             print(f"[OK] Đã đăng bài vào group {group_id}: {post_url}")
             return (True, post_url)
@@ -2670,7 +2680,7 @@ class GroupsTab(ctk.CTkFrame):
             traceback.print_exc()
             return (False, "")
 
-    def _get_post_url_new_tab(self, ws, group_url: str, group_id: str, should_like: bool = False, react_type: str = None) -> str:
+    def _get_post_url_new_tab(self, ws, group_url: str, group_id: str, should_like: bool = False, react_type: str = None, fb_name: str = "") -> str:
         """Mở tab mới để lấy URL bài viết vừa đăng và like nếu cần"""
         import time
         import websocket as ws_module
@@ -2768,14 +2778,61 @@ class GroupsTab(ctk.CTkFrame):
         ''')
         print(f"[Groups] DEBUG: Group post links in page = {debug_links}")
 
-        # Tìm bài vừa đăng trong tab mới - tìm post ID từ photo links
+        # Tìm bài vừa đăng trong tab mới - ưu tiên tìm theo tên fb_name
+        # Escape fb_name để tránh lỗi JS
+        fb_name_escaped = fb_name.replace("'", "\\'").replace('"', '\\"') if fb_name else ""
+
         get_post_url_js = f'''
         (function() {{
             let groupId = '{group_id}';
+            let fbName = '{fb_name_escaped}';
             console.log('Group ID:', groupId);
+            console.log('FB Name:', fbName);
             console.log('Current URL:', window.location.href);
 
-            // Cách 1: Tìm URL trực tiếp có /groups/.../posts/
+            // Cách 1: Tìm bài viết theo tên tác giả (fb_name)
+            if (fbName) {{
+                let posts = document.querySelectorAll('[role="article"]');
+                console.log('Found articles:', posts.length);
+                for (let post of posts) {{
+                    // Tìm link tác giả trong post
+                    let authorLinks = post.querySelectorAll('a[role="link"]');
+                    let isMyPost = false;
+                    for (let aLink of authorLinks) {{
+                        // So sánh tên (không phân biệt hoa thường)
+                        if (aLink.innerText && aLink.innerText.toLowerCase().includes(fbName.toLowerCase())) {{
+                            isMyPost = true;
+                            console.log('Found post by author:', aLink.innerText);
+                            break;
+                        }}
+                    }}
+
+                    if (isMyPost) {{
+                        // Tìm pcb link trong bài này
+                        let pcbLinks = post.querySelectorAll('a[href*="set=pcb."]');
+                        for (let link of pcbLinks) {{
+                            let match = link.href.match(/set=pcb\\.(\\d+)/);
+                            if (match && match[1]) {{
+                                let postId = match[1];
+                                let postUrl = 'https://www.facebook.com/groups/' + groupId + '/posts/' + postId + '/';
+                                console.log('Built post URL from author post:', postUrl);
+                                return postUrl;
+                            }}
+                        }}
+
+                        // Fallback: tìm link /posts/ trong bài này
+                        let postLinks = post.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
+                        for (let link of postLinks) {{
+                            if (link.href && !link.href.includes('notif_id')) {{
+                                console.log('Found direct URL from author post:', link.href);
+                                return link.href;
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+
+            // Cách 2: Tìm URL trực tiếp có /groups/.../posts/
             let groupLinks = document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
             console.log('Found direct group links:', groupLinks.length);
             for (let link of groupLinks) {{
@@ -2785,7 +2842,7 @@ class GroupsTab(ctk.CTkFrame):
                 }}
             }}
 
-            // Cách 2: Tìm post ID từ photo links (set=pcb.{{post_id}}) - BÀI ĐẦU TIÊN = MỚI NHẤT
+            // Cách 3: Tìm post ID từ photo links (set=pcb.{{post_id}}) - BÀI ĐẦU TIÊN = MỚI NHẤT
             let photoLinks = document.querySelectorAll('a[href*="set=pcb."]');
             console.log('Found photo links with pcb:', photoLinks.length);
             if (photoLinks.length > 0) {{
@@ -2799,7 +2856,7 @@ class GroupsTab(ctk.CTkFrame):
                 }}
             }}
 
-            // Cách 3: Tìm pcb trong bất kỳ link nào
+            // Cách 4: Tìm pcb trong bất kỳ link nào
             let allLinks = document.querySelectorAll('a[href*="pcb."]');
             console.log('Found any pcb links:', allLinks.length);
             for (let link of allLinks) {{
