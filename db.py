@@ -799,16 +799,23 @@ def get_pages(profile_uuid: str = None) -> List[Dict]:
 
 def get_pages_for_profiles(profile_uuids: List[str]) -> List[Dict]:
     """Lấy danh sách pages từ nhiều profiles"""
+    print(f"[DB] get_pages_for_profiles called with: {profile_uuids}")
     if not profile_uuids:
+        print(f"[DB] No profile_uuids provided, returning empty list")
         return []
     with get_connection() as conn:
         cursor = conn.cursor()
         placeholders = ','.join(['?' for _ in profile_uuids])
-        cursor.execute(
-            f"SELECT * FROM pages WHERE profile_uuid IN ({placeholders}) ORDER BY profile_uuid, page_name",
-            profile_uuids
-        )
-        return rows_to_list(cursor.fetchall())
+        query = f"SELECT * FROM pages WHERE profile_uuid IN ({placeholders}) ORDER BY profile_uuid, page_name"
+        print(f"[DB] Query: {query}")
+        print(f"[DB] Params: {profile_uuids}")
+        cursor.execute(query, profile_uuids)
+        rows = cursor.fetchall()
+        result = rows_to_list(rows)
+        print(f"[DB] Found {len(result)} pages")
+        for p in result:
+            print(f"[DB]   - {p.get('page_name')} (profile_uuid={p.get('profile_uuid')})")
+        return result
 
 
 def get_page_by_id(page_id: int) -> Optional[Dict]:

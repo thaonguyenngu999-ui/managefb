@@ -432,6 +432,8 @@ class PagesTab(ctk.CTkFrame):
 
     def _render_pages(self, search_text: str = None):
         """Render danh sách pages"""
+        print(f"[Pages UI] _render_pages called with {len(self.pages)} pages")
+
         # Clear existing
         for widget in self.pages_list.winfo_children():
             widget.destroy()
@@ -443,6 +445,8 @@ class PagesTab(ctk.CTkFrame):
         if search_text:
             search_lower = search_text.lower()
             pages_to_show = [p for p in self.pages if search_lower in p.get('page_name', '').lower()]
+
+        print(f"[Pages UI] pages_to_show: {len(pages_to_show)}")
 
         if not pages_to_show:
             self.empty_label = ctk.CTkLabel(
@@ -458,9 +462,10 @@ class PagesTab(ctk.CTkFrame):
         # Get profile name map
         profile_map = {p['uuid']: p.get('name', 'Unknown') for p in self.profiles}
 
-        for page in pages_to_show:
+        for i, page in enumerate(pages_to_show):
             page_id = page.get('id')
             page_name = page.get('page_name', 'Unknown')
+            print(f"[Pages UI] Rendering page {i+1}: {page_name} (id={page_id})")
             followers = page.get('follower_count', 0)
             profile_uuid = page.get('profile_uuid', '')
             profile_name = profile_map.get(profile_uuid, 'Unknown')
@@ -586,10 +591,9 @@ class PagesTab(ctk.CTkFrame):
                     profile_name = profile.get('name', 'Unknown')
                     self.after(0, lambda n=profile_name: self._set_status(f"Đang scan: {n}...", "info"))
 
-                    # Scan pages for this profile
+                    # Scan pages for this profile (sync_pages đã được gọi bên trong)
                     pages = self._scan_pages_for_profile(uuid)
                     if pages:
-                        sync_pages(uuid, pages)
                         scanned_count += len(pages)
 
                     # Update progress
