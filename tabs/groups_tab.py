@@ -2768,18 +2768,23 @@ class GroupsTab(ctk.CTkFrame):
         ''')
         print(f"[Groups] DEBUG: Group post links in page = {debug_links}")
 
-        # Tìm bài vừa đăng trong tab mới - ƯU TIÊN URL có /groups/
+        # Tìm bài vừa đăng trong tab mới - CHỈ TÌM URL có /groups/
         get_post_url_js = '''
         (function() {
-            // Ưu tiên tìm URL có /groups/ trước
+            // Hàm kiểm tra URL hợp lệ (không phải notification)
+            function isValidGroupUrl(href) {
+                if (!href) return false;
+                if (href.includes('notif_id') || href.includes('ref=notif')) return false;
+                if (href.includes('comment_id') && !href.includes('/groups/')) return false;
+                return href.includes('/groups/') && href.includes('/posts/');
+            }
+
+            // Ưu tiên tìm URL có /groups/.../posts/ trước
             let groupLinks = document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
-            if (groupLinks.length > 0) {
-                // Tìm link mới nhất (thường ở đầu)
-                for (let link of groupLinks) {
-                    if (link.href && link.href.includes('/groups/') && link.href.includes('/posts/')) {
-                        console.log('Found group post URL:', link.href);
-                        return link.href;
-                    }
+            for (let link of groupLinks) {
+                if (isValidGroupUrl(link.href)) {
+                    console.log('Found group post URL:', link.href);
+                    return link.href;
                 }
             }
 
@@ -2792,72 +2797,48 @@ class GroupsTab(ctk.CTkFrame):
                                    timeText.includes('1 phút') ||
                                    timeText.includes('2 phút') ||
                                    timeText.includes('3 phút') ||
-                                   timeText.includes('4 phút') ||
-                                   timeText.includes('5 phút') ||
-                                   timeText.includes('1 minute') ||
-                                   timeText.includes('2 minutes') ||
                                    timeText.includes('Đang chờ') ||
                                    timeText.includes('Pending');
                 if (hasRecentTime) {
-                    // Ưu tiên link có /groups/
                     let groupPostLinks = post.querySelectorAll('a[href*="/groups/"][href*="/posts/"]');
                     for (let link of groupPostLinks) {
-                        if (link.href) {
+                        if (isValidGroupUrl(link.href)) {
                             console.log('Found recent group post:', link.href);
-                            return link.href;
-                        }
-                    }
-                    // Fallback to other links
-                    let links = post.querySelectorAll('a[href*="/posts/"], a[href*="pfbid"], a[href*="permalink"]');
-                    for (let link of links) {
-                        if (link.href && (link.href.includes('/posts/') || link.href.includes('pfbid'))) {
-                            // Bỏ qua link profile cá nhân nếu có link groups
-                            if (!link.href.includes('/groups/')) {
-                                continue; // Skip personal profile links, prefer group links
-                            }
                             return link.href;
                         }
                     }
                 }
             }
 
-            // Fallback: tìm bất kỳ link /groups/.../posts/
-            let anyGroupPost = document.querySelector('a[href*="/groups/"][href*="/posts/"]');
-            if (anyGroupPost && anyGroupPost.href) {
-                return anyGroupPost.href;
-            }
-
-            // Last resort: any /posts/ link
-            let postLinks = document.querySelectorAll('a[href*="/posts/"]');
-            return postLinks.length > 0 ? postLinks[0].href : null;
+            // KHÔNG fallback - chỉ trả về null nếu không tìm thấy group post
+            console.log('No valid group post URL found');
+            return null;
         })()
         '''
 
-        # Thử lấy URL trong tab mới - ưu tiên URL có /groups/
+        # Thử lấy URL trong tab mới - CHỈ CHẤP NHẬN URL có /groups/
         post_url = None
-        for attempt in range(5):  # Tăng số lần thử
+        for attempt in range(5):
             post_url = eval_new(get_post_url_js)
             print(f"[Groups] Attempt {attempt + 1}/5 - Found URL: {post_url}")
 
-            # Ưu tiên URL có /groups/
+            # Chỉ chấp nhận URL có /groups/ và /posts/
             if post_url and '/groups/' in post_url and '/posts/' in post_url:
                 print(f"[Groups] Found valid group post URL!")
                 break
 
-            # Accept URL có /posts/ nhưng tiếp tục tìm nếu chưa có /groups/
-            if post_url and '/posts/' in post_url:
-                # Nếu không phải URL groups, thử lại để tìm URL đúng
-                if '/groups/' not in post_url and attempt < 4:
-                    print(f"[Groups] URL không có /groups/, thử lại...")
-                    time.sleep(random.uniform(1, 2))
-                    continue
-                break
-
+            # Không tìm thấy, reload và thử lại
+            post_url = None
             if attempt < 4:
+                print(f"[Groups] Không tìm thấy group URL, reload và thử lại...")
                 time.sleep(random.uniform(2, 3))
-                # Reload tab mới
                 send_new("Page.reload", {})
                 time.sleep(random.uniform(3, 4))
+
+        # Nếu không tìm thấy, dùng URL group mặc định
+        if not post_url:
+            post_url = f"https://www.facebook.com/groups/{group_id}"
+            print(f"[Groups] Không tìm thấy post URL, dùng group URL: {post_url}")
 
         # Like/React nếu được yêu cầu
         if should_like and post_url and ('/posts/' in post_url or 'pfbid' in post_url):
