@@ -431,11 +431,16 @@ class CDPHelper:
     def send_command(self, method: str, params: Dict = None) -> Optional[Dict]:
         """
         Send raw CDP command - cho phép truy cập low-level CDP khi cần
+        Returns the result dict (not CommandResult object)
         """
         if not self.is_connected:
             return None
         try:
-            return self._client.session.send_command(method, params or {})
+            cmd_result = self._client.session.send_command(method, params or {})
+            # CommandResult has .success and .result attributes
+            if cmd_result and cmd_result.success:
+                return cmd_result.result or {}
+            return None
         except Exception as e:
             print(f"[CDP] send_command error: {e}")
             return None
@@ -446,17 +451,22 @@ class CDPHelper:
         Dùng DOM.setFileInputFiles
         """
         if not self.is_connected:
+            print(f"[CDP] upload_file: not connected")
             return False
 
         try:
             # Tìm node ID của input
             doc_result = self.send_command('DOM.getDocument', {'depth': 0})
             if not doc_result:
+                print(f"[CDP] upload_file: failed to get document")
                 return False
 
             root_node_id = doc_result.get('root', {}).get('nodeId')
             if not root_node_id:
+                print(f"[CDP] upload_file: no root nodeId, doc_result={doc_result}")
                 return False
+
+            print(f"[CDP] upload_file: root nodeId={root_node_id}")
 
             # Query selector
             query_result = self.send_command('DOM.querySelector', {
@@ -464,23 +474,30 @@ class CDPHelper:
                 'selector': selector
             })
             if not query_result:
+                print(f"[CDP] upload_file: querySelector failed for {selector}")
                 return False
 
             node_id = query_result.get('nodeId')
             if not node_id:
+                print(f"[CDP] upload_file: no nodeId for selector {selector}, result={query_result}")
                 return False
 
+            print(f"[CDP] upload_file: found nodeId={node_id} for {selector}")
+
             # Set file
-            self.send_command('DOM.setFileInputFiles', {
+            set_result = self.send_command('DOM.setFileInputFiles', {
                 'nodeId': node_id,
                 'files': [file_path]
             })
+            print(f"[CDP] upload_file: setFileInputFiles result={set_result}")
 
-            print(f"[CDP] Uploaded file to {selector}")
+            print(f"[CDP] Uploaded file to {selector}: {file_path}")
             return True
 
         except Exception as e:
             print(f"[CDP] upload_file error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def wait_for_page_load(self, timeout_ms: int = 30000) -> bool:
