@@ -900,13 +900,19 @@ class ReelsPageTab(ctk.CTkFrame):
                 cdp.set_window_bounds(x, y, w, h)
                 print(f"[ReelsPage] Window positioned at ({x}, {y})")
 
-            # Bước 3: Navigate đến page để switch context
+            # Bước 3: Reset về profile cá nhân trước (để có thể chuyển sang page khác)
+            print(f"[ReelsPage] Resetting to personal profile first...")
+            cdp.navigate("https://www.facebook.com/me")
+            cdp.wait_for_page_load()
+            time.sleep(2)
+
+            # Bước 4: Navigate đến page để switch context
             print(f"[ReelsPage] Navigating to page: {page_url}")
             cdp.navigate(page_url)
             cdp.wait_for_page_load()
             time.sleep(3)
 
-            # Bước 4: Click "Chuyển ngay" để switch sang Page context
+            # Bước 5: Click "Chuyển ngay" để switch sang Page context
             print(f"[ReelsPage] Looking for 'Chuyển ngay' button...")
             js_click_switch = '''
             (function() {
@@ -930,7 +936,7 @@ class ReelsPageTab(ctk.CTkFrame):
             if 'no_switch_button_found' not in str(switch_result):
                 time.sleep(3)
 
-            # Bước 5: Navigate đến Reels creator
+            # Bước 6: Navigate đến Reels creator
             reels_create_url = "https://www.facebook.com/reels/create"
             print(f"[ReelsPage] Navigating to Reels creator: {reels_create_url}")
             cdp.navigate(reels_create_url)
@@ -940,7 +946,7 @@ class ReelsPageTab(ctk.CTkFrame):
             current_url = cdp.execute_js("window.location.href")
             print(f"[ReelsPage] Current URL: {current_url}")
 
-            # Bước 6: Upload video
+            # Bước 7: Upload video
             print(f"[ReelsPage] Preparing to upload video...")
             video_path = self.video_path.replace('\\', '/')
 
@@ -995,7 +1001,7 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] Waiting for video processing...")
             time.sleep(15)
 
-            # Bước 7: Click nút "Tiếp"
+            # Bước 8: Click nút "Tiếp"
             js_click_next = '''
             (function() {
                 var spans = document.querySelectorAll('span');
@@ -1027,7 +1033,7 @@ class ReelsPageTab(ctk.CTkFrame):
             if 'clicked' in str(next_result2):
                 time.sleep(5)
 
-            # Bước 8: Nhập caption
+            # Bước 9: Nhập caption
             full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
 
             if full_caption:
@@ -1072,7 +1078,7 @@ class ReelsPageTab(ctk.CTkFrame):
                 cdp.type_human_like(full_caption)
                 time.sleep(2)
 
-            # Bước 9: Click nút đăng
+            # Bước 10: Click nút đăng
             print(f"[ReelsPage] Looking for 'Đăng' button...")
             js_click_post = '''
             (function() {
@@ -1102,7 +1108,7 @@ class ReelsPageTab(ctk.CTkFrame):
             print(f"[ReelsPage] Waiting for Reel to be posted...")
             time.sleep(15)
 
-            # Bước 10: Lấy link Reel
+            # Bước 11: Lấy link Reel
             js_get_reel_url = '''
             (function() {
                 var url = window.location.href;
