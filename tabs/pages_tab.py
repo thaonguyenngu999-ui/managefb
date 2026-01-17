@@ -423,7 +423,11 @@ class PagesTab(ctk.CTkFrame):
             self._render_pages()
             return
 
+        print(f"[Pages UI] Loading pages for profiles: {self.selected_profile_uuids}")
         self.pages = get_pages_for_profiles(self.selected_profile_uuids)
+        print(f"[Pages UI] Loaded {len(self.pages)} pages from DB")
+        for p in self.pages:
+            print(f"[Pages UI]   - {p.get('page_name')} (page_id={p.get('page_id')}, profile={p.get('profile_uuid', '')[:12]})")
         self._render_pages()
 
     def _render_pages(self, search_text: str = None):
@@ -667,11 +671,7 @@ class PagesTab(ctk.CTkFrame):
 
             print(f"[Pages] CDPHelper connected!")
 
-            # Set window bounds
-            bounds = get_window_bounds(slot_id)
-            if bounds:
-                x, y, w, h = bounds
-                cdp.set_window_bounds(x, y, w, h)
+            # Giữ nguyên vị trí window hiện tại - không di chuyển
 
             # Navigate đến trang Pages
             pages_url = "https://www.facebook.com/pages/?category=your_pages&ref=bookmarks"
@@ -1109,36 +1109,9 @@ class CreatePageDialog(ctk.CTkToplevel):
             cdp_base = f"http://127.0.0.1:{remote_port}"
 
             # Đợi browser khởi động
-            time.sleep(1)
-
-            # Set window bounds
-            try:
-                import websocket
-                import json as json_module
-                resp = requests.get(f"{cdp_base}/json", timeout=5)
-                tabs = resp.json()
-                page_ws = None
-                for tab in tabs:
-                    if tab.get('type') == 'page':
-                        page_ws = tab.get('webSocketDebuggerUrl')
-                        break
-                if page_ws:
-                    ws_tmp = websocket.create_connection(page_ws, timeout=5, suppress_origin=True)
-                    x, y, w, h = get_window_bounds(slot_id)
-                    ws_tmp.send(json_module.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {}}))
-                    win_res = json_module.loads(ws_tmp.recv())
-                    if win_res and 'result' in win_res and 'windowId' in win_res['result']:
-                        window_id = win_res['result']['windowId']
-                        ws_tmp.send(json_module.dumps({
-                            "id": 2, "method": "Browser.setWindowBounds",
-                            "params": {"windowId": window_id, "bounds": {"left": x, "top": y, "width": w, "height": h, "windowState": "normal"}}
-                        }))
-                        ws_tmp.recv()
-                    ws_tmp.close()
-            except Exception as e:
-                print(f"[CreatePage] Window bounds error: {e}")
-
             time.sleep(2)
+
+            # Giữ nguyên vị trí window hiện tại - không di chuyển
 
             # Bước 2: Lấy danh sách tabs qua CDP
             try:
