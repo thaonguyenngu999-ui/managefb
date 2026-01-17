@@ -944,15 +944,22 @@ def sync_pages(profile_uuid: str, pages_from_scan: List[Dict]):
             traceback.print_exc()
 
     print(f"[DB] sync_pages completed: {saved_count}/{len(pages_from_scan)} pages saved")
+    print(f"[DB] Profile UUID used: {profile_uuid}")  # Show FULL UUID
 
     # Verify: đếm lại số pages trong DB
     actual_count = get_pages_count(profile_uuid)
-    print(f"[DB] VERIFY: {actual_count} pages in database for profile {profile_uuid[:8]}")
+    print(f"[DB] VERIFY: {actual_count} pages in database for profile {profile_uuid}")
 
     # List all pages in DB for this profile
     all_pages = get_pages(profile_uuid)
     for i, p in enumerate(all_pages):
         print(f"[DB]   DB[{i+1}] id={p.get('id')} | page_id={p.get('page_id')} | name={p.get('page_name')}")
+
+    # DEBUG: List ALL pages in database (no filter)
+    print(f"[DB] === ALL PAGES IN DATABASE ===")
+    all_in_db = get_pages()  # No profile filter
+    for i, p in enumerate(all_in_db):
+        print(f"[DB]   ALL[{i+1}] profile_uuid={p.get('profile_uuid')} | page_id={p.get('page_id')} | name={p.get('page_name')}")
 
 
 def clear_pages(profile_uuid: str) -> bool:
