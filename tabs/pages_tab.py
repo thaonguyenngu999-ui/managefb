@@ -740,9 +740,8 @@ class PagesTab(ctk.CTkFrame):
             result = json_module.loads(ws.recv())
             html_content = result.get('result', {}).get('result', {}).get('value', '')
 
-            ws.close()
-
             if not html_content:
+                ws.close()
                 return []
 
             # Sử dụng JavaScript để tìm pages - đáng tin cậy hơn với React
@@ -850,6 +849,9 @@ class PagesTab(ctk.CTkFrame):
                         })
             except Exception as e:
                 print(f"[Pages] JS parse error: {e}")
+
+            # Đóng WebSocket sau khi đã thực hiện xong JavaScript
+            ws.close()
 
             # Lưu vào database
             if pages_found:
