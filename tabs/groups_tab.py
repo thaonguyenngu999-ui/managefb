@@ -1323,26 +1323,37 @@ class GroupsTab(ctk.CTkFrame):
                     break
 
             if not page_ws:
+                print(f"[Groups] No page WebSocket found for {profile_uuid[:8]}")
+                release_window_slot(slot_id)
                 return []
 
             # Bước 3: Kết nối WebSocket
             import websocket
             import json as json_module
 
+            print(f"[Groups] Connecting WebSocket for {profile_uuid[:8]}...")
             ws = None
             try:
                 ws = websocket.create_connection(page_ws, timeout=30, suppress_origin=True)
-            except:
+            except Exception as e1:
+                print(f"[Groups] WS connect attempt 1 failed: {e1}")
                 try:
                     ws = websocket.create_connection(page_ws, timeout=30, origin=f"http://127.0.0.1:{remote_port}")
-                except:
+                except Exception as e2:
+                    print(f"[Groups] WS connect attempt 2 failed: {e2}")
                     try:
                         ws = websocket.create_connection(page_ws, timeout=30)
-                    except:
+                    except Exception as e3:
+                        print(f"[Groups] WS connect attempt 3 failed: {e3}")
+                        release_window_slot(slot_id)
                         return []
 
             if not ws:
+                print(f"[Groups] WebSocket is None for {profile_uuid[:8]}")
+                release_window_slot(slot_id)
                 return []
+
+            print(f"[Groups] WebSocket connected, navigating to groups page...")
 
             # Navigate đến trang nhóm
             groups_url = "https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added"
@@ -1352,11 +1363,13 @@ class GroupsTab(ctk.CTkFrame):
                 "params": {"url": groups_url}
             }))
             ws.recv()
+            print(f"[Groups] Navigated, waiting 8s for page load...")
 
             # Đợi trang load
             time.sleep(8)
 
             # Scroll để load nhóm
+            print(f"[Groups] Scrolling to load groups...")
             for i in range(10):
                 ws.send(json_module.dumps({
                     "id": 100 + i,
@@ -1366,6 +1379,7 @@ class GroupsTab(ctk.CTkFrame):
                 ws.recv()
                 time.sleep(2)
 
+            print(f"[Groups] Getting HTML content...")
             # Lấy HTML content
             ws.send(json_module.dumps({
                 "id": 200,
@@ -1376,13 +1390,17 @@ class GroupsTab(ctk.CTkFrame):
             html_content = result.get('result', {}).get('result', {}).get('value', '')
 
             ws.close()
+            print(f"[Groups] Got HTML, length={len(html_content) if html_content else 0}")
 
             if not html_content:
+                print(f"[Groups] Empty HTML content!")
+                release_window_slot(slot_id)
                 return []
 
             # Parse HTML
             soup = BeautifulSoup(html_content, 'html.parser')
             links = soup.find_all('a', {'aria-label': 'Xem nhóm'})
+            print(f"[Groups] Found {len(links)} group links")
 
             for link in links:
                 href = link.get('href', '')
@@ -1424,6 +1442,7 @@ class GroupsTab(ctk.CTkFrame):
                             })
 
             # Lưu vào database cho profile này
+            print(f"[Groups] Profile {profile_uuid[:8]} found {len(groups_found)} groups")
             if groups_found:
                 sync_groups(profile_uuid, groups_found)
 
@@ -1432,6 +1451,7 @@ class GroupsTab(ctk.CTkFrame):
             print(f"[ERROR] Scan {profile_uuid[:8]}: {traceback.format_exc()}")
         finally:
             release_window_slot(slot_id)
+            print(f"[Groups] Released slot {slot_id} for {profile_uuid[:8]}")
 
         return groups_found
 
