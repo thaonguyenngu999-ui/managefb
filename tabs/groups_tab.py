@@ -1399,8 +1399,30 @@ class GroupsTab(ctk.CTkFrame):
 
             # Parse HTML
             soup = BeautifulSoup(html_content, 'html.parser')
+
+            # Thử nhiều cách tìm links nhóm
             links = soup.find_all('a', {'aria-label': 'Xem nhóm'})
-            print(f"[Groups] Found {len(links)} group links")
+            print(f"[Groups] Found {len(links)} links with aria-label='Xem nhóm'")
+
+            if not links:
+                # Thử tìm aria-label tiếng Anh
+                links = soup.find_all('a', {'aria-label': 'Visit group'})
+                print(f"[Groups] Found {len(links)} links with aria-label='Visit group'")
+
+            if not links:
+                # Fallback: Tìm tất cả links có /groups/ trong href
+                all_group_links = soup.find_all('a', href=re.compile(r'/groups/[^/]+/?$'))
+                print(f"[Groups] Found {len(all_group_links)} links matching /groups/xxx pattern")
+                links = all_group_links
+
+            # Debug: In ra một vài aria-labels tìm thấy trong page
+            sample_labels = set()
+            for a in soup.find_all('a', {'aria-label': True})[:50]:
+                label = a.get('aria-label', '')
+                if 'group' in label.lower() or 'nhóm' in label.lower():
+                    sample_labels.add(label)
+            if sample_labels:
+                print(f"[Groups] Sample group-related aria-labels: {list(sample_labels)[:5]}")
 
             for link in links:
                 href = link.get('href', '')
@@ -1423,7 +1445,9 @@ class GroupsTab(ctk.CTkFrame):
                             spans = parent.find_all(['span', 'div'], recursive=False)
                             for span in spans:
                                 text = span.get_text(strip=True)
-                                if text and len(text) > 3 and text != "Xem nhóm" and not text.startswith('http'):
+                                # Bỏ qua các text không phải tên nhóm
+                                skip_texts = ['Xem nhóm', 'Visit group', 'View group', 'Tham gia', 'Join']
+                                if text and len(text) > 3 and text not in skip_texts and not text.startswith('http'):
                                     if len(text) < 150:
                                         group_name = text
                                         break
@@ -1659,7 +1683,9 @@ class GroupsTab(ctk.CTkFrame):
                             spans = parent.find_all(['span', 'div'], recursive=False)
                             for span in spans:
                                 text = span.get_text(strip=True)
-                                if text and len(text) > 3 and text != "Xem nhóm" and not text.startswith('http'):
+                                # Bỏ qua các text không phải tên nhóm
+                                skip_texts = ['Xem nhóm', 'Visit group', 'View group', 'Tham gia', 'Join']
+                                if text and len(text) > 3 and text not in skip_texts and not text.startswith('http'):
                                     if len(text) < 150:
                                         group_name = text
                                         break
