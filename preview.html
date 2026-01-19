@@ -3,906 +3,192 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FB Manager Pro v3.0 CYBER - Preview</title>
-
-    <!-- Google Fonts - Inter (clean modern font) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-
-    <!-- Material Icons -->
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
-
+    <title>FB Manager Pro v3.0 CYBER</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {
-            /* Background Colors */
-            --bg-dark: #0a0a0f;
-            --bg-secondary: #0d0d14;
-            --bg-card: #12121a;
-            --bg-hover: #1a1a25;
-            --bg-input: #0f0f18;
-
-            /* Accent Colors - Neon */
-            --accent: #e94560;
-            --accent-hover: #ff6b8a;
-            --cyan: #00d4ff;
-            --cyan-hover: #33ddff;
-            --magenta: #ff00ff;
-            --purple: #9d4edd;
-
-            /* Status Colors */
-            --success: #00ff88;
-            --success-hover: #33ff99;
-            --warning: #ffcc00;
-            --error: #ff3366;
-
-            /* Text Colors */
-            --text-primary: #ffffff;
-            --text-secondary: #6b7280;
-            --text-muted: #4a4a5a;
-
-            /* Border */
-            --border: #1f1f2e;
-            --border-accent: #2a2a3e;
-
-            /* OS Badge Colors */
-            --os-windows: #00d4ff;
-            --os-macos: #9d4edd;
-            --os-android: #00ff88;
-            --os-ios: #ffcc00;
-            --os-linux: #ff6b6b;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-primary);
-            min-height: 100vh;
-            display: flex;
-        }
-
-        /* ========== SIDEBAR ========== */
-        .sidebar {
-            width: 220px;
-            min-width: 220px;
-            background-color: var(--bg-secondary);
-            display: flex;
-            flex-direction: column;
-            border-right: 1px solid var(--border);
-        }
-
-        .logo-section {
-            padding: 20px 15px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .logo-icon {
-            width: 45px;
-            height: 45px;
-            background: var(--bg-card);
-            border: 1px solid var(--cyan);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--cyan);
-            font-size: 22px;
-        }
-
-        .logo-text h1 {
-            font-size: 16px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
-
-        .version-badge {
-            display: inline-block;
-            background: rgba(0, 255, 136, 0.2);
-            color: var(--success);
-            font-size: 9px;
-            font-weight: 700;
-            padding: 3px 8px;
-            border-radius: 4px;
-            margin-top: 4px;
-        }
-
-        .menu-label {
-            font-size: 10px;
-            color: var(--text-muted);
-            padding: 25px 15px 10px;
-            letter-spacing: 0.5px;
-        }
-
-        .nav-menu {
-            flex: 1;
-        }
-
-        .nav-item {
-            display: block;
-            padding: 0 10px;
-            margin-bottom: 4px;
-        }
-
-        .nav-btn {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 15px;
-            background: transparent;
-            border: none;
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-family: inherit;
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-align: left;
-        }
-
-        .nav-btn:hover {
-            background: var(--bg-hover);
-        }
-
-        .nav-btn.active {
-            background: var(--accent);
-        }
-
-        .nav-btn .icon {
-            font-size: 18px;
-            width: 24px;
-            text-align: center;
-        }
-
-        .nav-subtitle {
-            font-size: 9px;
-            color: var(--text-muted);
-            padding-left: 51px;
-            margin-top: -2px;
-        }
-
-        /* Quick Stats */
-        .sidebar-bottom {
-            padding: 15px;
-        }
-
-        .quick-stats {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 12px 15px;
-            margin-bottom: 15px;
-        }
-
-        .quick-stats-title {
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 3px 0;
-        }
-
-        .stat-label {
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-
-        .stat-value {
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .stat-value.cyan { color: var(--cyan); }
-        .stat-value.green { color: var(--success); }
-        .stat-value.yellow { color: var(--warning); }
-
-        .settings-btn {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px 15px;
-            background: transparent;
-            border: none;
-            border-radius: 8px;
-            color: var(--text-secondary);
-            font-family: inherit;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .settings-btn:hover {
-            background: var(--bg-hover);
-        }
-
-        .settings-subtitle {
-            font-size: 9px;
-            color: var(--text-muted);
-            padding-left: 40px;
-        }
-
-        /* ========== MAIN CONTENT ========== */
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .content-area {
-            flex: 1;
-            padding: 25px;
-            overflow-y: auto;
-        }
-
-        /* Page Header */
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 20px;
-        }
-
-        .page-title-wrap {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .page-title {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            background: rgba(233, 69, 96, 0.15);
-            padding: 10px 18px;
-            border-radius: 8px;
-        }
-
-        .page-title h2 {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--accent);
-            letter-spacing: 0.5px;
-        }
-
-        .page-title .icon {
-            color: var(--accent);
-            font-size: 20px;
-        }
-
-        .page-subtitle {
-            font-size: 12px;
-            color: var(--text-secondary);
-            padding-left: 5px;
-        }
-
-        .header-actions {
-            display: flex;
-            gap: 10px;
-        }
-
-        /* Buttons */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 18px;
-            border: none;
-            border-radius: 6px;
-            font-family: inherit;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-secondary {
-            background: var(--bg-card);
-            color: var(--text-primary);
-        }
-
-        .btn-secondary:hover {
-            background: var(--bg-hover);
-        }
-
-        .btn-cyan {
-            background: var(--cyan);
-            color: #000;
-        }
-
-        .btn-cyan:hover {
-            background: var(--cyan-hover);
-        }
-
-        .btn-success {
-            background: var(--success);
-            color: #000;
-        }
-
-        .btn-danger {
-            background: var(--error);
-            color: #fff;
-        }
-
-        .btn-outline-cyan {
-            background: transparent;
-            border: 1px solid var(--cyan);
-            color: var(--cyan);
-        }
-
-        .btn-outline-cyan:hover {
-            background: rgba(0, 212, 255, 0.1);
-        }
-
-        .btn-outline-danger {
-            background: transparent;
-            border: 1px solid var(--error);
-            color: var(--error);
-        }
-
-        .btn-outline-danger:hover {
-            background: rgba(255, 51, 102, 0.1);
-        }
-
-        /* Stats Cards */
-        .stats-row {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .stats-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 15px 18px;
-        }
-
-        .stats-card-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-
-        .stats-card-icon {
-            font-size: 16px;
-        }
-
-        .stats-card-title {
-            font-size: 11px;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .stats-card-value {
-            font-size: 36px;
-            font-weight: 700;
-            line-height: 1;
-            margin-bottom: 5px;
-        }
-
-        .stats-card-trend {
-            font-size: 11px;
-            color: var(--success);
-        }
-
-        .stats-card.cyan .stats-card-icon,
-        .stats-card.cyan .stats-card-value { color: var(--cyan); }
-
-        .stats-card.green .stats-card-icon,
-        .stats-card.green .stats-card-value { color: var(--success); }
-
-        .stats-card.purple .stats-card-icon,
-        .stats-card.purple .stats-card-value { color: var(--purple); }
-
-        .stats-card.yellow .stats-card-icon,
-        .stats-card.yellow .stats-card-value { color: var(--warning); }
-
-        /* Toolbar */
-        .toolbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: var(--bg-card);
-            border-radius: 10px;
-            padding: 10px 18px;
-            margin-bottom: 15px;
-        }
-
-        .toolbar-left {
-            display: flex;
-            align-items: center;
-            gap: 25px;
-        }
-
-        .search-box {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 8px 15px;
-        }
-
-        .search-box:focus-within {
-            border-color: var(--cyan);
-        }
-
-        .search-box .icon {
-            color: var(--text-muted);
-            font-size: 18px;
-        }
-
-        .search-box input {
-            background: transparent;
-            border: none;
-            outline: none;
-            color: var(--text-primary);
-            font-family: inherit;
-            font-size: 13px;
-            width: 200px;
-        }
-
-        .search-box input::placeholder {
-            color: var(--text-muted);
-        }
-
-        .folder-filter {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .folder-filter label {
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-
-        .folder-select {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 8px 15px;
-            color: var(--text-primary);
-            font-family: inherit;
-            font-size: 12px;
-            cursor: pointer;
-            min-width: 150px;
-        }
-
-        .toolbar-right {
-            display: flex;
-            gap: 10px;
-        }
-
-        /* Table */
-        .table-container {
-            background: var(--bg-card);
-            border-radius: 10px;
-            overflow: hidden;
-        }
-
-        .table-header {
-            display: grid;
-            grid-template-columns: 40px 70px 1fr 110px 110px 130px 100px;
-            gap: 10px;
-            padding: 12px 15px;
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border);
-        }
-
-        .table-header span {
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .table-body {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .table-row {
-            display: grid;
-            grid-template-columns: 40px 70px 1fr 110px 110px 130px 100px;
-            gap: 10px;
-            padding: 12px 15px;
-            align-items: center;
-            border-bottom: 1px solid var(--border);
-            transition: background 0.2s;
-        }
-
-        .table-row:hover {
-            background: var(--bg-hover);
-        }
-
-        .table-row.running {
-            background: rgba(0, 255, 136, 0.05);
-        }
-
-        .checkbox {
-            width: 20px;
-            height: 20px;
-            appearance: none;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        .checkbox:checked {
-            background: var(--accent);
-            border-color: var(--accent);
-        }
-
-        .status {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
-
-        .status.on .status-dot { background: var(--success); }
-        .status.on { color: var(--success); }
-
-        .status.off .status-dot { background: var(--text-muted); }
-        .status.off { color: var(--text-muted); }
-
-        .profile-name {
-            font-size: 13px;
-            font-weight: 500;
-        }
-
-        .os-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 12px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
-
-        .os-badge.windows {
-            background: rgba(0, 212, 255, 0.15);
-            border: 1px solid rgba(0, 212, 255, 0.3);
-            color: var(--os-windows);
-        }
-
-        .os-badge.macos {
-            background: rgba(157, 78, 221, 0.15);
-            border: 1px solid rgba(157, 78, 221, 0.3);
-            color: var(--os-macos);
-        }
-
-        .os-badge.android {
-            background: rgba(0, 255, 136, 0.15);
-            border: 1px solid rgba(0, 255, 136, 0.3);
-            color: var(--os-android);
-        }
-
-        .os-badge.ios {
-            background: rgba(255, 204, 0, 0.15);
-            border: 1px solid rgba(255, 204, 0, 0.3);
-            color: var(--os-ios);
-        }
-
-        .os-badge.linux {
-            background: rgba(255, 107, 107, 0.15);
-            border: 1px solid rgba(255, 107, 107, 0.3);
-            color: var(--os-linux);
-        }
-
-        .browser-info {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .proxy-info {
-            font-size: 11px;
-            font-family: 'JetBrains Mono', monospace;
-            color: var(--text-muted);
-        }
-
-        .action-btn {
-            padding: 6px 16px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 700;
-            cursor: pointer;
-            border: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .action-btn.open {
-            background: var(--success);
-            color: #000;
-        }
-
-        .action-btn.close {
-            background: var(--error);
-            color: #fff;
-        }
-
-        /* Status Bar */
-        .status-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 20px;
-            background: var(--bg-secondary);
-            border-top: 1px solid var(--border);
-        }
-
-        .status-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .status-indicator {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--success);
-        }
-
-        .status-text {
-            font-size: 10px;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .status-right {
-            font-size: 10px;
-            color: var(--text-muted);
-        }
-
-        /* Responsive */
-        @media (max-width: 1200px) {
-            .stats-row {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        @media (max-width: 768px) {
-            .sidebar {
-                position: fixed;
-                left: -220px;
-                height: 100vh;
-                z-index: 100;
-                transition: left 0.3s;
-            }
-
-            .sidebar.open {
-                left: 0;
-            }
-
-            .stats-row {
-                grid-template-columns: 1fr;
-            }
-
-            .table-header,
-            .table-row {
-                grid-template-columns: 40px 60px 1fr 80px;
-            }
-
-            .table-header span:nth-child(4),
-            .table-header span:nth-child(5),
-            .table-header span:nth-child(6),
-            .table-row > *:nth-child(4),
-            .table-row > *:nth-child(5),
-            .table-row > *:nth-child(6) {
-                display: none;
-            }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Inter',sans-serif;background:#080810;color:#fff;min-height:100vh;display:flex}
+
+        /* SIDEBAR */
+        .sidebar{width:180px;background:#0c0c14;display:flex;flex-direction:column;padding:15px 12px}
+        .logo{display:flex;align-items:center;gap:10px;margin-bottom:5px}
+        .logo-icon{width:38px;height:38px;background:#101018;border:1.5px solid #00e5ff;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#00e5ff;font-size:18px}
+        .logo h1{font-size:13px;font-weight:700;letter-spacing:0.3px}
+        .badge{display:inline-block;background:#00ff8820;color:#00ff88;font-size:8px;font-weight:700;padding:2px 6px;border-radius:3px;margin-top:2px}
+        .menu-label{font-size:9px;color:#555;margin:20px 0 10px 3px}
+
+        .nav-btn{width:100%;padding:10px 12px;background:transparent;border:none;border-radius:6px;color:#fff;font-size:11px;font-weight:500;text-align:left;cursor:pointer;display:flex;align-items:center;gap:10px;margin-bottom:2px}
+        .nav-btn:hover{background:#1a1a25}
+        .nav-btn.active{background:#e94560}
+        .nav-btn .icon{font-size:14px;width:18px;text-align:center}
+        .nav-sub{font-size:8px;color:#444;margin:0 0 8px 40px}
+
+        .sidebar-bottom{margin-top:auto}
+        .quick-stats{background:#101018;border:1px solid #1a1a25;border-radius:8px;padding:12px}
+        .qs-title{font-size:9px;color:#666;margin-bottom:10px;display:flex;align-items:center;gap:5px}
+        .qs-title span{color:#ffcc00}
+        .qs-row{display:flex;justify-content:space-between;font-size:10px;padding:3px 0}
+        .qs-row .label{color:#666}
+        .qs-row .val{font-weight:700}
+        .cyan{color:#00e5ff}
+        .green{color:#00ff88}
+        .yellow{color:#ffcc00}
+        .purple{color:#aa66ff}
+
+        .settings{margin-top:12px}
+        .settings-btn{width:100%;padding:8px 10px;background:transparent;border:none;color:#666;font-size:10px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:8px}
+        .settings-sub{font-size:8px;color:#444;margin-left:28px}
+
+        /* MAIN */
+        .main{flex:1;display:flex;flex-direction:column;background:#080810}
+        .content{flex:1;padding:18px 22px;overflow-y:auto}
+
+        /* HEADER */
+        .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}
+        .title-box{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(90deg,#e9456030,#e9456010);padding:8px 16px;border-radius:4px}
+        .title-box span{color:#e94560;font-size:14px}
+        .title-box h2{color:#e94560;font-size:15px;font-weight:700;letter-spacing:0.5px}
+        .page-sub{font-size:11px;color:#666;margin-top:6px}
+        .header-btns{display:flex;gap:10px}
+        .btn{padding:9px 16px;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px}
+        .btn-dark{background:#16161e;color:#aaa}
+        .btn-cyan{background:#00e5ff;color:#000}
+
+        /* STATS */
+        .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+        .stat-card{background:#0e0e16;border:1px solid #1a1a22;border-radius:8px;padding:14px 16px}
+        .stat-head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+        .stat-head .ico{font-size:12px}
+        .stat-head .txt{font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px}
+        .stat-val{font-size:32px;font-weight:700;line-height:1}
+        .stat-trend{font-size:10px;color:#00ff88;margin-top:5px}
+
+        /* TOOLBAR */
+        .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+        .toolbar-left{display:flex;align-items:center;gap:20px}
+        .search-box{display:flex;align-items:center;gap:8px;background:#0e0e16;border:1px solid #1a1a22;border-radius:6px;padding:8px 14px}
+        .search-box input{background:transparent;border:none;outline:none;color:#fff;font-size:11px;width:160px}
+        .search-box input::placeholder{color:#444}
+        .folder-wrap{display:flex;align-items:center;gap:8px}
+        .folder-wrap label{font-size:10px;color:#666}
+        .folder-wrap select{background:#0e0e16;border:1px solid #1a1a22;border-radius:5px;padding:8px 12px;color:#fff;font-size:11px}
+        .toolbar-right{display:flex;gap:10px}
+        .btn-outline{padding:8px 14px;background:transparent;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer}
+        .btn-outline-red{border:1px solid #ff3366;color:#ff3366}
+        .btn-outline-cyan{border:1px solid #00e5ff;color:#00e5ff}
+
+        /* TABLE */
+        .table-wrap{background:#0e0e16;border-radius:8px;overflow:hidden}
+        .t-header{display:grid;grid-template-columns:36px 60px 1fr 100px 100px 130px 90px;padding:12px 14px;background:#0a0a12;font-size:10px;color:#555;text-transform:uppercase;letter-spacing:0.3px;border-bottom:1px solid #151520}
+        .t-row{display:grid;grid-template-columns:36px 60px 1fr 100px 100px 130px 90px;padding:12px 14px;align-items:center;border-bottom:1px solid #151520;font-size:12px}
+        .t-row:hover{background:#12121a}
+        .t-row.on{background:#00ff8808}
+
+        .chk{width:16px;height:16px;background:#0a0a12;border:1px solid #252530;border-radius:3px;appearance:none;cursor:pointer}
+        .chk:checked{background:#e94560;border-color:#e94560}
+
+        .status{display:flex;align-items:center;gap:5px;font-size:11px}
+        .status .dot{width:7px;height:7px;border-radius:50%}
+        .status.on .dot{background:#00ff88}
+        .status.on{color:#00ff88}
+        .status.off .dot{background:#555}
+        .status.off{color:#555}
+
+        .name{font-weight:500}
+
+        .os{display:inline-block;padding:4px 10px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:0.3px}
+        .os.win{background:#00e5ff18;border:1px solid #00e5ff30;color:#00e5ff}
+        .os.mac{background:#aa66ff18;border:1px solid #aa66ff30;color:#aa66ff}
+        .os.android{background:#00ff8818;border:1px solid #00ff8830;color:#00ff88}
+        .os.ios{background:#ffcc0018;border:1px solid #ffcc0030;color:#ffcc00}
+        .os.linux{background:#ff666618;border:1px solid #ff666630;color:#ff6666}
+
+        .browser{color:#888;font-size:11px}
+        .proxy{color:#555;font-size:10px;font-family:monospace}
+
+        .act{padding:6px 14px;border:none;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px}
+        .act.open{background:#00ff88;color:#000}
+        .act.close{background:#ff3366;color:#fff}
+
+        /* STATUS BAR */
+        .statusbar{display:flex;justify-content:space-between;padding:8px 18px;background:#0a0a12;border-top:1px solid #151520;font-size:9px;color:#555}
+        .statusbar .left{display:flex;align-items:center;gap:6px}
+        .statusbar .dot{width:6px;height:6px;border-radius:50%;background:#00ff88}
+
+        @media(max-width:1000px){
+            .sidebar{display:none}
+            .stats-row{grid-template-columns:1fr 1fr}
+            .t-header,.t-row{grid-template-columns:30px 50px 1fr 80px}
+            .t-header span:nth-child(n+5),.t-row>*:nth-child(n+5){display:none}
         }
     </style>
 </head>
 <body>
-    <!-- SIDEBAR -->
     <aside class="sidebar">
-        <div class="logo-section">
+        <div class="logo">
             <div class="logo-icon">◆</div>
-            <div class="logo-text">
-                <h1>FB MANAGER</h1>
-                <span class="version-badge">CYBER v3.0</span>
-            </div>
+            <div><h1>FB MANAGER</h1><span class="badge">CYBER v3.0</span></div>
         </div>
-
         <div class="menu-label">◄ MAIN MENU</div>
-
-        <nav class="nav-menu">
-            <div class="nav-item">
-                <button class="nav-btn active">
-                    <span class="icon">◎</span>
-                    <span>PROFILES</span>
-                </button>
-                <div class="nav-subtitle">Quản lý tài khoản</div>
-            </div>
-
-            <div class="nav-item">
-                <button class="nav-btn">
-                    <span class="icon">✎</span>
-                    <span>SOẠN TIN</span>
-                </button>
-                <div class="nav-subtitle">Tạo nội dung</div>
-            </div>
-
-            <div class="nav-item">
-                <button class="nav-btn">
-                    <span class="icon">◉</span>
-                    <span>DĂNG NHÓM</span>
-                </button>
-                <div class="nav-subtitle">Đăng vào nhóm</div>
-            </div>
-
-            <div class="nav-item">
-                <button class="nav-btn">
-                    <span class="icon">⚡</span>
-                    <span>KỊCH BẢN</span>
-                </button>
-                <div class="nav-subtitle">Automation</div>
-            </div>
-
-            <div class="nav-item">
-                <button class="nav-btn">
-                    <span class="icon">◈</span>
-                    <span>BÀI ĐĂNG</span>
-                </button>
-                <div class="nav-subtitle">Theo dõi bài</div>
-            </div>
-        </nav>
+        <button class="nav-btn active"><span class="icon">◎</span>PROFILES</button>
+        <div class="nav-sub">Quản lý tài khoản</div>
+        <button class="nav-btn"><span class="icon">✎</span>SOẠN TIN</button>
+        <div class="nav-sub">Tạo nội dung</div>
+        <button class="nav-btn"><span class="icon">◉</span>DĂNG NHÓM</button>
+        <div class="nav-sub">Đăng vào nhóm</div>
+        <button class="nav-btn"><span class="icon">⚡</span>KỊCH BẢN</button>
+        <div class="nav-sub">Automation</div>
+        <button class="nav-btn"><span class="icon">◈</span>BÀI ĐĂNG</button>
+        <div class="nav-sub">Theo dõi bài</div>
 
         <div class="sidebar-bottom">
             <div class="quick-stats">
-                <div class="quick-stats-title">
-                    <span>⚡</span> QUICK STATS
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">PROFILES</span>
-                    <span class="stat-value cyan">24</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">RUNNING</span>
-                    <span class="stat-value green">3</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">SCRIPTS</span>
-                    <span class="stat-value yellow">12</span>
-                </div>
+                <div class="qs-title"><span>⚡</span>QUICK STATS</div>
+                <div class="qs-row"><span class="label">PROFILES</span><span class="val cyan">24</span></div>
+                <div class="qs-row"><span class="label">RUNNING</span><span class="val green">3</span></div>
+                <div class="qs-row"><span class="label">SCRIPTS</span><span class="val yellow">12</span></div>
             </div>
-
-            <button class="settings-btn">
-                <span class="icon">⚙</span>
-                <span>CÀI ĐẶT</span>
-            </button>
-            <div class="settings-subtitle">Cấu hình hệ thống</div>
+            <div class="settings">
+                <button class="settings-btn"><span>⚙</span>CÀI ĐẶT</button>
+                <div class="settings-sub">Cấu hình hệ thống</div>
+            </div>
         </div>
     </aside>
 
-    <!-- MAIN CONTENT -->
-    <main class="main-content">
-        <div class="content-area">
-            <!-- Page Header -->
-            <div class="page-header">
-                <div class="page-title-wrap">
-                    <div class="page-title">
-                        <span class="icon">⚡</span>
-                        <h2>QUẢN LÝ PROFILES</h2>
-                    </div>
-                    <p class="page-subtitle">Quản lý và điều khiển browser profiles</p>
+    <main class="main">
+        <div class="content">
+            <div class="header">
+                <div>
+                    <div class="title-box"><span>⚡</span><h2>QUẢN LÝ PROFILES</h2></div>
+                    <p class="page-sub">Quản lý và điều khiển browser profiles</p>
                 </div>
-
-                <div class="header-actions">
-                    <button class="btn btn-secondary">
-                        <span>⟳</span> SYNC
-                    </button>
-                    <button class="btn btn-cyan">
-                        <span>+</span> TẠO PROFILE
-                    </button>
+                <div class="header-btns">
+                    <button class="btn btn-dark">⟳ SYNC</button>
+                    <button class="btn btn-cyan">+ TẠO PROFILE</button>
                 </div>
             </div>
 
-            <!-- Stats Cards -->
             <div class="stats-row">
-                <div class="stats-card cyan">
-                    <div class="stats-card-header">
-                        <span class="stats-card-icon">◎</span>
-                        <span class="stats-card-title">TỔNG PROFILES</span>
-                    </div>
-                    <div class="stats-card-value">24</div>
-                </div>
-
-                <div class="stats-card green">
-                    <div class="stats-card-header">
-                        <span class="stats-card-icon">▶</span>
-                        <span class="stats-card-title">ĐANG CHẠY</span>
-                    </div>
-                    <div class="stats-card-value">3</div>
-                    <div class="stats-card-trend">↑ +2 hôm nay</div>
-                </div>
-
-                <div class="stats-card purple">
-                    <div class="stats-card-header">
-                        <span class="stats-card-icon">📁</span>
-                        <span class="stats-card-title">FOLDERS</span>
-                    </div>
-                    <div class="stats-card-value">5</div>
-                </div>
-
-                <div class="stats-card yellow">
-                    <div class="stats-card-header">
-                        <span class="stats-card-icon">⚡</span>
-                        <span class="stats-card-title">SCRIPTS</span>
-                    </div>
-                    <div class="stats-card-value">12</div>
-                    <div class="stats-card-trend">↑ +3 tuần này</div>
-                </div>
+                <div class="stat-card"><div class="stat-head"><span class="ico cyan">◎</span><span class="txt">TỔNG PROFILES</span></div><div class="stat-val cyan">24</div></div>
+                <div class="stat-card"><div class="stat-head"><span class="ico green">▶</span><span class="txt">ĐANG CHẠY</span></div><div class="stat-val green">3</div><div class="stat-trend">↑ +2 hôm nay</div></div>
+                <div class="stat-card"><div class="stat-head"><span class="ico yellow">📁</span><span class="txt">FOLDERS</span></div><div class="stat-val" style="color:#fff">5</div></div>
+                <div class="stat-card"><div class="stat-head"><span class="ico yellow">⚡</span><span class="txt">SCRIPTS</span></div><div class="stat-val yellow">12</div><div class="stat-trend">↑ +3 tuần này</div></div>
             </div>
 
-            <!-- Toolbar -->
             <div class="toolbar">
                 <div class="toolbar-left">
-                    <div class="search-box">
-                        <span class="icon">🔍</span>
-                        <input type="text" placeholder="TÌM KIẾM PROFILE...">
-                    </div>
-
-                    <div class="folder-filter">
-                        <label>FOLDER:</label>
-                        <select class="folder-select">
-                            <option>TẤT CẢ</option>
-                            <option>Facebook Main</option>
-                            <option>Backup</option>
-                            <option>Test</option>
-                        </select>
-                    </div>
+                    <div class="search-box"><span style="color:#555">🔍</span><input placeholder="TÌM KIẾM PROFILE..."></div>
+                    <div class="folder-wrap"><label>FOLDER:</label><select><option>TẤT CẢ</option></select></div>
                 </div>
-
                 <div class="toolbar-right">
-                    <button class="btn btn-outline-danger">ĐÓNG TẤT CẢ</button>
-                    <button class="btn btn-outline-cyan">▶ MỞ TẤT CẢ</button>
+                    <button class="btn-outline btn-outline-red">ĐÓNG TẤT CẢ</button>
+                    <button class="btn-outline btn-outline-cyan">▶ MỞ TẤT CẢ</button>
                 </div>
             </div>
 
-            <!-- Table -->
-            <div class="table-container">
-                <div class="table-header">
-                    <span><input type="checkbox" class="checkbox"></span>
+            <div class="table-wrap">
+                <div class="t-header">
+                    <span><input type="checkbox" class="chk"></span>
                     <span>STATUS</span>
                     <span>TÊN PROFILE</span>
                     <span>HỆ ĐIỀU HÀNH</span>
@@ -910,126 +196,58 @@
                     <span>PROXY</span>
                     <span>HÀNH ĐỘNG</span>
                 </div>
-
-                <div class="table-body">
-                    <!-- Row 1 - Running -->
-                    <div class="table-row running">
-                        <input type="checkbox" class="checkbox">
-                        <div class="status on">
-                            <span class="status-dot"></span>
-                            <span>ON</span>
-                        </div>
-                        <span class="profile-name">Profile_Main_01</span>
-                        <span class="os-badge windows">WINDOWS</span>
-                        <span class="browser-info">Chrome 143</span>
-                        <span class="proxy-info">103.xxx.xxx.1:8888</span>
-                        <button class="action-btn close">■ CLOSE</button>
-                    </div>
-
-                    <!-- Row 2 -->
-                    <div class="table-row">
-                        <input type="checkbox" class="checkbox">
-                        <div class="status off">
-                            <span class="status-dot"></span>
-                            <span>OFF</span>
-                        </div>
-                        <span class="profile-name">Profile_Backup_02</span>
-                        <span class="os-badge macos">MACOS</span>
-                        <span class="browser-info">Chrome 142</span>
-                        <span class="proxy-info">-</span>
-                        <button class="action-btn open">▶ OPEN</button>
-                    </div>
-
-                    <!-- Row 3 - Running -->
-                    <div class="table-row running">
-                        <input type="checkbox" class="checkbox">
-                        <div class="status on">
-                            <span class="status-dot"></span>
-                            <span>ON</span>
-                        </div>
-                        <span class="profile-name">Profile_Test_03</span>
-                        <span class="os-badge android">ANDROID</span>
-                        <span class="browser-info">Chrome 143</span>
-                        <span class="proxy-info">192.168.1.1:3128</span>
-                        <button class="action-btn close">■ CLOSE</button>
-                    </div>
-
-                    <!-- Row 4 -->
-                    <div class="table-row">
-                        <input type="checkbox" class="checkbox">
-                        <div class="status off">
-                            <span class="status-dot"></span>
-                            <span>OFF</span>
-                        </div>
-                        <span class="profile-name">Profile_iOS_04</span>
-                        <span class="os-badge ios">IOS</span>
-                        <span class="browser-info">Safari 17</span>
-                        <span class="proxy-info">-</span>
-                        <button class="action-btn open">▶ OPEN</button>
-                    </div>
-
-                    <!-- Row 5 -->
-                    <div class="table-row">
-                        <input type="checkbox" class="checkbox">
-                        <div class="status off">
-                            <span class="status-dot"></span>
-                            <span>OFF</span>
-                        </div>
-                        <span class="profile-name">Profile_Linux_05</span>
-                        <span class="os-badge linux">LINUX</span>
-                        <span class="browser-info">Chrome 143</span>
-                        <span class="proxy-info">proxy.company.com:8888</span>
-                        <button class="action-btn open">▶ OPEN</button>
-                    </div>
+                <div class="t-row on">
+                    <input type="checkbox" class="chk">
+                    <div class="status on"><span class="dot"></span>ON</div>
+                    <span class="name">Profile_Main_01</span>
+                    <span class="os win">WINDOWS</span>
+                    <span class="browser">Chrome 143</span>
+                    <span class="proxy">103.xxx.xxx.1:8888</span>
+                    <button class="act close">■ CLOSE</button>
+                </div>
+                <div class="t-row">
+                    <input type="checkbox" class="chk">
+                    <div class="status off"><span class="dot"></span>OFF</div>
+                    <span class="name">Profile_Backup_02</span>
+                    <span class="os mac">MACOS</span>
+                    <span class="browser">Chrome 142</span>
+                    <span class="proxy">-</span>
+                    <button class="act open">▶ OPEN</button>
+                </div>
+                <div class="t-row on">
+                    <input type="checkbox" class="chk">
+                    <div class="status on"><span class="dot"></span>ON</div>
+                    <span class="name">Profile_Test_03</span>
+                    <span class="os android">ANDROID</span>
+                    <span class="browser">Chrome 143</span>
+                    <span class="proxy">192.168.1.1:3128</span>
+                    <button class="act close">■ CLOSE</button>
+                </div>
+                <div class="t-row">
+                    <input type="checkbox" class="chk">
+                    <div class="status off"><span class="dot"></span>OFF</div>
+                    <span class="name">Profile_iOS_04</span>
+                    <span class="os ios">IOS</span>
+                    <span class="browser">Safari 17</span>
+                    <span class="proxy">-</span>
+                    <button class="act open">▶ OPEN</button>
+                </div>
+                <div class="t-row">
+                    <input type="checkbox" class="chk">
+                    <div class="status off"><span class="dot"></span>OFF</div>
+                    <span class="name">Profile_Linux_05</span>
+                    <span class="os linux">LINUX</span>
+                    <span class="browser">Chrome 143</span>
+                    <span class="proxy">proxy.company.com:8888</span>
+                    <button class="act open">▶ OPEN</button>
                 </div>
             </div>
         </div>
 
-        <!-- Status Bar -->
-        <div class="status-bar">
-            <div class="status-left">
-                <span class="status-indicator"></span>
-                <span class="status-text">SYSTEM READY - CONNECTED TO HIDEMIUM API</span>
-            </div>
-            <div class="status-right">
-                FB MANAGER PRO v3.0 CYBER - © 2024
-            </div>
+        <div class="statusbar">
+            <div class="left"><span class="dot"></span>SYSTEM READY - CONNECTED TO HIDEMIUM API</div>
+            <div>FB MANAGER PRO v3.0 CYBER - © 2024</div>
         </div>
     </main>
-
-    <script>
-        // Simple interactivity
-        document.querySelectorAll('.nav-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-            });
-        });
-
-        document.querySelectorAll('.action-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const row = this.closest('.table-row');
-                const status = row.querySelector('.status');
-
-                if (this.classList.contains('open')) {
-                    this.classList.remove('open');
-                    this.classList.add('close');
-                    this.innerHTML = '■ CLOSE';
-                    row.classList.add('running');
-                    status.classList.remove('off');
-                    status.classList.add('on');
-                    status.innerHTML = '<span class="status-dot"></span><span>ON</span>';
-                } else {
-                    this.classList.remove('close');
-                    this.classList.add('open');
-                    this.innerHTML = '▶ OPEN';
-                    row.classList.remove('running');
-                    status.classList.remove('on');
-                    status.classList.add('off');
-                    status.innerHTML = '<span class="status-dot"></span><span>OFF</span>';
-                }
-            });
-        });
-    </script>
 </body>
 </html>
