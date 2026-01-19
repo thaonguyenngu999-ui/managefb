@@ -15,6 +15,7 @@ COLORS = {
     "bg_secondary": "#161b22",       # Secondary panels
     "bg_card": "#21262d",            # Card backgrounds
     "bg_card_hover": "#2d333b",      # Card hover state
+    "bg_hover": "#2d333b",           # General hover state
     "bg_elevated": "#30363d",        # Elevated elements
 
     # Accent Colors - Vibrant gradient feel
@@ -98,6 +99,7 @@ SPACING = {
 
 # Border Radius
 RADIUS = {
+    "xs": 4,
     "sm": 6,
     "md": 8,
     "lg": 12,
