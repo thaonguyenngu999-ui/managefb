@@ -18,6 +18,9 @@ from db import (
     update_group_selection, get_selected_groups, sync_groups, clear_groups,
     get_contents, get_categories, save_post_history, get_post_history
 )
+
+# Debug mode - set False to disable verbose logging
+DEBUG = False
 from api_service import api
 
 # Import for web scraping
@@ -1063,7 +1066,7 @@ class GroupsTab(ctk.CTkFrame):
         try:
             # Bước 1: Mở browser qua Hidemium API
             result = api.open_browser(profile_uuid)
-            print(f"[DEBUG] open_browser {profile_uuid[:8]}: {result.get('status', result.get('type', 'unknown'))}")
+            if DEBUG: print(f"[DEBUG] open_browser {profile_uuid[:8]}: {result.get('status', result.get('type', 'unknown'))}")
 
             # Kiểm tra response
             status = result.get('status') or result.get('type')
@@ -1094,7 +1097,7 @@ class GroupsTab(ctk.CTkFrame):
                 resp = requests.get(f"{cdp_base}/json", timeout=10)
                 tabs = resp.json()
             except Exception as e:
-                print(f"[DEBUG] CDP error for {profile_uuid[:8]}: {e}")
+                if DEBUG: print(f"[DEBUG] CDP error for {profile_uuid[:8]}: {e}")
                 return []
 
             # Tìm tab page
@@ -1229,7 +1232,7 @@ class GroupsTab(ctk.CTkFrame):
             self.after(0, lambda: self.scan_progress.set(0.05))
 
             result = api.open_browser(self.current_profile_uuid)
-            print(f"[DEBUG] open_browser response: {result}")
+            if DEBUG: print(f"[DEBUG] open_browser response: {result}")
 
             # Kiểm tra response
             status = result.get('status') or result.get('type')
@@ -1254,7 +1257,7 @@ class GroupsTab(ctk.CTkFrame):
                 return []
 
             cdp_base = f"http://127.0.0.1:{remote_port}"
-            print(f"[DEBUG] CDP base: {cdp_base}")
+            if DEBUG: print(f"[DEBUG] CDP base: {cdp_base}")
 
             # Đợi browser khởi động
             self.after(0, lambda: self._set_status("Đợi browser khởi động...", "info"))
@@ -1268,9 +1271,9 @@ class GroupsTab(ctk.CTkFrame):
             try:
                 resp = requests.get(f"{cdp_base}/json", timeout=10)
                 tabs = resp.json()
-                print(f"[DEBUG] Found {len(tabs)} tabs")
+                if DEBUG: print(f"[DEBUG] Found {len(tabs)} tabs")
             except Exception as e:
-                print(f"[DEBUG] CDP connection error: {e}")
+                if DEBUG: print(f"[DEBUG] CDP connection error: {e}")
                 self.after(0, lambda err=str(e): self._set_status(f"Lỗi kết nối CDP: {err}", "error"))
                 return []
 
@@ -1285,7 +1288,7 @@ class GroupsTab(ctk.CTkFrame):
                 self.after(0, lambda: self._set_status("Không tìm thấy tab page", "error"))
                 return []
 
-            print(f"[DEBUG] Page WebSocket: {page_ws}")
+            if DEBUG: print(f"[DEBUG] Page WebSocket: {page_ws}")
 
             # Bước 3: Kết nối WebSocket và điều khiển browser
             import websocket
@@ -1305,10 +1308,10 @@ class GroupsTab(ctk.CTkFrame):
                     timeout=30,
                     suppress_origin=True
                 )
-                print("[DEBUG] WebSocket connected (suppress_origin)")
+                if DEBUG: print("[DEBUG] WebSocket connected (suppress_origin)")
             except Exception as e1:
                 connection_error = str(e1)
-                print(f"[DEBUG] suppress_origin failed: {e1}")
+                if DEBUG: print(f"[DEBUG] suppress_origin failed: {e1}")
 
             # Cách 2: Dùng origin parameter
             if ws is None:
@@ -1318,19 +1321,19 @@ class GroupsTab(ctk.CTkFrame):
                         timeout=30,
                         origin=f"http://127.0.0.1:{remote_port}"
                     )
-                    print("[DEBUG] WebSocket connected (origin param)")
+                    if DEBUG: print("[DEBUG] WebSocket connected (origin param)")
                 except Exception as e2:
                     connection_error = str(e2)
-                    print(f"[DEBUG] origin param failed: {e2}")
+                    if DEBUG: print(f"[DEBUG] origin param failed: {e2}")
 
             # Cách 3: Không có gì đặc biệt
             if ws is None:
                 try:
                     ws = websocket.create_connection(page_ws, timeout=30)
-                    print("[DEBUG] WebSocket connected (default)")
+                    if DEBUG: print("[DEBUG] WebSocket connected (default)")
                 except Exception as e3:
                     connection_error = str(e3)
-                    print(f"[DEBUG] default failed: {e3}")
+                    if DEBUG: print(f"[DEBUG] default failed: {e3}")
 
             if ws is None:
                 self.after(0, lambda err=connection_error: self._set_status(f"Lỗi WebSocket: {err}", "error"))
@@ -1386,7 +1389,7 @@ class GroupsTab(ctk.CTkFrame):
                 self.after(0, lambda: self._set_status("Không lấy được HTML", "error"))
                 return []
 
-            print(f"[DEBUG] Got HTML length: {len(html_content)}")
+            if DEBUG: print(f"[DEBUG] Got HTML length: {len(html_content)}")
 
             # Bước 6: Parse HTML
             self.after(0, lambda: self._set_status("Đang phân tích...", "info"))
@@ -1395,7 +1398,7 @@ class GroupsTab(ctk.CTkFrame):
             soup = BeautifulSoup(html_content, 'html.parser')
             links = soup.find_all('a', {'aria-label': 'Xem nhóm'})
 
-            print(f"[DEBUG] Found {len(links)} group links")
+            if DEBUG: print(f"[DEBUG] Found {len(links)} group links")
             self.after(0, lambda n=len(links): self._set_status(f"Tìm thấy {n} link nhóm...", "info"))
 
             for link in links:
@@ -2434,7 +2437,7 @@ class GroupsTab(ctk.CTkFrame):
                                 uploaded = True
                                 print(f"[OK] Đã upload {len(images)} ảnh")
                         except Exception as e:
-                            print(f"[DEBUG] Input {node_id} failed: {e}")
+                            if DEBUG: print(f"[DEBUG] Input {node_id} failed: {e}")
                             continue
 
                     if not uploaded:
@@ -2705,7 +2708,7 @@ class GroupsTab(ctk.CTkFrame):
                 })()
                 '''
                 like_info = eval_new(find_like_btn_js)
-                print(f"[DEBUG] Like button info: {like_info}")
+                if DEBUG: print(f"[DEBUG] Like button info: {like_info}")
 
                 if like_info and like_info.get('found'):
                     like_x = int(like_info['x'])
@@ -2784,7 +2787,7 @@ class GroupsTab(ctk.CTkFrame):
                         }})()
                         '''
                         react_info = eval_new(click_react_js)
-                        print(f"[DEBUG] React button info: {react_info}")
+                        if DEBUG: print(f"[DEBUG] React button info: {react_info}")
 
                         if react_info and react_info.get('found'):
                             react_x = int(react_info['x'])

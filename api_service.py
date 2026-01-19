@@ -3,8 +3,12 @@ Hidemium API Service
 Kết nối với Hidemium Browser API
 """
 import requests
+import time
 from typing import Optional, Dict, List, Any
 from config import HIDEMIUM_BASE_URL, HIDEMIUM_TOKEN
+
+# Debug mode - set False to disable verbose logging
+DEBUG_API = False
 
 
 class HidemiumAPI:
@@ -15,35 +19,71 @@ class HidemiumAPI:
             "Content-Type": "application/json",
             "Accept": "application/json, text/plain, */*"
         }
-    
-    def _request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Dict:
-        """Thực hiện request đến API"""
+        # Cache for folders to reduce API calls
+        self._folders_cache = None
+        self._folders_cache_time = 0
+        self._cache_ttl = 30  # 30 seconds cache
+
+    def _request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None, retries: int = 3) -> Dict:
+        """Thực hiện request đến API với retry logic"""
         url = f"{self.base_url}{endpoint}"
-        try:
-            response = requests.request(
-                method=method,
-                url=url,
-                headers=self.headers,
-                params=params,
-                json=data,
-                timeout=30
-            )
-            return response.json()
-        except requests.exceptions.ConnectionError:
-            return {"type": "error", "title": "Không thể kết nối đến Hidemium", "content": None}
-        except Exception as e:
-            return {"type": "error", "title": str(e), "content": None}
+
+        for attempt in range(retries):
+            try:
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    headers=self.headers,
+                    params=params,
+                    json=data,
+                    timeout=30
+                )
+                result = response.json()
+
+                # Check for SQLITE_ERROR and retry
+                if isinstance(result, dict) and 'data' in result:
+                    data_content = result.get('data', {})
+                    if isinstance(data_content, dict):
+                        content = data_content.get('content', {})
+                        if isinstance(content, dict) and content.get('code') == 'SQLITE_ERROR':
+                            if attempt < retries - 1:
+                                time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                                continue
+
+                return result
+            except requests.exceptions.ConnectionError:
+                if attempt < retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                return {"type": "error", "title": "Không thể kết nối đến Hidemium", "content": None}
+            except Exception as e:
+                if attempt < retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                return {"type": "error", "title": str(e), "content": None}
+
+        return {"type": "error", "title": "Max retries exceeded", "content": None}
     
-    def _get(self, endpoint: str, params: Dict = None) -> Dict:
-        """GET request đơn giản (không cần auth)"""
+    def _get(self, endpoint: str, params: Dict = None, retries: int = 3) -> Dict:
+        """GET request đơn giản (không cần auth) với retry"""
         url = f"{self.base_url}{endpoint}"
-        try:
-            response = requests.get(url, params=params, timeout=30)
-            return response.json()
-        except requests.exceptions.ConnectionError:
-            return {"type": "error", "title": "Không thể kết nối đến Hidemium", "content": None}
-        except Exception as e:
-            return {"type": "error", "title": str(e), "content": None}
+
+        for attempt in range(retries):
+            try:
+                response = requests.get(url, params=params, timeout=30)
+                return response.json()
+            except requests.exceptions.ConnectionError:
+                if attempt < retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                return {"type": "error", "title": "Không thể kết nối đến Hidemium", "content": None}
+            except Exception as e:
+                if attempt < retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                return {"type": "error", "title": str(e), "content": None}
+
+        return {"type": "error", "title": "Max retries exceeded", "content": None}
     
     # ============ CONNECTION CHECK ============
     
@@ -77,35 +117,30 @@ class HidemiumAPI:
             params={"is_local": str(is_local).lower()},
             data=body
         )
-        print(f"[DEBUG API] get_profiles response type: {type(result)}")
-        print(f"[DEBUG API] get_profiles result keys: {result.keys() if isinstance(result, dict) else 'not dict'}")
+
         # Parse response theo cấu trúc thực tế
         if result and 'data' in result:
             data = result['data']
-            print(f"[DEBUG API] data type: {type(data)}")
             if isinstance(data, dict) and 'content' in data:
                 content = data['content']
-                print(f"[DEBUG API] content type: {type(content)}")
                 # Nếu content là list -> trả về list
                 if isinstance(content, list):
-                    print(f"[DEBUG API] Found {len(content)} profiles in data.content (list)")
+                    if DEBUG_API:
+                        print(f"[API] Loaded {len(content)} profiles")
                     return content
                 # Nếu content là dict - kiểm tra có phải error không
                 elif isinstance(content, dict):
                     # Kiểm tra error response
                     if 'code' in content or 'error' in content:
-                        print(f"[DEBUG API] Error in content: {content}")
+                        if DEBUG_API:
+                            print(f"[API] Error: {content}")
                         return []
                     # Nếu là profile hợp lệ (có uuid) -> wrap trong list
                     if 'uuid' in content:
-                        print(f"[DEBUG API] Found 1 profile in data.content (dict), wrapping in list")
                         return [content]
-                    print(f"[DEBUG API] Unknown content format: {content}")
                     return []
             elif isinstance(data, list):
-                print(f"[DEBUG API] data is list with {len(data)} items")
                 return data
-        print(f"[DEBUG API] No profiles found, returning empty list")
         return []
     
     def get_profile_detail(self, uuid: str, is_local: bool = False) -> Dict:
@@ -262,30 +297,41 @@ class HidemiumAPI:
     
     # ============ FOLDER MANAGEMENT ============
     
-    def get_folders(self, limit: int = 100, page: int = 1, is_local: bool = True) -> List:
-        """Lấy danh sách folders"""
+    def get_folders(self, limit: int = 100, page: int = 1, is_local: bool = True, use_cache: bool = True) -> List:
+        """Lấy danh sách folders với caching"""
+        # Check cache
+        current_time = time.time()
+        if use_cache and self._folders_cache is not None:
+            if current_time - self._folders_cache_time < self._cache_ttl:
+                return self._folders_cache
+
         result = self._request(
             "GET",
             "/v1/folder/list",
             params={"limit": limit, "page": page, "is_local": str(is_local).lower()}
         )
-        print(f"[DEBUG API] get_folders response: {result}")
+
         # Parse response
+        folders = []
         if result and 'data' in result:
             data = result['data']
-            print(f"[DEBUG API] get_folders data type: {type(data)}")
             if isinstance(data, dict) and 'content' in data:
                 content = data['content']
                 if isinstance(content, list):
-                    print(f"[DEBUG API] Found {len(content)} folders")
-                    return content
+                    folders = content
                 elif isinstance(content, dict):
-                    return [content]
+                    folders = [content]
             elif isinstance(data, list):
-                print(f"[DEBUG API] get_folders data is list: {len(data)} items")
-                return data
-        print(f"[DEBUG API] get_folders returning empty list")
-        return []
+                folders = data
+
+        # Update cache
+        self._folders_cache = folders
+        self._folders_cache_time = current_time
+
+        if DEBUG_API:
+            print(f"[API] Loaded {len(folders)} folders")
+
+        return folders
     
     def add_profiles_to_folder(self, folder_uuid: str, profile_uuids: List[str], is_local: bool = True) -> Dict:
         """Thêm profiles vào folder"""

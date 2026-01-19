@@ -14,6 +14,9 @@ from widgets import ModernButton, ModernEntry
 from db import get_post_history
 from api_service import api
 
+# Debug mode - set False to disable verbose logging
+DEBUG = False
+
 
 class PostsTab(ctk.CTkFrame):
     """Tab quản lý bài đăng và tăng like"""
@@ -263,23 +266,23 @@ class PostsTab(ctk.CTkFrame):
         """Load danh sách folders từ Hidemium"""
         try:
             self.folders = api.get_folders()
-            print(f"[DEBUG PostsTab] _load_folders got {len(self.folders)} folders")
+            if DEBUG: print(f"[DEBUG PostsTab] _load_folders got {len(self.folders)} folders")
         except Exception as e:
-            print(f"[DEBUG PostsTab] _load_folders error: {e}")
+            if DEBUG: print(f"[DEBUG PostsTab] _load_folders error: {e}")
             self.folders = []
 
         folder_options = ["-- Tất cả --"]
         for f in self.folders:
             name = f.get('name', 'Unknown')
             folder_options.append(name)
-            print(f"[DEBUG PostsTab] Added folder: {name}")
-        print(f"[DEBUG PostsTab] folder_options: {folder_options}")
+            if DEBUG: print(f"[DEBUG PostsTab] Added folder: {name}")
+        if DEBUG: print(f"[DEBUG PostsTab] folder_options: {folder_options}")
         self.folder_menu.configure(values=folder_options)
 
     def _load_profiles(self):
         """Load profiles từ Hidemium API"""
         folder_name = self.folder_var.get()
-        print(f"[DEBUG] _load_profiles called, folder: {folder_name}")
+        if DEBUG: print(f"[DEBUG] _load_profiles called, folder: {folder_name}")
 
         try:
             if folder_name == "-- Tất cả --":
@@ -291,7 +294,7 @@ class PostsTab(ctk.CTkFrame):
                 for f in self.folders:
                     if f.get('name') == folder_name:
                         folder_id = f.get('id')  # Dùng numeric id
-                        print(f"[DEBUG] Found folder {folder_name} with id={folder_id}")
+                        if DEBUG: print(f"[DEBUG] Found folder {folder_name} with id={folder_id}")
                         break
                 if folder_id:
                     self.profiles = api.get_profiles(folder_id=[folder_id], limit=500)
@@ -299,12 +302,12 @@ class PostsTab(ctk.CTkFrame):
                     self.profiles = api.get_profiles(limit=500)
 
             # Debug: in ra profiles
-            print(f"[DEBUG] Loaded {len(self.profiles)} profiles")
+            if DEBUG: print(f"[DEBUG] Loaded {len(self.profiles)} profiles")
             if self.profiles and len(self.profiles) > 0:
-                print(f"[DEBUG] First profile type: {type(self.profiles[0])}")
-                print(f"[DEBUG] First profile: {self.profiles[0]}")
+                if DEBUG: print(f"[DEBUG] First profile type: {type(self.profiles[0])}")
+                if DEBUG: print(f"[DEBUG] First profile: {self.profiles[0]}")
                 if len(self.profiles) > 1:
-                    print(f"[DEBUG] Second profile: {self.profiles[1]}")
+                    if DEBUG: print(f"[DEBUG] Second profile: {self.profiles[1]}")
         except Exception as e:
             print(f"[ERROR] Load profiles: {e}")
             import traceback
@@ -639,9 +642,9 @@ class PostsTab(ctk.CTkFrame):
         # Sắp xếp profiles theo tên (00, 01, 02, ...)
         # Đảm bảo profiles là list of dicts
         available_profiles = []
-        print(f"[DEBUG] Processing {len(self.profiles)} profiles from self.profiles")
+        if DEBUG: print(f"[DEBUG] Processing {len(self.profiles)} profiles from self.profiles")
         for i, p in enumerate(self.profiles):
-            print(f"[DEBUG] Profile {i}: type={type(p)}, value={str(p)[:100]}")
+            if DEBUG: print(f"[DEBUG] Profile {i}: type={type(p)}, value={str(p)[:100]}")
             if isinstance(p, dict):
                 available_profiles.append(p)
             elif isinstance(p, str):
@@ -735,7 +738,7 @@ class PostsTab(ctk.CTkFrame):
 
             # Mở browser
             result = api.open_browser(profile_uuid)
-            print(f"[DEBUG] open_browser response for {profile_name}: {result}")
+            if DEBUG: print(f"[DEBUG] open_browser response for {profile_name}: {result}")
 
             # Kiểm tra lỗi
             if result.get('type') == 'error':
@@ -755,13 +758,13 @@ class PostsTab(ctk.CTkFrame):
             # Lấy data - có thể ở nhiều vị trí khác nhau
             data = result.get('data', {})
             if not isinstance(data, dict):
-                print(f"[DEBUG] data is not dict: {type(data)} = {data}")
+                if DEBUG: print(f"[DEBUG] data is not dict: {type(data)} = {data}")
                 data = {}
 
             remote_port = data.get('remote_port') or data.get('port')
             ws_url = data.get('web_socket', '') or data.get('webSocketDebuggerUrl', '')
 
-            print(f"[DEBUG] From data: remote_port={remote_port}, ws_url={ws_url}")
+            if DEBUG: print(f"[DEBUG] From data: remote_port={remote_port}, ws_url={ws_url}")
 
             # Thử lấy từ root nếu không có trong data
             if not remote_port:
@@ -769,14 +772,14 @@ class PostsTab(ctk.CTkFrame):
             if not ws_url:
                 ws_url = result.get('web_socket', '') or result.get('webSocketDebuggerUrl', '')
 
-            print(f"[DEBUG] After root check: remote_port={remote_port}, ws_url={ws_url}")
+            if DEBUG: print(f"[DEBUG] After root check: remote_port={remote_port}, ws_url={ws_url}")
 
             # Parse port từ ws_url
             if not remote_port and ws_url:
                 match = re.search(r':(\d+)/', ws_url)
                 if match:
                     remote_port = int(match.group(1))
-                    print(f"[DEBUG] Parsed port from ws_url: {remote_port}")
+                    if DEBUG: print(f"[DEBUG] Parsed port from ws_url: {remote_port}")
 
             if not remote_port:
                 self.after(0, lambda pn=profile_name, r=str(result)[:300]: self._log(f"[{pn}] Không có port. Response: {r}"))
