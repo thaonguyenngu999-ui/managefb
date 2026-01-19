@@ -422,10 +422,10 @@ class ProfilesTab(ctk.CTkFrame):
         running = sum(1 for p in self.profiles if p.get('check_open') == 1)
         stopped = total - running
 
-        self.total_card._value_label.configure(text=str(total))
-        self.running_card._value_label.configure(text=str(running))
-        self.selected_card._value_label.configure(text=str(selected))
-        self.stopped_card._value_label.configure(text=str(stopped))
+        self.total_card.value_label.configure(text=str(total))
+        self.running_card.value_label.configure(text=str(running))
+        self.selected_card.value_label.configure(text=str(selected))
+        self.stopped_card.value_label.configure(text=str(stopped))
 
         self._update_folder_filter()
 
