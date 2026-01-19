@@ -13,10 +13,16 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QSpacerItem, QTextEdit, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QPoint
-from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QBrush, QPen, QPolygon
+from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QBrush, QPen, QPolygon, QFontDatabase
 
 # Import config
 from config import COLORS, TAB_COLORS, FONTS
+
+# Import shared Cyberpunk widgets
+from cyber_widgets_qt import (
+    CyberTitle, CyberStatCard, CyberButton, CyberTerminal,
+    CyberGlitchLabel, CyberTriangle, CYBER_COLORS
+)
 
 # Import PyQt6 tabs
 from tabs_qt.profiles_tab_qt import ProfilesTab
@@ -29,349 +35,94 @@ from tabs_qt.scripts_tab_qt import ScriptsTabQt
 from tabs_qt.posts_tab_qt import PostsTabQt
 
 
-class GlitchLabel(QWidget):
-    """Label with cyberpunk glitch effect - cyan/magenta offset layers"""
+class RGBGradientSidebar(QFrame):
+    """Sidebar with RGB gradient border on the right"""
 
-    def __init__(self, text, color="#00f0ff", parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.base_text = text
-        self.base_color = color
-        self._is_glitching = False
-        self._glitch_offset_x = 0
-        self._glitch_offset_y = 0
+        self.setObjectName("sidebar")
+        self._gradient_offset = 0
+        self._setup_animation()
 
-        self._setup_ui()
-        self._start_glitch_timer()
+    def _setup_animation(self):
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate_gradient)
+        self._timer.start(50)
 
-    def _setup_ui(self):
-        # Use stacked labels for glitch effect
-        self.setMinimumHeight(60)
-
-        # Main label (white/primary)
-        self.main_label = QLabel(self.base_text, self)
-        self.main_label.setStyleSheet(f"""
-            color: {self.base_color};
-            font-family: 'Orbitron', 'Black Ops One', Consolas;
-            font-size: 42px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            background: transparent;
-        """)
-        self.main_label.move(0, 0)
-
-        # Cyan layer (offset)
-        self.cyan_label = QLabel(self.base_text, self)
-        self.cyan_label.setStyleSheet("""
-            color: rgba(0, 240, 255, 0);
-            font-family: 'Orbitron', 'Black Ops One', Consolas;
-            font-size: 42px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            background: transparent;
-        """)
-        self.cyan_label.move(3, 0)
-
-        # Magenta layer (offset)
-        self.magenta_label = QLabel(self.base_text, self)
-        self.magenta_label.setStyleSheet("""
-            color: rgba(255, 0, 168, 0);
-            font-family: 'Orbitron', 'Black Ops One', Consolas;
-            font-size: 42px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            background: transparent;
-        """)
-        self.magenta_label.move(-3, 0)
-
-        # Adjust size
-        self.main_label.adjustSize()
-        self.cyan_label.adjustSize()
-        self.magenta_label.adjustSize()
-        self.setMinimumWidth(self.main_label.width() + 10)
-
-    def _start_glitch_timer(self):
-        self.glitch_timer = QTimer(self)
-        self.glitch_timer.timeout.connect(self._check_glitch)
-        self.glitch_timer.start(100)
-
-    def _check_glitch(self):
-        import random
-        if random.random() > 0.95 and not self._is_glitching:
-            self._trigger_glitch()
-
-    def _trigger_glitch(self):
-        import random
-        self._is_glitching = True
-
-        # Show offset layers with random offsets
-        offset_x = random.randint(-5, 5)
-        offset_y = random.randint(-2, 2)
-
-        self.cyan_label.setStyleSheet("""
-            color: rgba(0, 240, 255, 0.8);
-            font-family: 'Orbitron', 'Black Ops One', Consolas;
-            font-size: 42px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            background: transparent;
-        """)
-        self.cyan_label.move(offset_x + 3, offset_y)
-
-        self.magenta_label.setStyleSheet("""
-            color: rgba(255, 0, 168, 0.8);
-            font-family: 'Orbitron', 'Black Ops One', Consolas;
-            font-size: 42px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            background: transparent;
-        """)
-        self.magenta_label.move(-offset_x - 3, -offset_y)
-
-        # Schedule glitch steps
-        QTimer.singleShot(50, self._glitch_step2)
-        QTimer.singleShot(100, self._glitch_step3)
-        QTimer.singleShot(150, self._end_glitch)
-
-    def _glitch_step2(self):
-        import random
-        self.cyan_label.move(random.randint(-3, 3), random.randint(-1, 1))
-        self.magenta_label.move(random.randint(-3, 3), random.randint(-1, 1))
-
-    def _glitch_step3(self):
-        import random
-        self.cyan_label.move(random.randint(-2, 2), 0)
-        self.magenta_label.move(random.randint(-2, 2), 0)
-
-    def _end_glitch(self):
-        self._is_glitching = False
-        # Hide offset layers
-        self.cyan_label.setStyleSheet("""
-            color: rgba(0, 240, 255, 0);
-            font-family: 'Orbitron', 'Black Ops One', Consolas;
-            font-size: 42px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            background: transparent;
-        """)
-        self.magenta_label.setStyleSheet("""
-            color: rgba(255, 0, 168, 0);
-            font-family: 'Orbitron', 'Black Ops One', Consolas;
-            font-size: 42px;
-            font-weight: bold;
-            letter-spacing: 8px;
-            background: transparent;
-        """)
-        self.cyan_label.move(3, 0)
-        self.magenta_label.move(-3, 0)
-
-
-class TriangleWidget(QWidget):
-    """Triangle accent widget"""
-
-    def __init__(self, color="#00f0ff", parent=None):
-        super().__init__(parent)
-        self.color = QColor(color)
-        self.setFixedSize(50, 50)
+    def _animate_gradient(self):
+        self._gradient_offset = (self._gradient_offset + 2) % 360
+        self.update()
 
     def paintEvent(self, event):
+        super().paintEvent(event)
+        from PyQt6.QtGui import QLinearGradient
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QBrush(self.color))
+
+        # Draw RGB gradient border on the right
+        rect = self.rect()
+        border_width = 3
+
+        # Create gradient
+        gradient = QLinearGradient(rect.right() - border_width, 0,
+                                   rect.right() - border_width, rect.height())
+
+        # RGB colors with offset for animation
+        offset = self._gradient_offset / 360.0
+        gradient.setColorAt((0.0 + offset) % 1.0, QColor("#00f0ff"))
+        gradient.setColorAt((0.25 + offset) % 1.0, QColor("#ff00a8"))
+        gradient.setColorAt((0.5 + offset) % 1.0, QColor("#bf00ff"))
+        gradient.setColorAt((0.75 + offset) % 1.0, QColor("#00ff66"))
+        gradient.setColorAt(1.0, QColor("#00f0ff"))
+
+        # Draw the border
         painter.setPen(Qt.PenStyle.NoPen)
-
-        # Draw triangle pointing bottom-right
-        points = [QPoint(5, 45), QPoint(45, 45), QPoint(45, 5)]
-        painter.drawPolygon(QPolygon(points))
+        painter.setBrush(QBrush(gradient))
+        painter.drawRect(rect.right() - border_width, 0, border_width, rect.height())
 
 
-class CyberTitle(QWidget):
-    """Cyberpunk title with glitch effect and animated lines"""
+class RGBGradientLogPanel(QFrame):
+    """Log panel with RGB gradient border on the left"""
 
-    def __init__(self, title, subtitle="", color="cyan", parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("logPanel")
+        self._gradient_offset = 0
+        self._setup_animation()
 
-        color_map = {
-            "cyan": "#00f0ff",
-            "green": "#00ff66",
-            "purple": "#bf00ff",
-            "magenta": "#ff00a8",
-            "yellow": "#fcee0a",
-            "orange": "#ff6b00",
-        }
-        self.accent_color = color_map.get(color, "#00f0ff")
+    def _setup_animation(self):
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate_gradient)
+        self._timer.start(50)
 
-        self._setup_ui(title, subtitle)
-        self._start_animations()
+    def _animate_gradient(self):
+        self._gradient_offset = (self._gradient_offset + 2) % 360
+        self.update()
 
-    def _setup_ui(self, title, subtitle):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 10, 0, 10)
-        layout.setSpacing(0)
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        from PyQt6.QtGui import QLinearGradient
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Title row
-        title_row = QHBoxLayout()
-        title_row.setSpacing(15)
+        # Draw RGB gradient border on the left
+        rect = self.rect()
+        border_width = 3
 
-        # Triangle accent
-        self.triangle = TriangleWidget(self.accent_color)
-        title_row.addWidget(self.triangle)
+        # Create gradient (green-cyan for log panel)
+        gradient = QLinearGradient(0, 0, 0, rect.height())
 
-        # Title text wrapper
-        text_wrapper = QVBoxLayout()
-        text_wrapper.setSpacing(8)
+        # Green-cyan colors with offset for animation
+        offset = self._gradient_offset / 360.0
+        gradient.setColorAt((0.0 + offset) % 1.0, QColor("#00ff66"))
+        gradient.setColorAt((0.33 + offset) % 1.0, QColor("#00f0ff"))
+        gradient.setColorAt((0.66 + offset) % 1.0, QColor("#00ff66"))
+        gradient.setColorAt(1.0, QColor("#00f0ff"))
 
-        # Top line
-        self.top_line = QFrame()
-        self.top_line.setFixedHeight(2)
-        self.top_line.setStyleSheet(f"background-color: {self.accent_color};")
-        text_wrapper.addWidget(self.top_line)
-
-        # Title text with glitch
-        self.title_label = GlitchLabel(title.upper(), self.accent_color)
-        text_wrapper.addWidget(self.title_label)
-
-        # Bottom line (shorter)
-        self.bottom_line = QFrame()
-        self.bottom_line.setFixedHeight(2)
-        self.bottom_line.setFixedWidth(150)
-        self.bottom_line.setStyleSheet(f"background-color: {self.accent_color};")
-        text_wrapper.addWidget(self.bottom_line)
-
-        title_row.addLayout(text_wrapper)
-        title_row.addStretch()
-
-        layout.addLayout(title_row)
-
-        # Subtitle
-        if subtitle:
-            subtitle_layout = QHBoxLayout()
-            subtitle_layout.setContentsMargins(65, 12, 0, 0)
-
-            prefix = QLabel("//")
-            prefix.setStyleSheet(f"color: {self.accent_color}; font-family: Consolas; font-size: 13px;")
-            subtitle_layout.addWidget(prefix)
-
-            sub_label = QLabel(f" {subtitle}")
-            sub_label.setStyleSheet("color: #52525b; font-family: Consolas; font-size: 13px; letter-spacing: 3px;")
-            subtitle_layout.addWidget(sub_label)
-            subtitle_layout.addStretch()
-
-            layout.addLayout(subtitle_layout)
-
-    def _start_animations(self):
-        # Line width animation
-        self._line_step = 0
-        self._line_timer = QTimer(self)
-        self._line_timer.timeout.connect(self._animate_lines)
-        self._line_timer.start(50)
-
-    def _animate_lines(self):
-        self._line_step = (self._line_step + 1) % 40
-
-        if self._line_step < 20:
-            factor = 0.6 + (self._line_step / 20) * 0.4
-        else:
-            factor = 1.0 - ((self._line_step - 20) / 20) * 0.4
-
-        self.top_line.setFixedWidth(int(300 * factor))
-        self.bottom_line.setFixedWidth(int(200 * factor))
-
-
-class CyberStatCard(QFrame):
-    """Stat card with top color bar"""
-
-    def __init__(self, label, value, change="", color="cyan", parent=None):
-        super().__init__(parent)
-
-        color_map = {
-            "cyan": "#00f0ff",
-            "green": "#00ff66",
-            "purple": "#bf00ff",
-            "yellow": "#fcee0a",
-        }
-        self.accent_color = color_map.get(color, "#00f0ff")
-
-        self.setObjectName("statCard")
-        self._setup_ui(label, value, change)
-
-    def _setup_ui(self, label, value, change):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Top bar
-        top_bar = QFrame()
-        top_bar.setFixedHeight(3)
-        top_bar.setStyleSheet(f"background-color: {self.accent_color};")
-        layout.addWidget(top_bar)
-
-        # Content
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(24, 20, 24, 20)
-
-        # Label
-        lbl = QLabel(label.upper())
-        lbl.setStyleSheet("color: #52525b; font-family: Consolas; font-size: 10px; letter-spacing: 2px;")
-        content_layout.addWidget(lbl)
-
-        # Value
-        self.value_label = QLabel(value)
-        self.value_label.setStyleSheet(f"color: {self.accent_color}; font-family: Consolas; font-size: 42px; font-weight: bold;")
-        content_layout.addWidget(self.value_label)
-
-        # Change
-        if change:
-            change_color = "#00ff66" if change.startswith("+") else "#52525b"
-            change_lbl = QLabel(change)
-            change_lbl.setStyleSheet(f"color: {change_color}; font-family: Consolas; font-size: 11px;")
-            content_layout.addWidget(change_lbl)
-
-        layout.addWidget(content)
-
-    def update_value(self, new_value):
-        self.value_label.setText(new_value)
-
-
-class CyberButton(QPushButton):
-    """Cyberpunk styled button"""
-
-    def __init__(self, text, variant="primary", icon="", parent=None):
-        display_text = f"{icon} {text}" if icon else text
-        super().__init__(display_text.upper(), parent)
-
-        self.setObjectName("cyberBtn")
-        self.setProperty("variant", variant)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        # Apply variant styling
-        colors = {
-            "primary": ("#00f0ff", "transparent"),
-            "success": ("#00ff66", "#00ff66"),
-            "danger": ("#ff003c", "transparent"),
-            "ghost": ("#1a1a2e", "transparent"),
-            "secondary": ("#ff00a8", "#ff00a8"),
-        }
-        border_color, bg_color = colors.get(variant, colors["primary"])
-        text_color = "#05050a" if bg_color != "transparent" else border_color
-
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg_color};
-                border: 1px solid {border_color};
-                border-radius: 6px;
-                color: {text_color};
-                font-family: Consolas;
-                font-size: 11px;
-                font-weight: bold;
-                letter-spacing: 2px;
-                padding: 12px 24px;
-            }}
-            QPushButton:hover {{
-                background-color: {border_color};
-                color: #05050a;
-            }}
-        """)
+        # Draw the border
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(gradient))
+        painter.drawRect(0, 0, border_width, rect.height())
 
 
 class NavItem(QPushButton):
@@ -533,8 +284,7 @@ class FBManagerApp(QMainWindow):
         self._create_log_panel(main_layout)
 
     def _create_sidebar(self, parent_layout):
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
+        sidebar = RGBGradientSidebar()
         sidebar.setFixedWidth(240)
 
         layout = QVBoxLayout(sidebar)
@@ -730,8 +480,7 @@ class FBManagerApp(QMainWindow):
         parent_layout.addWidget(main_content, 1)
 
     def _create_log_panel(self, parent_layout):
-        log_panel = QFrame()
-        log_panel.setObjectName("logPanel")
+        log_panel = RGBGradientLogPanel()
         log_panel.setFixedWidth(360)
 
         layout = QVBoxLayout(log_panel)
