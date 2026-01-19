@@ -379,7 +379,7 @@ class FBManagerApp(ctk.CTk):
     def _add_log(self, text: str, level: str = "info"):
         """Add log entry to terminal"""
         if hasattr(self, 'log_terminal') and self.log_terminal:
-            self.log_terminal.add_line(text, level)
+            self.log_terminal.add_log(text, level)
 
     def _clear_logs(self):
         """Clear log panel"""
