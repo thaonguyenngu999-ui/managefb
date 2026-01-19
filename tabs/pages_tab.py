@@ -79,7 +79,7 @@ class PagesTab(ctk.CTkFrame):
         ctk.CTkLabel(
             left_header,
             text="Chon Profile",
-            font=ctk.CTkFont(family=FONTS["main"], size=16, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=16, weight="bold"),
             text_color=TAB_COLORS["pages"]
         ).pack(side="left")
 
