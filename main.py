@@ -42,43 +42,44 @@ class FBManagerApp(ctk.CTk):
         """Tạo sidebar navigation"""
         self.sidebar = ctk.CTkFrame(
             self,
-            width=250,
+            width=260,
             corner_radius=0,
             fg_color=COLORS["bg_secondary"]
         )
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
-        
-        # Logo/Title
+
+        # Logo/Title - Enhanced design
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        logo_frame.pack(fill="x", padx=20, pady=25)
-        
+        logo_frame.pack(fill="x", padx=18, pady=28)
+
+        # Logo icon with better styling
         ctk.CTkLabel(
             logo_frame,
             text="🔥",
-            font=ctk.CTkFont(size=40)
-        ).pack(side="left")
-        
+            font=ctk.CTkFont(size=42)
+        ).pack(side="left", padx=(0, 12))
+
         title_frame = ctk.CTkFrame(logo_frame, fg_color="transparent")
-        title_frame.pack(side="left", padx=10)
-        
+        title_frame.pack(side="left", fill="x", expand=True)
+
         ctk.CTkLabel(
             title_frame,
             text="FB Manager",
-            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=21, weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(anchor="w")
-        
+
         ctk.CTkLabel(
             title_frame,
             text="Pro Edition",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color=COLORS["accent"]
-        ).pack(anchor="w")
-        
-        # Separator
-        separator = ctk.CTkFrame(self.sidebar, height=2, fg_color=COLORS["border"])
-        separator.pack(fill="x", padx=20, pady=10)
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Separator - Enhanced
+        separator = ctk.CTkFrame(self.sidebar, height=1, fg_color=COLORS["border_light"])
+        separator.pack(fill="x", padx=18, pady=14)
         
         # Navigation buttons
         self.nav_buttons = {}
@@ -95,34 +96,43 @@ class FBManagerApp(ctk.CTk):
             btn.pack(fill="x", padx=15, pady=5)
             self.nav_buttons[tab_id] = btn
         
-        # Bottom section
+        # Bottom section - Enhanced
         bottom_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        bottom_frame.pack(side="bottom", fill="x", padx=20, pady=20)
-        
-        # Settings button
-        settings_btn = ctk.CTkButton(
+        bottom_frame.pack(side="bottom", fill="x", padx=16, pady=20)
+
+        # Connection status - Enhanced
+        self.connection_frame = ctk.CTkFrame(
             bottom_frame,
-            text="⚙️ Cài đặt",
-            fg_color="transparent",
-            hover_color=COLORS["border"],
-            anchor="w",
-            height=40,
-            font=ctk.CTkFont(size=14),
-            command=self._open_settings
+            fg_color=COLORS["bg_tertiary"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS["border_light"]
         )
-        settings_btn.pack(fill="x", pady=5)
-        
-        # Connection status
-        self.connection_frame = ctk.CTkFrame(bottom_frame, fg_color=COLORS["bg_card"], corner_radius=10)
-        self.connection_frame.pack(fill="x", pady=10)
-        
+        self.connection_frame.pack(fill="x", pady=(0, 14))
+
         self.connection_label = ctk.CTkLabel(
             self.connection_frame,
             text="● Hidemium: Đang kết nối...",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(size=11, weight="bold"),
             text_color=COLORS["warning"]
         )
-        self.connection_label.pack(padx=15, pady=10)
+        self.connection_label.pack(padx=14, pady=10)
+
+        # Settings button - Enhanced
+        settings_btn = ctk.CTkButton(
+            bottom_frame,
+            text="⚙️ Cài đặt",
+            fg_color=COLORS["bg_tertiary"],
+            hover_color=COLORS["bg_hover"],
+            anchor="w",
+            height=46,
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS["border"],
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._open_settings
+        )
+        settings_btn.pack(fill="x")
         
         # Check connection
         self.after(1000, self._check_hidemium_connection)
@@ -133,11 +143,12 @@ class FBManagerApp(ctk.CTk):
             self.sidebar,
             text=f"  {icon}  {text}",
             fg_color="transparent",
-            hover_color=COLORS["bg_card"],
+            hover_color=COLORS["bg_hover"],
             anchor="w",
-            height=50,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=14),
+            height=54,
+            corner_radius=12,
+            border_width=0,
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             text_color=COLORS["text_primary"],
             command=lambda: self._show_tab(tab_id)
         )
@@ -197,14 +208,22 @@ class FBManagerApp(ctk.CTk):
         # Hide all tabs
         for tab in self.tabs.values():
             tab.pack_forget()
-        
-        # Update nav buttons
+
+        # Update nav buttons with better visual feedback
         for btn_id, btn in self.nav_buttons.items():
             if btn_id == tab_id:
-                btn.configure(fg_color=COLORS["accent"])
+                btn.configure(
+                    fg_color=COLORS["accent"],
+                    text_color=COLORS["text_primary"],
+                    hover_color=COLORS["accent_hover"]
+                )
             else:
-                btn.configure(fg_color="transparent")
-        
+                btn.configure(
+                    fg_color="transparent",
+                    text_color=COLORS["text_primary"],
+                    hover_color=COLORS["bg_hover"]
+                )
+
         # Show selected tab
         if tab_id in self.tabs:
             self.tabs[tab_id].pack(fill="both", expand=True, before=self.status_bar)
@@ -262,20 +281,26 @@ class SettingsDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             self,
             text="⚙️ Cài đặt ứng dụng",
-            font=ctk.CTkFont(size=22, weight="bold"),
+            font=ctk.CTkFont(size=24, weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(pady=25)
-        
-        # Hidemium settings
-        hidemium_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=15)
-        hidemium_frame.pack(fill="x", padx=30, pady=10)
-        
+        ).pack(pady=28)
+
+        # Hidemium settings - Enhanced
+        hidemium_frame = ctk.CTkFrame(
+            self,
+            fg_color=COLORS["bg_card"],
+            corner_radius=16,
+            border_width=1,
+            border_color=COLORS["border_light"]
+        )
+        hidemium_frame.pack(fill="x", padx=32, pady=12)
+
         ctk.CTkLabel(
             hidemium_frame,
             text="🌐 Cấu hình Hidemium",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=20, pady=(15, 10))
+        ).pack(anchor="w", padx=22, pady=(16, 12))
         
         # API URL
         url_frame = ctk.CTkFrame(hidemium_frame, fg_color="transparent")
@@ -320,16 +345,22 @@ class SettingsDialog(ctk.CTkToplevel):
         self.api_token.pack(side="left", fill="x", expand=True, pady=(0, 15))
         self.api_token.insert(0, "your_token_here")
         
-        # UI Settings
-        ui_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=15)
-        ui_frame.pack(fill="x", padx=30, pady=10)
-        
+        # UI Settings - Enhanced
+        ui_frame = ctk.CTkFrame(
+            self,
+            fg_color=COLORS["bg_card"],
+            corner_radius=16,
+            border_width=1,
+            border_color=COLORS["border_light"]
+        )
+        ui_frame.pack(fill="x", padx=32, pady=12)
+
         ctk.CTkLabel(
             ui_frame,
             text="🎨 Giao diện",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=20, pady=(15, 10))
+        ).pack(anchor="w", padx=22, pady=(16, 12))
         
         # Theme
         theme_frame = ctk.CTkFrame(ui_frame, fg_color="transparent")
@@ -352,31 +383,36 @@ class SettingsDialog(ctk.CTkToplevel):
         )
         theme_menu.pack(side="left")
         
-        # Buttons
+        # Buttons - Enhanced
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=30, pady=30)
-        
+        btn_frame.pack(fill="x", padx=32, pady=32)
+
         ctk.CTkButton(
             btn_frame,
             text="💾 Lưu cài đặt",
             fg_color=COLORS["success"],
-            hover_color="#00f5b5",
-            width=140,
-            height=40,
-            corner_radius=10,
+            hover_color=COLORS["success_hover"],
+            width=144,
+            height=44,
+            corner_radius=12,
+            border_width=0,
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self._save_settings
-        ).pack(side="left", padx=5)
-        
+        ).pack(side="left", padx=6)
+
         ctk.CTkButton(
             btn_frame,
             text="Đóng",
-            fg_color=COLORS["bg_card"],
-            hover_color=COLORS["border"],
-            width=100,
-            height=40,
-            corner_radius=10,
+            fg_color=COLORS["bg_tertiary"],
+            hover_color=COLORS["bg_hover"],
+            border_width=1,
+            border_color=COLORS["border"],
+            width=104,
+            height=44,
+            corner_radius=12,
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self.destroy
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=6)
     
     def _save_settings(self):
         """Lưu cài đặt"""
