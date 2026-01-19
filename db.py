@@ -1,5 +1,5 @@
 """
-SQLite Database Manager for FB Manager Pro
+SQLite Database Manager for SonCuto
 Quản lý dữ liệu với SQLite thay vì JSON files
 """
 import sqlite3

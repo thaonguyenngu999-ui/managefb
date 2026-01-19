@@ -1,5 +1,5 @@
 """
-FB Manager Pro v3.0 CYBER - Phần mềm quản lý tài khoản Facebook
+SonCuto CYBER v3.0 - Phần mềm quản lý tài khoản Facebook
 Tích hợp Hidemium Browser API
 """
 import customtkinter as ctk
@@ -9,7 +9,7 @@ from tabs import ProfilesTab, ScriptsTab, PostsTab, ContentTab, GroupsTab
 
 
 class FBManagerApp(ctk.CTk):
-    """Ứng dụng chính FB Manager Pro - Cyberpunk Theme"""
+    """Ứng dụng chính SonCuto - Cyberpunk Theme"""
 
     def __init__(self):
         super().__init__()
@@ -54,7 +54,7 @@ class FBManagerApp(ctk.CTk):
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         logo_frame.pack(fill="x", padx=15, pady=(20, 5))
 
-        # Logo icon (diamond shape representing FB Manager)
+        # Logo icon (diamond shape representing SonCuto)
         logo_icon_frame = ctk.CTkFrame(
             logo_frame,
             fg_color=COLORS["bg_card"],
@@ -80,7 +80,7 @@ class FBManagerApp(ctk.CTk):
 
         ctk.CTkLabel(
             title_frame,
-            text="FB MANAGER",
+            text="SONCUTO",
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(anchor="w")

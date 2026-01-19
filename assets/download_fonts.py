@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script tải fonts cho FB Manager Pro
+Script tải fonts cho SonCuto
 Fonts: Inter (UI), JetBrains Mono (Code)
 """
 import os

@@ -1,5 +1,5 @@
 # Cấu hình ứng dụng
-APP_NAME = "FB Manager"
+APP_NAME = "SonCuto"
 APP_VERSION = "3.0"
 APP_SUBTITLE = "CYBER v3.0"
 

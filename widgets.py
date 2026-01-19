@@ -1,6 +1,6 @@
 """
 Custom Widgets - Cyberpunk Neon Theme
-FB Manager Pro v3.0 CYBER
+SonCuto CYBER v3.0
 """
 import customtkinter as ctk
 from typing import Callable, Optional, List, Dict
@@ -34,6 +34,9 @@ class CyberButton(ctk.CTkButton):
 
         display_text = f"{icon} {text}" if icon else text
 
+        # Extract height from kwargs or use default
+        height = kwargs.pop("height", 36)
+
         super().__init__(
             master,
             text=display_text,
@@ -45,7 +48,7 @@ class CyberButton(ctk.CTkButton):
             border_width=border_width,
             border_color=border_color,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            height=36,
+            height=height,
             **kwargs
         )
 
@@ -621,7 +624,7 @@ class CyberStatusBar(ctk.CTkFrame):
         # Right side - version
         self.version_label = ctk.CTkLabel(
             self,
-            text="FB MANAGER PRO v3.0 CYBER - © 2024",
+            text="SONCUTO CYBER v3.0 - © 2024",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLORS["text_muted"]
         )

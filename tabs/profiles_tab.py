@@ -1,6 +1,6 @@
 """
 Tab Quản lý Profiles - Cyberpunk UI với Table Layout
-FB Manager Pro v3.0 CYBER
+SonCuto v3.0 CYBER
 """
 import customtkinter as ctk
 from typing import List, Dict, Callable
