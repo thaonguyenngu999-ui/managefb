@@ -1,5 +1,6 @@
 """
-Tab Đăng Nhóm - Quét nhóm, đăng bài và đẩy tin vào các nhóm Facebook
+Groups Tab - Modern Group Posting Interface
+Premium design for group management and auto-posting
 """
 import customtkinter as ctk
 from typing import List, Dict, Optional
@@ -10,8 +11,8 @@ import re
 import time
 from datetime import datetime, date
 from tkinter import filedialog
-from config import COLORS
-from widgets import ModernButton, ModernEntry
+from config import COLORS, FONTS, SPACING, RADIUS
+from widgets import ModernButton, ModernEntry, ModernTextbox, SearchBar, Badge, EmptyState
 from db import (
     get_profiles, get_groups, save_group, delete_group,
     update_group_selection, get_selected_groups, sync_groups, clear_groups,
@@ -56,16 +57,16 @@ class GroupsTab(ctk.CTkFrame):
     def _create_ui(self):
         """Tạo giao diện"""
         # ========== HEADER - Profile Selector ==========
-        header = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
-        header.pack(fill="x", padx=15, pady=(15, 10))
+        header = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=RADIUS["lg"])
+        header.pack(fill="x", padx=SPACING["lg"], pady=(SPACING["lg"], SPACING["md"]))
 
         header_inner = ctk.CTkFrame(header, fg_color="transparent")
-        header_inner.pack(fill="x", padx=15, pady=12)
+        header_inner.pack(fill="x", padx=SPACING["lg"], pady=SPACING["md"])
 
         ctk.CTkLabel(
             header_inner,
             text="📱 Chọn Profile:",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(side="left")
 
@@ -76,10 +77,15 @@ class GroupsTab(ctk.CTkFrame):
             values=["-- Chọn profile --"],
             fg_color=COLORS["bg_card"],
             button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
             width=300,
+            corner_radius=RADIUS["md"],
             command=self._on_profile_change
         )
-        self.profile_menu.pack(side="left", padx=15)
+        self.profile_menu.pack(side="left", padx=SPACING["lg"])
 
         ModernButton(
             header_inner,
@@ -93,7 +99,7 @@ class GroupsTab(ctk.CTkFrame):
         self.profile_status = ctk.CTkLabel(
             header_inner,
             text="",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
             text_color=COLORS["text_secondary"]
         )
         self.profile_status.pack(side="right")
@@ -104,9 +110,14 @@ class GroupsTab(ctk.CTkFrame):
             fg_color=COLORS["bg_secondary"],
             segmented_button_fg_color=COLORS["bg_card"],
             segmented_button_selected_color=COLORS["accent"],
-            segmented_button_unselected_color=COLORS["bg_card"]
+            segmented_button_selected_hover_color=COLORS["accent_hover"],
+            segmented_button_unselected_color=COLORS["bg_card"],
+            segmented_button_unselected_hover_color=COLORS["bg_hover"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"]
         )
-        self.tabview.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        self.tabview.pack(fill="both", expand=True, padx=SPACING["lg"], pady=(0, SPACING["lg"]))
 
         # Tab 1: Quét nhóm
         self.tab_scan = self.tabview.add("Quét nhóm")
@@ -124,7 +135,7 @@ class GroupsTab(ctk.CTkFrame):
         """Tạo tab Quét nhóm"""
         # Action bar
         action_bar = ctk.CTkFrame(self.tab_scan, fg_color="transparent")
-        action_bar.pack(fill="x", padx=10, pady=10)
+        action_bar.pack(fill="x", padx=SPACING["md"], pady=SPACING["md"])
 
         ModernButton(
             action_bar,
@@ -133,7 +144,7 @@ class GroupsTab(ctk.CTkFrame):
             variant="primary",
             command=self._scan_groups,
             width=130
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=SPACING["xs"])
 
         ModernButton(
             action_bar,
@@ -142,28 +153,30 @@ class GroupsTab(ctk.CTkFrame):
             variant="danger",
             command=self._clear_all_groups,
             width=110
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=SPACING["xs"])
 
         self.scan_stats = ctk.CTkLabel(
             action_bar,
             text="Tổng: 0 nhóm",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
             text_color=COLORS["text_secondary"]
         )
-        self.scan_stats.pack(side="right", padx=10)
+        self.scan_stats.pack(side="right", padx=SPACING["md"])
 
         # Progress bar
         self.scan_progress = ctk.CTkProgressBar(
             self.tab_scan,
             fg_color=COLORS["bg_card"],
-            progress_color=COLORS["accent"]
+            progress_color=COLORS["accent"],
+            height=6,
+            corner_radius=RADIUS["sm"]
         )
-        self.scan_progress.pack(fill="x", padx=10, pady=(0, 10))
+        self.scan_progress.pack(fill="x", padx=SPACING["md"], pady=(0, SPACING["md"]))
         self.scan_progress.set(0)
 
         # Groups table header
-        table_header = ctk.CTkFrame(self.tab_scan, fg_color=COLORS["bg_card"], corner_radius=5, height=35)
-        table_header.pack(fill="x", padx=10, pady=(0, 5))
+        table_header = ctk.CTkFrame(self.tab_scan, fg_color=COLORS["bg_card"], corner_radius=RADIUS["sm"], height=38)
+        table_header.pack(fill="x", padx=SPACING["md"], pady=(0, SPACING["xs"]))
         table_header.pack_propagate(False)
 
         headers = [("", 30), ("ID", 50), ("Tên nhóm", 220), ("Group ID", 150), ("Thành viên", 90), ("Ngày quét", 100)]
@@ -172,41 +185,53 @@ class GroupsTab(ctk.CTkFrame):
                 table_header,
                 text=text,
                 width=width,
-                font=ctk.CTkFont(size=11, weight="bold"),
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"], weight="bold"),
                 text_color=COLORS["text_primary"]
-            ).pack(side="left", padx=3)
+            ).pack(side="left", padx=SPACING["xs"])
 
         # Groups list
-        self.scan_list = ctk.CTkScrollableFrame(self.tab_scan, fg_color="transparent")
-        self.scan_list.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.scan_list = ctk.CTkScrollableFrame(
+            self.tab_scan,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["bg_hover"],
+            scrollbar_button_hover_color=COLORS["accent"]
+        )
+        self.scan_list.pack(fill="both", expand=True, padx=SPACING["md"], pady=(0, SPACING["md"]))
 
         self.scan_empty_label = ctk.CTkLabel(
             self.scan_list,
             text="Chưa có nhóm nào\nChọn profile và bấm 'Quét nhóm' để bắt đầu",
-            font=ctk.CTkFont(size=13),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_base"]),
             text_color=COLORS["text_secondary"]
         )
-        self.scan_empty_label.pack(pady=50)
+        self.scan_empty_label.pack(pady=SPACING["4xl"])
 
     def _create_post_tab(self):
         """Tạo tab Đăng nhóm"""
         # Main container - 2 columns
         main_container = ctk.CTkFrame(self.tab_post, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, padx=5, pady=5)
+        main_container.pack(fill="both", expand=True, padx=SPACING["xs"], pady=SPACING["xs"])
 
         # ========== LEFT PANEL - Groups List ==========
-        left_panel = ctk.CTkFrame(main_container, fg_color=COLORS["bg_card"], corner_radius=10, width=350)
-        left_panel.pack(side="left", fill="y", padx=(0, 10))
+        left_panel = ctk.CTkFrame(
+            main_container,
+            fg_color=COLORS["bg_card"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"],
+            width=350
+        )
+        left_panel.pack(side="left", fill="y", padx=(0, SPACING["md"]))
         left_panel.pack_propagate(False)
 
         # Left header
         left_header = ctk.CTkFrame(left_panel, fg_color="transparent")
-        left_header.pack(fill="x", padx=10, pady=10)
+        left_header.pack(fill="x", padx=SPACING["md"], pady=SPACING["md"])
 
         ctk.CTkLabel(
             left_header,
             text="Danh sách nhóm",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(side="left")
 
@@ -216,51 +241,77 @@ class GroupsTab(ctk.CTkFrame):
             text="Tất cả",
             variable=self.select_all_var,
             fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
             width=60,
+            corner_radius=RADIUS["sm"],
             command=self._toggle_select_all
         ).pack(side="right")
 
         self.post_stats = ctk.CTkLabel(
             left_panel,
             text="Đã chọn: 0 / 0",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
             text_color=COLORS["accent"]
         )
-        self.post_stats.pack(anchor="w", padx=10, pady=(0, 5))
+        self.post_stats.pack(anchor="w", padx=SPACING["md"], pady=(0, SPACING["xs"]))
 
         # Groups checkboxes list
-        self.post_groups_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
-        self.post_groups_list.pack(fill="both", expand=True, padx=5, pady=(0, 10))
+        self.post_groups_list = ctk.CTkScrollableFrame(
+            left_panel,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["bg_hover"],
+            scrollbar_button_hover_color=COLORS["accent"]
+        )
+        self.post_groups_list.pack(fill="both", expand=True, padx=SPACING["xs"], pady=(0, SPACING["md"]))
 
         self.post_empty_label = ctk.CTkLabel(
             self.post_groups_list,
             text="Chưa có nhóm\nQuét nhóm trước",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
             text_color=COLORS["text_secondary"]
         )
-        self.post_empty_label.pack(pady=30)
+        self.post_empty_label.pack(pady=SPACING["2xl"])
 
         # ========== RIGHT PANEL - Post Content ==========
-        right_panel = ctk.CTkFrame(main_container, fg_color=COLORS["bg_card"], corner_radius=10)
+        right_panel = ctk.CTkFrame(
+            main_container,
+            fg_color=COLORS["bg_card"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"]
+        )
         right_panel.pack(side="right", fill="both", expand=True)
 
         # Scrollable right panel
-        right_scroll = ctk.CTkScrollableFrame(right_panel, fg_color="transparent")
-        right_scroll.pack(fill="both", expand=True, padx=5, pady=5)
+        right_scroll = ctk.CTkScrollableFrame(
+            right_panel,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["bg_hover"],
+            scrollbar_button_hover_color=COLORS["accent"]
+        )
+        right_scroll.pack(fill="both", expand=True, padx=SPACING["xs"], pady=SPACING["xs"])
 
         # Right header
         ctk.CTkLabel(
             right_scroll,
             text="Nội dung đăng",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=10, pady=(10, 5))
+        ).pack(anchor="w", padx=SPACING["md"], pady=(SPACING["md"], SPACING["xs"]))
 
         # Category selector
         cat_row = ctk.CTkFrame(right_scroll, fg_color="transparent")
-        cat_row.pack(fill="x", padx=10, pady=5)
+        cat_row.pack(fill="x", padx=SPACING["md"], pady=SPACING["xs"])
 
-        ctk.CTkLabel(cat_row, text="Mục:", width=80, anchor="w").pack(side="left")
+        ctk.CTkLabel(
+            cat_row,
+            text="Mục:",
+            width=80,
+            anchor="w",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
         self.category_var = ctk.StringVar(value="Mặc định")
         self.category_menu = ctk.CTkOptionMenu(
             cat_row,
@@ -268,10 +319,15 @@ class GroupsTab(ctk.CTkFrame):
             values=["Mặc định"],
             fg_color=COLORS["bg_secondary"],
             button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            corner_radius=RADIUS["md"],
             width=180,
             command=self._on_category_change
         )
-        self.category_menu.pack(side="left", padx=5)
+        self.category_menu.pack(side="left", padx=SPACING["xs"])
 
         # Random content checkbox
         self.random_content_var = ctk.BooleanVar(value=True)
@@ -280,14 +336,24 @@ class GroupsTab(ctk.CTkFrame):
             text="Random nội dung",
             variable=self.random_content_var,
             fg_color=COLORS["success"],
+            hover_color="#059669",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            corner_radius=RADIUS["sm"],
             command=self._toggle_random_content
-        ).pack(side="left", padx=10)
+        ).pack(side="left", padx=SPACING["md"])
 
         # Content selector (disabled when random)
         content_row = ctk.CTkFrame(right_scroll, fg_color="transparent")
-        content_row.pack(fill="x", padx=10, pady=5)
+        content_row.pack(fill="x", padx=SPACING["md"], pady=SPACING["xs"])
 
-        ctk.CTkLabel(content_row, text="Tin đăng:", width=80, anchor="w").pack(side="left")
+        ctk.CTkLabel(
+            content_row,
+            text="Tin đăng:",
+            width=80,
+            anchor="w",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
         self.content_var = ctk.StringVar(value="-- Random từ mục --")
         self.content_menu = ctk.CTkOptionMenu(
             content_row,
@@ -295,35 +361,49 @@ class GroupsTab(ctk.CTkFrame):
             values=["-- Random từ mục --"],
             fg_color=COLORS["bg_secondary"],
             button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            corner_radius=RADIUS["md"],
             width=250,
             command=self._on_content_change
         )
-        self.content_menu.pack(side="left", padx=5)
+        self.content_menu.pack(side="left", padx=SPACING["xs"])
 
         # Content preview
         ctk.CTkLabel(
             right_scroll,
             text="Nội dung / Mô tả:",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
             text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=10, pady=(10, 3))
+        ).pack(anchor="w", padx=SPACING["md"], pady=(SPACING["md"], SPACING["xs"]))
 
         self.content_preview = ctk.CTkTextbox(
             right_scroll,
             fg_color=COLORS["bg_secondary"],
             text_color=COLORS["text_primary"],
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            border_width=1,
+            border_color=COLORS["border"],
+            corner_radius=RADIUS["md"],
             height=100
         )
-        self.content_preview.pack(fill="x", padx=10, pady=(0, 5))
+        self.content_preview.pack(fill="x", padx=SPACING["md"], pady=(0, SPACING["xs"]))
         self.content_preview.configure(state="disabled")
 
         # ===== IMAGE SECTION =====
-        img_section = ctk.CTkFrame(right_scroll, fg_color=COLORS["bg_secondary"], corner_radius=8)
-        img_section.pack(fill="x", padx=10, pady=5)
+        img_section = ctk.CTkFrame(
+            right_scroll,
+            fg_color=COLORS["bg_secondary"],
+            corner_radius=RADIUS["md"],
+            border_width=1,
+            border_color=COLORS["border"]
+        )
+        img_section.pack(fill="x", padx=SPACING["md"], pady=SPACING["xs"])
 
         img_header = ctk.CTkFrame(img_section, fg_color="transparent")
-        img_header.pack(fill="x", padx=10, pady=(8, 5))
+        img_header.pack(fill="x", padx=SPACING["md"], pady=(SPACING["sm"], SPACING["xs"]))
 
         self.attach_img_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
@@ -331,65 +411,91 @@ class GroupsTab(ctk.CTkFrame):
             text="Kèm hình ảnh",
             variable=self.attach_img_var,
             fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            corner_radius=RADIUS["sm"],
             command=self._toggle_attach_image
         ).pack(side="left")
 
         # Image folder path
         img_path_row = ctk.CTkFrame(img_section, fg_color="transparent")
-        img_path_row.pack(fill="x", padx=10, pady=3)
+        img_path_row.pack(fill="x", padx=SPACING["md"], pady=SPACING["xs"])
 
-        ctk.CTkLabel(img_path_row, text="Thư mục ảnh:", width=90, anchor="w",
-                     font=ctk.CTkFont(size=11)).pack(side="left")
+        ctk.CTkLabel(
+            img_path_row,
+            text="Thư mục ảnh:",
+            width=90,
+            anchor="w",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
         self.img_folder_entry = ModernEntry(img_path_row, placeholder="Đường dẫn thư mục...", width=200)
-        self.img_folder_entry.pack(side="left", padx=5)
+        self.img_folder_entry.pack(side="left", padx=SPACING["xs"])
         self.img_folder_entry.configure(state="disabled")
 
-        ctk.CTkButton(
+        ModernButton(
             img_path_row,
             text="Chọn",
+            variant="secondary",
             width=60,
-            height=26,
-            fg_color=COLORS["accent"],
-            corner_radius=5,
             command=self._select_image_folder
-        ).pack(side="left", padx=3)
+        ).pack(side="left", padx=SPACING["xs"])
 
         # Image count
         img_count_row = ctk.CTkFrame(img_section, fg_color="transparent")
-        img_count_row.pack(fill="x", padx=10, pady=(3, 8))
+        img_count_row.pack(fill="x", padx=SPACING["md"], pady=(SPACING["xs"], SPACING["sm"]))
 
-        ctk.CTkLabel(img_count_row, text="Số ảnh random:", width=90, anchor="w",
-                     font=ctk.CTkFont(size=11)).pack(side="left")
+        ctk.CTkLabel(
+            img_count_row,
+            text="Số ảnh random:",
+            width=90,
+            anchor="w",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
         self.img_count_entry = ModernEntry(img_count_row, placeholder="5", width=60)
-        self.img_count_entry.pack(side="left", padx=5)
+        self.img_count_entry.pack(side="left", padx=SPACING["xs"])
         self.img_count_entry.insert(0, "5")
         self.img_count_entry.configure(state="disabled")
 
         self.img_count_label = ctk.CTkLabel(
             img_count_row,
             text="(Tổng: 0 ảnh)",
-            font=ctk.CTkFont(size=10),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
             text_color=COLORS["text_secondary"]
         )
-        self.img_count_label.pack(side="left", padx=5)
+        self.img_count_label.pack(side="left", padx=SPACING["xs"])
 
         # ===== POSTING OPTIONS =====
-        options_frame = ctk.CTkFrame(right_scroll, fg_color=COLORS["bg_secondary"], corner_radius=8)
-        options_frame.pack(fill="x", padx=10, pady=5)
+        options_frame = ctk.CTkFrame(
+            right_scroll,
+            fg_color=COLORS["bg_secondary"],
+            corner_radius=RADIUS["md"],
+            border_width=1,
+            border_color=COLORS["border"]
+        )
+        options_frame.pack(fill="x", padx=SPACING["md"], pady=SPACING["xs"])
 
         ctk.CTkLabel(
             options_frame,
             text="Tùy chọn đăng:",
-            font=ctk.CTkFont(size=12, weight="bold")
-        ).pack(anchor="w", padx=10, pady=(8, 5))
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"], weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(anchor="w", padx=SPACING["md"], pady=(SPACING["sm"], SPACING["xs"]))
 
         options_inner = ctk.CTkFrame(options_frame, fg_color="transparent")
-        options_inner.pack(fill="x", padx=10, pady=(0, 8))
+        options_inner.pack(fill="x", padx=SPACING["md"], pady=(0, SPACING["sm"]))
 
-        ctk.CTkLabel(options_inner, text="Delay (giây):", width=80, anchor="w",
-                     font=ctk.CTkFont(size=11)).pack(side="left")
+        ctk.CTkLabel(
+            options_inner,
+            text="Delay (giây):",
+            width=80,
+            anchor="w",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
         self.delay_entry = ModernEntry(options_inner, placeholder="5", width=60)
-        self.delay_entry.pack(side="left", padx=3)
+        self.delay_entry.pack(side="left", padx=SPACING["xs"])
         self.delay_entry.insert(0, "5")
 
         self.random_delay_var = ctk.BooleanVar(value=True)
@@ -398,12 +504,14 @@ class GroupsTab(ctk.CTkFrame):
             text="Random (1-10s)",
             variable=self.random_delay_var,
             fg_color=COLORS["accent"],
-            font=ctk.CTkFont(size=11)
-        ).pack(side="left", padx=10)
+            hover_color=COLORS["accent_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            corner_radius=RADIUS["sm"]
+        ).pack(side="left", padx=SPACING["md"])
 
         # Post buttons
         post_btn_frame = ctk.CTkFrame(right_scroll, fg_color="transparent")
-        post_btn_frame.pack(fill="x", padx=10, pady=10)
+        post_btn_frame.pack(fill="x", padx=SPACING["md"], pady=SPACING["md"])
 
         ModernButton(
             post_btn_frame,
@@ -412,7 +520,7 @@ class GroupsTab(ctk.CTkFrame):
             variant="success",
             command=self._start_posting,
             width=120
-        ).pack(side="left", padx=3)
+        ).pack(side="left", padx=SPACING["xs"])
 
         ModernButton(
             post_btn_frame,
@@ -421,36 +529,43 @@ class GroupsTab(ctk.CTkFrame):
             variant="danger",
             command=self._stop_posting,
             width=80
-        ).pack(side="left", padx=3)
+        ).pack(side="left", padx=SPACING["xs"])
 
         # Progress
         self.post_progress = ctk.CTkProgressBar(
             right_scroll,
             fg_color=COLORS["bg_secondary"],
-            progress_color=COLORS["success"]
+            progress_color=COLORS["success"],
+            height=6,
+            corner_radius=RADIUS["sm"]
         )
-        self.post_progress.pack(fill="x", padx=10, pady=(0, 5))
+        self.post_progress.pack(fill="x", padx=SPACING["md"], pady=(0, SPACING["xs"]))
         self.post_progress.set(0)
 
         self.post_status_label = ctk.CTkLabel(
             right_scroll,
             text="Tiến trình: 0 / 0",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
             text_color=COLORS["text_secondary"]
         )
-        self.post_status_label.pack(anchor="w", padx=10, pady=(0, 5))
+        self.post_status_label.pack(anchor="w", padx=SPACING["md"], pady=(0, SPACING["xs"]))
 
         # ===== POSTED URLS LOG =====
         ctk.CTkLabel(
             right_scroll,
             text="Nhật ký đăng tường:",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=10, pady=(10, 5))
+        ).pack(anchor="w", padx=SPACING["md"], pady=(SPACING["md"], SPACING["xs"]))
 
         # Posted URLs table header
-        url_header = ctk.CTkFrame(right_scroll, fg_color=COLORS["bg_secondary"], corner_radius=5, height=28)
-        url_header.pack(fill="x", padx=10, pady=(0, 3))
+        url_header = ctk.CTkFrame(
+            right_scroll,
+            fg_color=COLORS["bg_secondary"],
+            corner_radius=RADIUS["sm"],
+            height=30
+        )
+        url_header.pack(fill="x", padx=SPACING["md"], pady=(0, SPACING["xs"]))
         url_header.pack_propagate(False)
 
         headers = [("Nhóm", 150), ("Link bài đăng", 250), ("Thời gian", 80)]
@@ -459,41 +574,54 @@ class GroupsTab(ctk.CTkFrame):
                 url_header,
                 text=text,
                 width=width,
-                font=ctk.CTkFont(size=10, weight="bold"),
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"], weight="bold"),
                 text_color=COLORS["text_primary"]
-            ).pack(side="left", padx=3)
+            ).pack(side="left", padx=SPACING["xs"])
 
         # Posted URLs list
-        self.posted_urls_list = ctk.CTkScrollableFrame(right_scroll, fg_color="transparent", height=120)
-        self.posted_urls_list.pack(fill="x", padx=10, pady=(0, 10))
+        self.posted_urls_list = ctk.CTkScrollableFrame(
+            right_scroll,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["bg_hover"],
+            scrollbar_button_hover_color=COLORS["accent"],
+            height=120
+        )
+        self.posted_urls_list.pack(fill="x", padx=SPACING["md"], pady=(0, SPACING["md"]))
 
         self.posted_empty = ctk.CTkLabel(
             self.posted_urls_list,
             text="Chưa có bài đăng nào",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
             text_color=COLORS["text_secondary"]
         )
-        self.posted_empty.pack(pady=20)
+        self.posted_empty.pack(pady=SPACING["xl"])
 
     def _create_boost_tab(self):
         """Tạo tab Đẩy tin (Bình luận)"""
         # Main container
         main_container = ctk.CTkFrame(self.tab_boost, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, padx=5, pady=5)
+        main_container.pack(fill="both", expand=True, padx=SPACING["xs"], pady=SPACING["xs"])
 
         # ========== LEFT PANEL - Posted URLs List ==========
-        left_panel = ctk.CTkFrame(main_container, fg_color=COLORS["bg_card"], corner_radius=10, width=400)
-        left_panel.pack(side="left", fill="y", padx=(0, 10))
+        left_panel = ctk.CTkFrame(
+            main_container,
+            fg_color=COLORS["bg_card"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"],
+            width=400
+        )
+        left_panel.pack(side="left", fill="y", padx=(0, SPACING["md"]))
         left_panel.pack_propagate(False)
 
         # Header
         left_header = ctk.CTkFrame(left_panel, fg_color="transparent")
-        left_header.pack(fill="x", padx=10, pady=10)
+        left_header.pack(fill="x", padx=SPACING["md"], pady=SPACING["md"])
 
         ctk.CTkLabel(
             left_header,
             text="Danh sách bài đã đăng",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(side="left")
 
@@ -508,9 +636,14 @@ class GroupsTab(ctk.CTkFrame):
 
         # Filter by date
         date_row = ctk.CTkFrame(left_panel, fg_color="transparent")
-        date_row.pack(fill="x", padx=10, pady=(0, 5))
+        date_row.pack(fill="x", padx=SPACING["md"], pady=(0, SPACING["xs"]))
 
-        ctk.CTkLabel(date_row, text="Lọc:", font=ctk.CTkFont(size=11)).pack(side="left")
+        ctk.CTkLabel(
+            date_row,
+            text="Lọc:",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
 
         self.date_filter_var = ctk.StringVar(value="Hôm nay")
         self.date_filter_menu = ctk.CTkOptionMenu(
@@ -519,15 +652,20 @@ class GroupsTab(ctk.CTkFrame):
             values=["Hôm nay", "7 ngày", "30 ngày", "Tất cả"],
             fg_color=COLORS["bg_secondary"],
             button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            corner_radius=RADIUS["md"],
             width=100,
             command=self._on_date_filter_change
         )
-        self.date_filter_menu.pack(side="left", padx=5)
+        self.date_filter_menu.pack(side="left", padx=SPACING["xs"])
 
         self.boost_stats = ctk.CTkLabel(
             date_row,
             text="0 bài",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
             text_color=COLORS["accent"]
         )
         self.boost_stats.pack(side="right")
@@ -539,58 +677,82 @@ class GroupsTab(ctk.CTkFrame):
             text="Chọn tất cả",
             variable=self.boost_select_all_var,
             fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            corner_radius=RADIUS["sm"],
             command=self._toggle_select_all_boost
-        ).pack(anchor="w", padx=10, pady=(0, 5))
+        ).pack(anchor="w", padx=SPACING["md"], pady=(0, SPACING["xs"]))
 
         # Posted URLs list for boost
-        self.boost_urls_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
-        self.boost_urls_list.pack(fill="both", expand=True, padx=5, pady=(0, 10))
+        self.boost_urls_list = ctk.CTkScrollableFrame(
+            left_panel,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["bg_hover"],
+            scrollbar_button_hover_color=COLORS["accent"]
+        )
+        self.boost_urls_list.pack(fill="both", expand=True, padx=SPACING["xs"], pady=(0, SPACING["md"]))
 
         self.boost_empty_label = ctk.CTkLabel(
             self.boost_urls_list,
             text="Chưa có bài đăng nào\nĐăng bài ở tab trước",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
             text_color=COLORS["text_secondary"]
         )
-        self.boost_empty_label.pack(pady=40)
+        self.boost_empty_label.pack(pady=SPACING["3xl"])
 
         # ========== RIGHT PANEL - Comment Content ==========
-        right_panel = ctk.CTkFrame(main_container, fg_color=COLORS["bg_card"], corner_radius=10)
+        right_panel = ctk.CTkFrame(
+            main_container,
+            fg_color=COLORS["bg_card"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"]
+        )
         right_panel.pack(side="right", fill="both", expand=True)
 
         # Header
         ctk.CTkLabel(
             right_panel,
             text="Nội dung bình luận",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=15, pady=(15, 10))
+        ).pack(anchor="w", padx=SPACING["lg"], pady=(SPACING["lg"], SPACING["md"]))
 
         # Comment content
         ctk.CTkLabel(
             right_panel,
             text="Nội dung comment (mỗi dòng 1 comment, sẽ random):",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
             text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=15, pady=(0, 5))
+        ).pack(anchor="w", padx=SPACING["lg"], pady=(0, SPACING["xs"]))
 
         self.comment_textbox = ctk.CTkTextbox(
             right_panel,
             fg_color=COLORS["bg_secondary"],
             text_color=COLORS["text_primary"],
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
+            border_width=1,
+            border_color=COLORS["border"],
+            corner_radius=RADIUS["md"],
             height=150
         )
-        self.comment_textbox.pack(fill="x", padx=15, pady=(0, 10))
+        self.comment_textbox.pack(fill="x", padx=SPACING["lg"], pady=(0, SPACING["md"]))
         self.comment_textbox.insert("1.0", "Hay quá!\nCảm ơn bạn!\nThông tin hữu ích!\nĐã lưu lại!")
 
         # Comment options
         options_row = ctk.CTkFrame(right_panel, fg_color="transparent")
-        options_row.pack(fill="x", padx=15, pady=5)
+        options_row.pack(fill="x", padx=SPACING["lg"], pady=SPACING["xs"])
 
-        ctk.CTkLabel(options_row, text="Delay (giây):", width=80, anchor="w").pack(side="left")
+        ctk.CTkLabel(
+            options_row,
+            text="Delay (giây):",
+            width=80,
+            anchor="w",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
         self.comment_delay_entry = ModernEntry(options_row, placeholder="3", width=60)
-        self.comment_delay_entry.pack(side="left", padx=5)
+        self.comment_delay_entry.pack(side="left", padx=SPACING["xs"])
         self.comment_delay_entry.insert(0, "3")
 
         self.random_comment_delay_var = ctk.BooleanVar(value=True)
@@ -598,12 +760,15 @@ class GroupsTab(ctk.CTkFrame):
             options_row,
             text="Random delay (1-5s)",
             variable=self.random_comment_delay_var,
-            fg_color=COLORS["accent"]
-        ).pack(side="left", padx=10)
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            corner_radius=RADIUS["sm"]
+        ).pack(side="left", padx=SPACING["md"])
 
         # Comment buttons
         btn_row = ctk.CTkFrame(right_panel, fg_color="transparent")
-        btn_row.pack(fill="x", padx=15, pady=10)
+        btn_row.pack(fill="x", padx=SPACING["lg"], pady=SPACING["md"])
 
         ModernButton(
             btn_row,
@@ -612,7 +777,7 @@ class GroupsTab(ctk.CTkFrame):
             variant="success",
             command=self._start_commenting,
             width=120
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=SPACING["xs"])
 
         ModernButton(
             btn_row,
@@ -621,41 +786,46 @@ class GroupsTab(ctk.CTkFrame):
             variant="danger",
             command=self._stop_commenting,
             width=80
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=SPACING["xs"])
 
         # Progress
         self.comment_progress = ctk.CTkProgressBar(
             right_panel,
             fg_color=COLORS["bg_secondary"],
-            progress_color=COLORS["success"]
+            progress_color=COLORS["success"],
+            height=6,
+            corner_radius=RADIUS["sm"]
         )
-        self.comment_progress.pack(fill="x", padx=15, pady=(0, 5))
+        self.comment_progress.pack(fill="x", padx=SPACING["lg"], pady=(0, SPACING["xs"]))
         self.comment_progress.set(0)
 
         self.comment_status_label = ctk.CTkLabel(
             right_panel,
             text="Tiến trình: 0 / 0",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
             text_color=COLORS["text_secondary"]
         )
-        self.comment_status_label.pack(anchor="w", padx=15, pady=(0, 10))
+        self.comment_status_label.pack(anchor="w", padx=SPACING["lg"], pady=(0, SPACING["md"]))
 
         # ===== COMMENT LOG =====
         ctk.CTkLabel(
             right_panel,
             text="Nhật ký bình luận:",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=15, pady=(10, 5))
+        ).pack(anchor="w", padx=SPACING["lg"], pady=(SPACING["md"], SPACING["xs"]))
 
         self.comment_log = ctk.CTkTextbox(
             right_panel,
             fg_color=COLORS["bg_secondary"],
             text_color=COLORS["text_primary"],
-            font=ctk.CTkFont(size=10),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            border_width=1,
+            border_color=COLORS["border"],
+            corner_radius=RADIUS["md"],
             height=150
         )
-        self.comment_log.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        self.comment_log.pack(fill="both", expand=True, padx=SPACING["lg"], pady=(0, SPACING["lg"]))
         self.comment_log.configure(state="disabled")
 
     # ==================== PROFILE MANAGEMENT ====================
@@ -948,10 +1118,10 @@ class GroupsTab(ctk.CTkFrame):
             self.scan_empty_label = ctk.CTkLabel(
                 self.scan_list,
                 text="Chưa có nhóm nào\nChọn profile và bấm 'Quét nhóm'",
-                font=ctk.CTkFont(size=13),
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_base"]),
                 text_color=COLORS["text_secondary"]
             )
-            self.scan_empty_label.pack(pady=50)
+            self.scan_empty_label.pack(pady=SPACING["4xl"])
             return
 
         for group in self.groups:
@@ -959,7 +1129,12 @@ class GroupsTab(ctk.CTkFrame):
 
     def _create_scan_row(self, group: Dict):
         """Tạo row cho group"""
-        row = ctk.CTkFrame(self.scan_list, fg_color=COLORS["bg_secondary"], corner_radius=5, height=36)
+        row = ctk.CTkFrame(
+            self.scan_list,
+            fg_color=COLORS["bg_secondary"],
+            corner_radius=RADIUS["sm"],
+            height=38
+        )
         row.pack(fill="x", pady=2)
         row.pack_propagate(False)
 
@@ -968,32 +1143,69 @@ class GroupsTab(ctk.CTkFrame):
             row, text="", variable=var, width=25,
             checkbox_width=18, checkbox_height=18,
             fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            corner_radius=RADIUS["xs"],
             command=lambda gid=group['id'], v=var: self._toggle_group_selection(gid, v)
         )
-        cb.pack(side="left", padx=3)
+        cb.pack(side="left", padx=SPACING["xs"])
 
-        ctk.CTkLabel(row, text=str(group.get('id', '')), width=50,
-                     font=ctk.CTkFont(size=10), text_color=COLORS["text_secondary"]).pack(side="left")
+        ctk.CTkLabel(
+            row,
+            text=str(group.get('id', '')),
+            width=50,
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
 
         name = group.get('group_name', 'Unknown')[:25]
-        ctk.CTkLabel(row, text=name, width=220, font=ctk.CTkFont(size=10),
-                     text_color=COLORS["text_primary"], anchor="w").pack(side="left", padx=3)
+        ctk.CTkLabel(
+            row,
+            text=name,
+            width=220,
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_primary"],
+            anchor="w"
+        ).pack(side="left", padx=SPACING["xs"])
 
         gid = group.get('group_id', '')[:18]
-        ctk.CTkLabel(row, text=gid, width=150, font=ctk.CTkFont(size=9),
-                     text_color=COLORS["accent"], anchor="w").pack(side="left", padx=3)
+        ctk.CTkLabel(
+            row,
+            text=gid,
+            width=150,
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["accent"],
+            anchor="w"
+        ).pack(side="left", padx=SPACING["xs"])
 
         members = group.get('member_count', 0)
-        ctk.CTkLabel(row, text=f"{members:,}" if members else "-", width=90,
-                     font=ctk.CTkFont(size=10), text_color=COLORS["text_secondary"]).pack(side="left")
+        ctk.CTkLabel(
+            row,
+            text=f"{members:,}" if members else "-",
+            width=90,
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
 
         created = group.get('created_at', '')[:10] if group.get('created_at') else '-'
-        ctk.CTkLabel(row, text=created, width=100, font=ctk.CTkFont(size=9),
-                     text_color=COLORS["text_secondary"]).pack(side="left")
+        ctk.CTkLabel(
+            row,
+            text=created,
+            width=100,
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
 
-        ctk.CTkButton(row, text="X", width=25, height=22, fg_color=COLORS["error"],
-                      hover_color="#ff4757", corner_radius=4,
-                      command=lambda gid=group['id']: self._delete_group(gid)).pack(side="right", padx=3)
+        ctk.CTkButton(
+            row,
+            text="✕",
+            width=26,
+            height=24,
+            fg_color=COLORS["error"],
+            hover_color="#dc2626",
+            corner_radius=RADIUS["sm"],
+            font=ctk.CTkFont(size=12),
+            command=lambda gid=group['id']: self._delete_group(gid)
+        ).pack(side="right", padx=SPACING["xs"])
 
     def _toggle_group_selection(self, group_id: int, var: ctk.BooleanVar):
         """Toggle chọn group"""
@@ -1041,14 +1253,14 @@ class GroupsTab(ctk.CTkFrame):
             self.post_empty_label = ctk.CTkLabel(
                 self.post_groups_list,
                 text="Chưa có nhóm\nQuét nhóm trước",
-                font=ctk.CTkFont(size=12),
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
                 text_color=COLORS["text_secondary"]
             )
-            self.post_empty_label.pack(pady=30)
+            self.post_empty_label.pack(pady=SPACING["2xl"])
             return
 
         for group in self.groups:
-            row = ctk.CTkFrame(self.post_groups_list, fg_color="transparent", height=30)
+            row = ctk.CTkFrame(self.post_groups_list, fg_color="transparent", height=32)
             row.pack(fill="x", pady=1)
             row.pack_propagate(False)
 
@@ -1059,10 +1271,12 @@ class GroupsTab(ctk.CTkFrame):
                 variable=var, width=280,
                 checkbox_width=16, checkbox_height=16,
                 fg_color=COLORS["accent"],
-                font=ctk.CTkFont(size=10),
+                hover_color=COLORS["accent_hover"],
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+                corner_radius=RADIUS["xs"],
                 command=lambda gid=group['id'], v=var: self._toggle_group_selection_post(gid, v)
             )
-            cb.pack(side="left", padx=3)
+            cb.pack(side="left", padx=SPACING["xs"])
 
     def _toggle_group_selection_post(self, group_id: int, var: ctk.BooleanVar):
         """Toggle group từ tab Đăng"""
@@ -1362,28 +1576,49 @@ class GroupsTab(ctk.CTkFrame):
             self.posted_empty = ctk.CTkLabel(
                 self.posted_urls_list,
                 text="Chưa có bài đăng nào",
-                font=ctk.CTkFont(size=11),
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
                 text_color=COLORS["text_secondary"]
             )
-            self.posted_empty.pack(pady=20)
+            self.posted_empty.pack(pady=SPACING["xl"])
             return
 
         for item in self.posted_urls:
-            row = ctk.CTkFrame(self.posted_urls_list, fg_color=COLORS["bg_secondary"], corner_radius=4, height=26)
+            row = ctk.CTkFrame(
+                self.posted_urls_list,
+                fg_color=COLORS["bg_secondary"],
+                corner_radius=RADIUS["sm"],
+                height=28
+            )
             row.pack(fill="x", pady=1)
             row.pack_propagate(False)
 
-            ctk.CTkLabel(row, text=item['group_name'][:18], width=150,
-                         font=ctk.CTkFont(size=9), text_color=COLORS["text_primary"],
-                         anchor="w").pack(side="left", padx=3)
+            ctk.CTkLabel(
+                row,
+                text=item['group_name'][:18],
+                width=150,
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+                text_color=COLORS["text_primary"],
+                anchor="w"
+            ).pack(side="left", padx=SPACING["xs"])
 
-            url_label = ctk.CTkLabel(row, text=item['post_url'][:40], width=250,
-                                     font=ctk.CTkFont(size=9), text_color=COLORS["accent"],
-                                     anchor="w", cursor="hand2")
-            url_label.pack(side="left", padx=3)
+            url_label = ctk.CTkLabel(
+                row,
+                text=item['post_url'][:40],
+                width=250,
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+                text_color=COLORS["accent"],
+                anchor="w",
+                cursor="hand2"
+            )
+            url_label.pack(side="left", padx=SPACING["xs"])
 
-            ctk.CTkLabel(row, text=item['time'], width=80,
-                         font=ctk.CTkFont(size=9), text_color=COLORS["text_secondary"]).pack(side="left")
+            ctk.CTkLabel(
+                row,
+                text=item['time'],
+                width=80,
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+                text_color=COLORS["text_secondary"]
+            ).pack(side="left")
 
     # ==================== BOOST TAB ====================
 
@@ -1436,15 +1671,15 @@ class GroupsTab(ctk.CTkFrame):
             self.boost_empty_label = ctk.CTkLabel(
                 self.boost_urls_list,
                 text="Chưa có bài đăng nào\nĐăng bài ở tab trước",
-                font=ctk.CTkFont(size=12),
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_sm"]),
                 text_color=COLORS["text_secondary"]
             )
-            self.boost_empty_label.pack(pady=40)
+            self.boost_empty_label.pack(pady=SPACING["3xl"])
             return
 
         self.boost_post_vars = {}
         for post in posts:
-            row = ctk.CTkFrame(self.boost_urls_list, fg_color="transparent", height=28)
+            row = ctk.CTkFrame(self.boost_urls_list, fg_color="transparent", height=30)
             row.pack(fill="x", pady=1)
             row.pack_propagate(False)
 
@@ -1459,9 +1694,11 @@ class GroupsTab(ctk.CTkFrame):
                 width=350,
                 checkbox_width=16, checkbox_height=16,
                 fg_color=COLORS["accent"],
-                font=ctk.CTkFont(size=10)
+                hover_color=COLORS["accent_hover"],
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_xs"]),
+                corner_radius=RADIUS["xs"]
             )
-            cb.pack(side="left", padx=3)
+            cb.pack(side="left", padx=SPACING["xs"])
 
     def _toggle_select_all_boost(self):
         """Toggle chọn tất cả bài để boost"""

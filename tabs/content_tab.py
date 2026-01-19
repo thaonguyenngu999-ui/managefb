@@ -1,15 +1,15 @@
 """
-Tab Soạn tin - Quản lý nội dung bài đăng với categories, macros, hình ảnh
+Content Tab - Modern Content Management Interface
+Premium design with category system and rich content editor
 """
 import customtkinter as ctk
 from tkinter import filedialog
 from typing import List, Dict, Optional
 import os
-import re
 import random
 from datetime import datetime
-from config import COLORS
-from widgets import ModernButton, ModernEntry, ModernTextbox
+from config import COLORS, FONTS, SPACING, RADIUS
+from widgets import ModernButton, ModernEntry, ModernTextbox, SearchBar, Badge, EmptyState
 from db import (
     get_categories, save_category, delete_category,
     get_contents, get_content_by_id, save_content, delete_content
@@ -17,7 +17,7 @@ from db import (
 
 
 class ContentTab(ctk.CTkFrame):
-    """Tab soạn tin - Quản lý nội dung bài đăng"""
+    """Premium Content Management Tab"""
 
     def __init__(self, master, status_callback=None, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
@@ -25,472 +25,508 @@ class ContentTab(ctk.CTkFrame):
         self.status_callback = status_callback
         self.categories: List[Dict] = []
         self.contents: List[Dict] = []
-        self.current_category_id: int = 1  # Mặc định
+        self.current_category_id: int = 1
         self.current_content: Optional[Dict] = None
         self.selected_items: List[int] = []
+        self.content_frames: Dict[int, ctk.CTkFrame] = {}
+        self.content_checkboxes: Dict[int, ctk.BooleanVar] = {}
 
         self._create_ui()
         self._load_data()
 
     def _create_ui(self):
-        """Tạo giao diện"""
-        # Main container - 2 columns
-        main_container = ctk.CTkFrame(self, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # ========== LEFT PANEL - Content List ==========
-        left_panel = ctk.CTkFrame(main_container, fg_color=COLORS["bg_secondary"], corner_radius=12, width=380)
-        left_panel.pack(side="left", fill="y", padx=(0, 10))
-        left_panel.pack_propagate(False)
-
-        # Category row
-        cat_row = ctk.CTkFrame(left_panel, fg_color="transparent")
-        cat_row.pack(fill="x", padx=10, pady=10)
-
-        ctk.CTkLabel(
-            cat_row,
-            text="Chọn mục:",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-
-        self.category_var = ctk.StringVar(value="Mặc định")
-        self.category_menu = ctk.CTkOptionMenu(
-            cat_row,
-            variable=self.category_var,
-            values=["Mặc định"],
-            fg_color=COLORS["bg_card"],
-            button_color=COLORS["accent"],
-            width=150,
-            command=self._on_category_change
-        )
-        self.category_menu.pack(side="left", padx=5)
-
-        ctk.CTkButton(
-            cat_row,
-            text="Xóa mục",
-            width=70,
-            height=28,
-            fg_color=COLORS["error"],
-            hover_color="#c0392b",
-            corner_radius=5,
-            command=self._delete_category
-        ).pack(side="left", padx=2)
-
-        # Stats row
-        stats_row = ctk.CTkFrame(left_panel, fg_color="transparent")
-        stats_row.pack(fill="x", padx=10, pady=(0, 5))
-
-        self.count_label = ctk.CTkLabel(
-            stats_row,
-            text="Count: 0",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["accent"]
-        )
-        self.count_label.pack(side="left")
-
-        self.checked_label = ctk.CTkLabel(
-            stats_row,
-            text="Checked: 0",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_secondary"]
-        )
-        self.checked_label.pack(side="left", padx=10)
-
-        self.selected_label = ctk.CTkLabel(
-            stats_row,
-            text="Selected: 0",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["success"]
-        )
-        self.selected_label.pack(side="left")
-
-        # Table header
-        header_frame = ctk.CTkFrame(left_panel, fg_color=COLORS["bg_card"], corner_radius=5, height=30)
-        header_frame.pack(fill="x", padx=10, pady=(5, 0))
-        header_frame.pack_propagate(False)
-
-        # Checkbox column
-        self.select_all_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            header_frame,
-            text="",
-            variable=self.select_all_var,
-            width=20,
-            checkbox_width=18,
-            checkbox_height=18,
-            fg_color=COLORS["accent"],
-            command=self._toggle_select_all
-        ).pack(side="left", padx=5)
-
-        ctk.CTkLabel(header_frame, text="ID", width=40, font=ctk.CTkFont(size=11, weight="bold")).pack(side="left")
-        ctk.CTkLabel(header_frame, text="Tiêu đề", width=100, font=ctk.CTkFont(size=11, weight="bold")).pack(side="left")
-        ctk.CTkLabel(header_frame, text="Nội dung", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=10)
-
-        # Content list
-        self.content_list = ctk.CTkScrollableFrame(left_panel, fg_color="transparent")
-        self.content_list.pack(fill="both", expand=True, padx=10, pady=5)
-
-        # Search row
-        search_row = ctk.CTkFrame(left_panel, fg_color="transparent")
-        search_row.pack(fill="x", padx=10, pady=10)
-
-        ctk.CTkLabel(search_row, text="Tìm kiếm:", font=ctk.CTkFont(size=11)).pack(side="left")
-        self.search_entry = ModernEntry(search_row, placeholder="Từ khóa", width=200)
-        self.search_entry.pack(side="left", padx=5)
-        self.search_entry.bind("<KeyRelease>", self._on_search)
-
-        ctk.CTkButton(
-            search_row,
-            text="Tìm",
-            width=50,
-            height=28,
-            fg_color=COLORS["accent"],
-            corner_radius=5,
-            command=self._on_search
-        ).pack(side="left")
-
-        # ========== RIGHT PANEL - Editor ==========
-        right_panel = ctk.CTkFrame(main_container, fg_color=COLORS["bg_secondary"], corner_radius=12)
-        right_panel.pack(side="right", fill="both", expand=True)
-
-        # New category row
-        new_cat_row = ctk.CTkFrame(right_panel, fg_color="transparent")
-        new_cat_row.pack(fill="x", padx=15, pady=10)
-
-        ctk.CTkLabel(new_cat_row, text="Tạo mục mới:", font=ctk.CTkFont(size=12)).pack(side="left")
-        self.new_cat_entry = ModernEntry(new_cat_row, placeholder="Nhập tên mục...", width=200)
-        self.new_cat_entry.pack(side="left", padx=10)
-
-        ctk.CTkButton(
-            new_cat_row,
-            text="Thêm mục",
-            width=90,
-            height=30,
-            fg_color=COLORS["accent"],
-            corner_radius=5,
-            command=self._add_category
-        ).pack(side="left")
-
-        # Import/Export buttons
-        ctk.CTkButton(
-            new_cat_row,
-            text="Nạp <<",
-            width=70,
-            height=30,
-            fg_color=COLORS["success"],
-            corner_radius=5,
-            command=self._import_contents
-        ).pack(side="right", padx=2)
-
-        ctk.CTkButton(
-            new_cat_row,
-            text="Xuất >>",
-            width=70,
-            height=30,
-            fg_color=COLORS["accent"],
-            corner_radius=5,
-            command=self._export_contents
-        ).pack(side="right", padx=2)
-
-        # Editor section
-        editor_section = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_card"], corner_radius=10)
-        editor_section.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+        """Create premium UI"""
+        # ========== HEADER SECTION ==========
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=SPACING["2xl"], pady=(SPACING["2xl"], SPACING["lg"]))
 
         # Title
+        title_frame = ctk.CTkFrame(header, fg_color="transparent")
+        title_frame.pack(side="left")
+
         ctk.CTkLabel(
-            editor_section,
-            text="Tạo Tin",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            title_frame,
+            text="Quan ly Noi dung",
+            font=ctk.CTkFont(
+                family=FONTS["family"],
+                size=FONTS["size_2xl"],
+                weight="bold"
+            ),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=15, pady=(10, 5))
-
-        # Warning message
-        ctk.CTkLabel(
-            editor_section,
-            text="Thông báo: Chúng tôi không chịu trách nhiệm với nội dung đăng tải lên mạng của người dùng.",
-            font=ctk.CTkFont(size=10),
-            text_color=COLORS["warning"]
-        ).pack(anchor="w", padx=15, pady=(0, 10))
-
-        # Title input
-        title_row = ctk.CTkFrame(editor_section, fg_color="transparent")
-        title_row.pack(fill="x", padx=15, pady=5)
-
-        ctk.CTkLabel(title_row, text="Tiêu đề:", width=80, anchor="w").pack(side="left")
-        self.title_entry = ModernEntry(title_row, placeholder="Nhập tiêu đề bài viết")
-        self.title_entry.pack(side="left", fill="x", expand=True)
-
-        # Content label
-        ctk.CTkLabel(
-            editor_section,
-            text="Nội dung:",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=15, pady=(10, 5))
-
-        # Content editor with line numbers
-        editor_container = ctk.CTkFrame(editor_section, fg_color=COLORS["bg_dark"], corner_radius=8)
-        editor_container.pack(fill="both", expand=True, padx=15, pady=(0, 10))
-
-        # Line numbers
-        self.line_numbers = ctk.CTkTextbox(
-            editor_container,
-            width=35,
-            fg_color=COLORS["bg_secondary"],
-            text_color=COLORS["text_secondary"],
-            font=ctk.CTkFont(family="Consolas", size=12),
-            activate_scrollbars=False
-        )
-        self.line_numbers.pack(side="left", fill="y", padx=(2, 0), pady=2)
-        self.line_numbers.configure(state="disabled")
-
-        # Main editor
-        self.content_editor = ctk.CTkTextbox(
-            editor_container,
-            fg_color=COLORS["bg_card"],
-            text_color=COLORS["text_primary"],
-            font=ctk.CTkFont(family="Consolas", size=12)
-        )
-        self.content_editor.pack(side="left", fill="both", expand=True, padx=(0, 2), pady=2)
-        self.content_editor.bind("<KeyRelease>", self._update_line_numbers)
-        self.content_editor.bind("<MouseWheel>", self._sync_scroll)
-
-        # Initialize line numbers
-        self._update_line_numbers()
-
-        # Hint text
-        hint_frame = ctk.CTkFrame(editor_section, fg_color="transparent")
-        hint_frame.pack(fill="x", padx=15, pady=(0, 5))
-
-        ctk.CTkLabel(
-            hint_frame,
-            text="Gợi ý: Thêm {r} hoặc {rrr} đầu nội dung để đăng tin ngẫu nhiên.",
-            font=ctk.CTkFont(size=10),
-            text_color=COLORS["warning"]
         ).pack(anchor="w")
 
-        # Macro help link
-        macro_link = ctk.CTkLabel(
-            hint_frame,
-            text="Hướng dẫn chèn Macro không giới hạn.",
-            font=ctk.CTkFont(size=10, underline=True),
-            text_color=COLORS["accent"],
-            cursor="hand2"
+        ctk.CTkLabel(
+            title_frame,
+            text="Soan va quan ly noi dung dang bai",
+            font=ctk.CTkFont(size=FONTS["size_base"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(anchor="w")
+
+        # Action buttons
+        actions = ctk.CTkFrame(header, fg_color="transparent")
+        actions.pack(side="right")
+
+        ModernButton(
+            actions,
+            text="Nap file",
+            icon="",
+            variant="secondary",
+            command=self._import_contents,
+            width=100
+        ).pack(side="left", padx=SPACING["xs"])
+
+        ModernButton(
+            actions,
+            text="Xuat file",
+            icon="",
+            variant="secondary",
+            command=self._export_contents,
+            width=100
+        ).pack(side="left", padx=SPACING["xs"])
+
+        # ========== MAIN CONTENT ==========
+        main_container = ctk.CTkFrame(self, fg_color="transparent")
+        main_container.pack(fill="both", expand=True, padx=SPACING["2xl"], pady=(0, SPACING["xl"]))
+
+        # Left panel (40%)
+        left_panel = ctk.CTkFrame(main_container, fg_color="transparent", width=420)
+        left_panel.pack(side="left", fill="both")
+        left_panel.pack_propagate(False)
+
+        # Categories section
+        self._create_categories_section(left_panel)
+
+        # Content list section
+        self._create_content_list_section(left_panel)
+
+        # Right panel (60%)
+        right_panel = ctk.CTkFrame(main_container, fg_color="transparent")
+        right_panel.pack(side="left", fill="both", expand=True, padx=(SPACING["lg"], 0))
+
+        self._create_editor_section(right_panel)
+
+    def _create_categories_section(self, parent):
+        """Create categories panel"""
+        cat_card = ctk.CTkFrame(
+            parent,
+            fg_color=COLORS["bg_card"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"]
         )
-        macro_link.pack(anchor="w")
-        macro_link.bind("<Button-1>", lambda e: self._show_macro_help())
+        cat_card.pack(fill="x", pady=(0, SPACING["md"]))
+
+        cat_inner = ctk.CTkFrame(cat_card, fg_color="transparent")
+        cat_inner.pack(fill="x", padx=SPACING["lg"], pady=SPACING["md"])
+
+        # Header
+        cat_header = ctk.CTkFrame(cat_inner, fg_color="transparent")
+        cat_header.pack(fill="x")
+
+        ctk.CTkLabel(
+            cat_header,
+            text="  Danh muc",
+            font=ctk.CTkFont(size=FONTS["size_md"], weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        # Add new category input
+        add_frame = ctk.CTkFrame(cat_inner, fg_color="transparent")
+        add_frame.pack(fill="x", pady=(SPACING["sm"], 0))
+
+        self.new_cat_entry = ModernEntry(add_frame, placeholder="Ten danh muc moi...")
+        self.new_cat_entry.pack(side="left", fill="x", expand=True)
+
+        ModernButton(
+            add_frame,
+            text="",
+            variant="success",
+            size="sm",
+            command=self._add_category,
+            width=36
+        ).pack(side="left", padx=(SPACING["xs"], 0))
+
+        # Category selector row
+        cat_select_row = ctk.CTkFrame(cat_inner, fg_color="transparent")
+        cat_select_row.pack(fill="x", pady=(SPACING["sm"], 0))
+
+        ctk.CTkLabel(
+            cat_select_row,
+            text="Chon danh muc:",
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
+
+        self.category_var = ctk.StringVar(value="Mac dinh")
+        self.category_menu = ctk.CTkOptionMenu(
+            cat_select_row,
+            variable=self.category_var,
+            values=["Mac dinh"],
+            fg_color=COLORS["bg_secondary"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            width=160,
+            command=self._on_category_change
+        )
+        self.category_menu.pack(side="left", padx=SPACING["sm"])
+
+        ModernButton(
+            cat_select_row,
+            text="Xoa",
+            icon="",
+            variant="danger",
+            size="sm",
+            command=self._delete_category,
+            width=70
+        ).pack(side="left")
+
+    def _create_content_list_section(self, parent):
+        """Create content list panel"""
+        list_card = ctk.CTkFrame(
+            parent,
+            fg_color=COLORS["bg_card"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"]
+        )
+        list_card.pack(fill="both", expand=True)
+
+        list_inner = ctk.CTkFrame(list_card, fg_color="transparent")
+        list_inner.pack(fill="both", expand=True, padx=SPACING["lg"], pady=SPACING["md"])
+
+        # Header with stats
+        list_header = ctk.CTkFrame(list_inner, fg_color="transparent")
+        list_header.pack(fill="x")
+
+        ctk.CTkLabel(
+            list_header,
+            text="  Danh sach noi dung",
+            font=ctk.CTkFont(size=FONTS["size_md"], weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        # Stats
+        self.count_label = ctk.CTkLabel(
+            list_header,
+            text="0 muc",
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
+            text_color=COLORS["text_tertiary"]
+        )
+        self.count_label.pack(side="right")
+
+        # Search bar
+        self.search_bar = SearchBar(
+            list_inner,
+            placeholder="Tim kiem...",
+            on_search=self._on_search
+        )
+        self.search_bar.pack(fill="x", pady=SPACING["sm"])
+
+        # Toolbar
+        toolbar = ctk.CTkFrame(list_inner, fg_color="transparent")
+        toolbar.pack(fill="x", pady=(0, SPACING["sm"]))
+
+        # Select all checkbox
+        self.select_all_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            toolbar,
+            text="Chon tat ca",
+            variable=self.select_all_var,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
+            command=self._toggle_select_all
+        ).pack(side="left")
+
+        ModernButton(
+            toolbar,
+            text="Xoa da chon",
+            icon="",
+            variant="danger",
+            size="sm",
+            command=self._delete_selected,
+            width=110
+        ).pack(side="right")
+
+        # Scrollable content list
+        self.content_scroll = ctk.CTkScrollableFrame(
+            list_inner,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["border"],
+            scrollbar_button_hover_color=COLORS["accent"]
+        )
+        self.content_scroll.pack(fill="both", expand=True)
+
+    def _create_editor_section(self, parent):
+        """Create content editor panel"""
+        editor_card = ctk.CTkFrame(
+            parent,
+            fg_color=COLORS["bg_card"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"]
+        )
+        editor_card.pack(fill="both", expand=True)
+
+        editor_inner = ctk.CTkFrame(editor_card, fg_color="transparent")
+        editor_inner.pack(fill="both", expand=True, padx=SPACING["lg"], pady=SPACING["lg"])
+
+        # Header
+        editor_header = ctk.CTkFrame(editor_inner, fg_color="transparent")
+        editor_header.pack(fill="x")
+
+        ctk.CTkLabel(
+            editor_header,
+            text="  Trinh soan thao",
+            font=ctk.CTkFont(size=FONTS["size_lg"], weight="bold"),
+            text_color=COLORS["text_primary"]
+        ).pack(side="left")
+
+        # Title input
+        title_row = ctk.CTkFrame(editor_inner, fg_color="transparent")
+        title_row.pack(fill="x", pady=(SPACING["md"], SPACING["xs"]))
+
+        ctk.CTkLabel(
+            title_row,
+            text="Tieu de",
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(anchor="w")
+
+        self.title_entry = ModernEntry(title_row, placeholder="Nhap tieu de noi dung...")
+        self.title_entry.pack(fill="x", pady=(SPACING["xs"], 0))
+
+        # Content editor
+        content_row = ctk.CTkFrame(editor_inner, fg_color="transparent")
+        content_row.pack(fill="both", expand=True, pady=SPACING["sm"])
+
+        ctk.CTkLabel(
+            content_row,
+            text="Noi dung",
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(anchor="w")
+
+        self.content_editor = ModernTextbox(content_row, height=200)
+        self.content_editor.pack(fill="both", expand=True, pady=(SPACING["xs"], 0))
+
+        # Macro buttons
+        macro_frame = ctk.CTkFrame(editor_inner, fg_color="transparent")
+        macro_frame.pack(fill="x", pady=SPACING["sm"])
+
+        ctk.CTkLabel(
+            macro_frame,
+            text="Macro:",
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left", padx=(0, SPACING["sm"]))
+
+        macros = [
+            ("{r}", "Random"),
+            ("{time}", "Gio"),
+            ("{date}", "Ngay"),
+        ]
+
+        for macro, label in macros:
+            btn = ctk.CTkButton(
+                macro_frame,
+                text=label,
+                width=60,
+                height=28,
+                fg_color=COLORS["bg_elevated"],
+                hover_color=COLORS["border_hover"],
+                text_color=COLORS["text_secondary"],
+                corner_radius=RADIUS["sm"],
+                font=ctk.CTkFont(size=FONTS["size_xs"]),
+                command=lambda m=macro: self._insert_macro(m)
+            )
+            btn.pack(side="left", padx=2)
 
         # Image attachment
-        img_row = ctk.CTkFrame(editor_section, fg_color="transparent")
-        img_row.pack(fill="x", padx=15, pady=5)
+        img_row = ctk.CTkFrame(editor_inner, fg_color="transparent")
+        img_row.pack(fill="x", pady=SPACING["xs"])
 
         self.img_check_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
             img_row,
-            text="Đính kèm hình ảnh",
+            text="Dinh kem hinh anh",
             variable=self.img_check_var,
             fg_color=COLORS["accent"],
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
             command=self._toggle_image
         ).pack(side="left")
 
-        self.img_path_entry = ModernEntry(img_row, placeholder="Thư mục chứa ảnh...", width=300)
-        self.img_path_entry.pack(side="left", padx=10)
+        self.img_path_entry = ModernEntry(img_row, placeholder="Thu muc chua anh...")
+        self.img_path_entry.pack(side="left", fill="x", expand=True, padx=SPACING["sm"])
         self.img_path_entry.configure(state="disabled")
 
-        ctk.CTkButton(
+        ModernButton(
             img_row,
-            text="Chọn thư mục",
-            width=100,
-            height=28,
-            fg_color=COLORS["accent"],
-            corner_radius=5,
-            command=self._select_image_folder
-        ).pack(side="left", padx=2)
-
-        ctk.CTkButton(
-            img_row,
-            text="Mở thư mục",
-            width=90,
-            height=28,
-            fg_color=COLORS["bg_card"],
-            corner_radius=5,
-            command=self._open_image_folder
-        ).pack(side="left", padx=2)
-
-        # Sticker attachment
-        sticker_row = ctk.CTkFrame(editor_section, fg_color="transparent")
-        sticker_row.pack(fill="x", padx=15, pady=5)
-
-        self.sticker_check_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            sticker_row,
-            text="Đính kèm Sticker",
-            variable=self.sticker_check_var,
-            fg_color=COLORS["accent"]
+            text="Chon",
+            variant="secondary",
+            size="sm",
+            command=self._select_image_folder,
+            width=60
         ).pack(side="left")
 
-        self.sticker_entry = ModernEntry(sticker_row, placeholder="Sticker ID; Sticker ID; ...", width=300)
-        self.sticker_entry.pack(side="left", padx=10)
-
-        ctk.CTkButton(
-            sticker_row,
-            text="Chọn Sticker",
-            width=90,
-            height=28,
-            fg_color=COLORS["accent"],
-            corner_radius=5
-        ).pack(side="left", padx=2)
-
         # Action buttons
-        btn_row = ctk.CTkFrame(editor_section, fg_color="transparent")
-        btn_row.pack(fill="x", padx=15, pady=15)
+        btn_frame = ctk.CTkFrame(editor_inner, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(SPACING["md"], 0))
 
         ModernButton(
-            btn_row,
-            text="Lưu",
-            icon="💾",
-            variant="primary",
+            btn_frame,
+            text="Luu",
+            icon="",
+            variant="success",
             command=self._save_content,
             width=100
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=2)
 
         ModernButton(
-            btn_row,
-            text="Sửa",
-            icon="✏️",
-            variant="secondary",
-            command=self._edit_selected,
-            width=100
-        ).pack(side="left", padx=5)
-
-        ModernButton(
-            btn_row,
-            text="Xóa",
-            icon="🗑️",
+            btn_frame,
+            text="Xoa",
+            icon="",
             variant="danger",
             command=self._delete_content,
-            width=100
-        ).pack(side="left", padx=5)
+            width=90
+        ).pack(side="left", padx=2)
 
         ModernButton(
-            btn_row,
-            text="Mới",
-            icon="➕",
-            variant="success",
+            btn_frame,
+            text="Moi",
+            icon="",
+            variant="secondary",
             command=self._new_content,
-            width=100
-        ).pack(side="left", padx=5)
-
-    # ==================== DATA LOADING ====================
+            width=90
+        ).pack(side="left", padx=2)
 
     def _load_data(self):
-        """Load categories và contents"""
+        """Load categories and contents"""
         self._load_categories()
         self._load_contents()
 
     def _load_categories(self):
-        """Load danh sách categories"""
+        """Load categories list"""
         self.categories = get_categories()
         cat_names = [c.get('name', 'Unknown') for c in self.categories]
+        if not cat_names:
+            cat_names = ["Mac dinh"]
         self.category_menu.configure(values=cat_names)
 
-        # Set current category
         for cat in self.categories:
             if cat['id'] == self.current_category_id:
                 self.category_var.set(cat['name'])
                 break
 
     def _load_contents(self):
-        """Load nội dung theo category hiện tại"""
+        """Load contents for current category"""
         self.contents = get_contents(self.current_category_id)
         self._render_content_list()
 
     def _render_content_list(self, contents: List[Dict] = None):
-        """Render danh sách nội dung"""
-        # Clear existing
-        for widget in self.content_list.winfo_children():
+        """Render content list"""
+        for widget in self.content_scroll.winfo_children():
             widget.destroy()
 
-        display_contents = contents if contents is not None else self.contents
+        self.content_frames.clear()
+        self.content_checkboxes.clear()
 
-        # Update stats
-        self.count_label.configure(text=f"Count: {len(display_contents)}")
-        self.checked_label.configure(text=f"Checked: {len(self.selected_items)}")
-        self.selected_label.configure(text=f"Selected: {1 if self.current_content else 0}")
+        display_contents = contents if contents is not None else self.contents
+        self.count_label.configure(text=f"{len(display_contents)} muc")
 
         if not display_contents:
-            ctk.CTkLabel(
-                self.content_list,
-                text="Chưa có nội dung nào\nBấm 'Mới' để tạo",
-                font=ctk.CTkFont(size=12),
-                text_color=COLORS["text_secondary"]
-            ).pack(pady=30)
+            empty = EmptyState(
+                self.content_scroll,
+                icon="",
+                title="Chua co noi dung",
+                description="Bam 'Moi' de tao noi dung"
+            )
+            empty.pack(expand=True)
             return
 
         for content in display_contents:
-            self._create_content_row(content)
+            self._create_content_item(content)
 
-    def _create_content_row(self, content: Dict):
-        """Tạo row cho content trong list"""
-        row = ctk.CTkFrame(self.content_list, fg_color=COLORS["bg_card"], corner_radius=5, height=35)
-        row.pack(fill="x", pady=2)
-        row.pack_propagate(False)
+    def _create_content_item(self, content: Dict):
+        """Create content list item"""
+        content_id = content.get('id')
+
+        item = ctk.CTkFrame(
+            self.content_scroll,
+            fg_color=COLORS["bg_secondary"],
+            corner_radius=RADIUS["md"],
+            border_width=1,
+            border_color=COLORS["border"]
+        )
+        item.pack(fill="x", pady=2)
+
+        inner = ctk.CTkFrame(item, fg_color="transparent")
+        inner.pack(fill="x", padx=SPACING["sm"], pady=SPACING["sm"])
 
         # Checkbox
-        var = ctk.BooleanVar(value=content['id'] in self.selected_items)
+        cb_var = ctk.BooleanVar(value=content_id in self.selected_items)
+        self.content_checkboxes[content_id] = cb_var
+
         cb = ctk.CTkCheckBox(
-            row,
+            inner,
             text="",
-            variable=var,
+            variable=cb_var,
             width=20,
-            checkbox_width=16,
-            checkbox_height=16,
+            checkbox_width=18,
+            checkbox_height=18,
             fg_color=COLORS["accent"],
-            command=lambda cid=content['id'], v=var: self._toggle_item(cid, v)
+            hover_color=COLORS["accent_hover"],
+            command=lambda cid=content_id, v=cb_var: self._toggle_item(cid, v)
         )
-        cb.pack(side="left", padx=5)
+        cb.pack(side="left")
 
-        # ID
-        ctk.CTkLabel(
-            row,
-            text=str(content.get('id', '')),
-            width=40,
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
+        # Content info
+        info = ctk.CTkFrame(inner, fg_color="transparent")
+        info.pack(side="left", fill="x", expand=True, padx=SPACING["sm"])
+        info.bind("<Button-1>", lambda e, c=content: self._select_content(c))
 
-        # Title
-        title = content.get('title', '')[:15]
-        ctk.CTkLabel(
-            row,
+        title = content.get('title') or content.get('content', '')[:30] or 'Khong co tieu de'
+        if len(title) > 32:
+            title = title[:32] + "..."
+
+        title_label = ctk.CTkLabel(
+            info,
             text=title,
-            width=100,
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(size=FONTS["size_sm"], weight="bold"),
             text_color=COLORS["text_primary"],
             anchor="w"
-        ).pack(side="left")
+        )
+        title_label.pack(anchor="w")
+        title_label.bind("<Button-1>", lambda e, c=content: self._select_content(c))
 
-        # Content preview
-        text = content.get('content', '')[:30].replace('\n', ' ')
-        ctk.CTkLabel(
-            row,
-            text=text,
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_secondary"],
-            anchor="w"
-        ).pack(side="left", padx=5, fill="x", expand=True)
+        # Preview text
+        preview = content.get('content', '')[:40].replace('\n', ' ')
+        if preview:
+            ctk.CTkLabel(
+                info,
+                text=preview + "..." if len(content.get('content', '')) > 40 else preview,
+                font=ctk.CTkFont(size=FONTS["size_xs"]),
+                text_color=COLORS["text_tertiary"],
+                anchor="w"
+            ).pack(anchor="w")
 
-        # Click to select
-        row.bind("<Button-1>", lambda e, c=content: self._select_content(c))
-        for child in row.winfo_children():
-            if not isinstance(child, ctk.CTkCheckBox):
-                child.bind("<Button-1>", lambda e, c=content: self._select_content(c))
+        self.content_frames[content_id] = item
 
-    # ==================== CATEGORY MANAGEMENT ====================
+        # Hover effects
+        def on_enter(e):
+            item.configure(border_color=COLORS["border_hover"])
+
+        def on_leave(e):
+            if self.current_content and self.current_content.get('id') == content_id:
+                item.configure(border_color=COLORS["accent"])
+            else:
+                item.configure(border_color=COLORS["border"])
+
+        item.bind("<Enter>", on_enter)
+        item.bind("<Leave>", on_leave)
 
     def _on_category_change(self, choice: str):
-        """Khi chọn category khác"""
+        """Handle category change"""
         for cat in self.categories:
             if cat['name'] == choice:
                 self.current_category_id = cat['id']
@@ -498,50 +534,45 @@ class ContentTab(ctk.CTkFrame):
         self._load_contents()
 
     def _add_category(self):
-        """Thêm category mới"""
+        """Add new category"""
         name = self.new_cat_entry.get().strip()
         if not name:
-            self._set_status("Vui lòng nhập tên mục!", "warning")
+            self._set_status("Vui long nhap ten danh muc!", "warning")
             return
 
-        # Lưu category mới
         cat = save_category({'name': name})
         self.new_cat_entry.delete(0, "end")
-
-        # Chuyển sang category mới vừa tạo
         self.current_category_id = cat['id']
-
-        # Reload categories từ DB
         self.categories = get_categories()
         cat_names = [c.get('name', 'Unknown') for c in self.categories]
-
-        # Cập nhật dropdown values và chọn category mới
         self.category_menu.configure(values=cat_names)
         self.category_var.set(name)
-
-        # Load contents của category mới (sẽ trống)
         self._load_contents()
-        self._new_content()  # Reset form
-
-        self._set_status(f"Đã tạo mục: {name}", "success")
+        self._new_content()
+        self._set_status(f"Da tao danh muc: {name}", "success")
 
     def _delete_category(self):
-        """Xóa category hiện tại"""
+        """Delete current category"""
         if self.current_category_id == 1:
-            self._set_status("Không thể xóa mục Mặc định!", "warning")
+            self._set_status("Khong the xoa danh muc mac dinh!", "warning")
             return
 
         delete_category(self.current_category_id)
         self.current_category_id = 1
         self._load_categories()
         self._load_contents()
-        self._set_status("Đã xóa mục", "success")
-
-    # ==================== CONTENT MANAGEMENT ====================
+        self._set_status("Da xoa danh muc", "success")
 
     def _select_content(self, content: Dict):
-        """Chọn content để edit"""
+        """Select content for editing"""
         self.current_content = content
+
+        # Highlight selected item
+        for cid, frame in self.content_frames.items():
+            if cid == content.get('id'):
+                frame.configure(border_color=COLORS["accent"])
+            else:
+                frame.configure(border_color=COLORS["border"])
 
         # Fill editor
         self.title_entry.delete(0, "end")
@@ -561,153 +592,126 @@ class ContentTab(ctk.CTkFrame):
             self.img_check_var.set(False)
             self.img_path_entry.configure(state="disabled")
 
-        # Sticker
-        stickers = content.get('stickers', '')
-        if stickers:
-            self.sticker_check_var.set(True)
-            self.sticker_entry.delete(0, "end")
-            self.sticker_entry.insert(0, stickers)
-
-        self._update_line_numbers()
-        self._render_content_list()
-        self._set_status(f"Đã chọn: {content.get('title', 'Untitled')}", "info")
+        self._set_status(f"Da chon: {content.get('title', 'Untitled')}", "info")
 
     def _new_content(self):
-        """Tạo content mới - Reset form về trạng thái ban đầu"""
+        """Create new content"""
         self.current_content = None
         self.title_entry.delete(0, "end")
         self.content_editor.delete("1.0", "end")
 
-        # Reset image
         self.img_check_var.set(False)
-        self.img_path_entry.configure(state="normal")  # Enable trước khi xóa
+        self.img_path_entry.configure(state="normal")
         self.img_path_entry.delete(0, "end")
-        self.img_path_entry.configure(state="disabled")  # Disable lại
+        self.img_path_entry.configure(state="disabled")
 
-        # Reset sticker
-        self.sticker_check_var.set(False)
-        self.sticker_entry.delete(0, "end")
-
-        self._update_line_numbers()
-        self._render_content_list()
+        for frame in self.content_frames.values():
+            frame.configure(border_color=COLORS["border"])
 
     def _save_content(self):
-        """Lưu content"""
+        """Save content"""
         title = self.title_entry.get().strip()
         content_text = self.content_editor.get("1.0", "end").strip()
 
         if not title:
-            self._set_status("Vui lòng nhập tiêu đề!", "warning")
+            self._set_status("Vui long nhap tieu de!", "warning")
             return
 
         content_data = {
             'title': title,
             'content': content_text,
             'category_id': self.current_category_id,
-            'image_path': self.img_path_entry.get() if self.img_check_var.get() else '',
-            'stickers': self.sticker_entry.get() if self.sticker_check_var.get() else ''
+            'image_path': self.img_path_entry.get() if self.img_check_var.get() else ''
         }
 
-        # Nếu đang edit content cũ thì giữ ID, ngược lại tạo mới
         if self.current_content:
             content_data['id'] = self.current_content['id']
 
-        saved = save_content(content_data)
-        self._load_contents()  # Reload danh sách
-        self._new_content()  # Reset form sau khi lưu
-        self._set_status(f"Đã lưu: {title}", "success")
-
-    def _edit_selected(self):
-        """Edit content được chọn trong list"""
-        if self.selected_items:
-            content = get_content_by_id(self.selected_items[0])
-            if content:
-                self._select_content(content)
+        save_content(content_data)
+        self._load_contents()
+        self._new_content()
+        self._set_status(f"Da luu: {title}", "success")
 
     def _delete_content(self):
-        """Xóa content"""
+        """Delete current content"""
         if self.current_content:
             delete_content(self.current_content['id'])
             self._new_content()
             self._load_contents()
-            self._set_status("Đã xóa nội dung", "success")
-        elif self.selected_items:
-            for item_id in self.selected_items:
-                delete_content(item_id)
-            self.selected_items = []
-            self._load_contents()
-            self._set_status(f"Đã xóa {len(self.selected_items)} nội dung", "success")
+            self._set_status("Da xoa noi dung", "success")
 
-    # ==================== SELECTION ====================
+    def _delete_selected(self):
+        """Delete selected contents"""
+        if not self.selected_items:
+            self._set_status("Chua chon noi dung nao", "warning")
+            return
+
+        count = len(self.selected_items)
+        for item_id in self.selected_items:
+            delete_content(item_id)
+        self.selected_items = []
+        self._load_contents()
+        self._set_status(f"Da xoa {count} noi dung", "success")
 
     def _toggle_item(self, content_id: int, var: ctk.BooleanVar):
-        """Toggle chọn item"""
+        """Toggle item selection"""
         if var.get():
             if content_id not in self.selected_items:
                 self.selected_items.append(content_id)
         else:
             if content_id in self.selected_items:
                 self.selected_items.remove(content_id)
-        self._update_stats()
 
     def _toggle_select_all(self):
-        """Toggle chọn tất cả"""
+        """Toggle select all"""
         if self.select_all_var.get():
             self.selected_items = [c['id'] for c in self.contents]
         else:
             self.selected_items = []
         self._render_content_list()
 
-    def _update_stats(self):
-        """Cập nhật thống kê"""
-        self.checked_label.configure(text=f"Checked: {len(self.selected_items)}")
-        self.selected_label.configure(text=f"Selected: {1 if self.current_content else 0}")
+    def _on_search(self, query: str = None):
+        """Search contents"""
+        if query is None:
+            query = self.search_bar.get_value()
 
-    # ==================== EDITOR HELPERS ====================
+        if not query:
+            self._render_content_list()
+            return
 
-    def _update_line_numbers(self, event=None):
-        """Cập nhật số dòng"""
-        content = self.content_editor.get("1.0", "end")
-        lines = content.count('\n')
-        if lines == 0:
-            lines = 1
+        filtered = [
+            c for c in self.contents
+            if query.lower() in c.get('title', '').lower()
+            or query.lower() in c.get('content', '').lower()
+        ]
+        self._render_content_list(filtered)
 
-        line_nums = "\n".join(str(i) for i in range(1, lines + 1))
-
-        self.line_numbers.configure(state="normal")
-        self.line_numbers.delete("1.0", "end")
-        self.line_numbers.insert("1.0", line_nums)
-        self.line_numbers.configure(state="disabled")
-
-    def _sync_scroll(self, event):
-        """Đồng bộ scroll giữa line numbers và editor"""
-        self.line_numbers.yview_moveto(self.content_editor.yview()[0])
-
-    # ==================== IMAGE ====================
+    def _insert_macro(self, macro: str):
+        """Insert macro into editor"""
+        self.content_editor.insert("insert", macro)
 
     def _toggle_image(self):
-        """Toggle đính kèm hình ảnh"""
+        """Toggle image attachment"""
         if self.img_check_var.get():
             self.img_path_entry.configure(state="normal")
         else:
             self.img_path_entry.configure(state="disabled")
 
     def _select_image_folder(self):
-        """Chọn thư mục chứa hình ảnh"""
+        """Select image folder"""
         if not self.img_check_var.get():
             self.img_check_var.set(True)
             self.img_path_entry.configure(state="normal")
 
-        path = filedialog.askdirectory(title="Chọn thư mục chứa hình ảnh")
+        path = filedialog.askdirectory(title="Chon thu muc chua hinh anh")
         if path:
             self.img_path_entry.delete(0, "end")
             self.img_path_entry.insert(0, path)
-            # Count images in folder
             img_count = self._count_images_in_folder(path)
-            self._set_status(f"Đã chọn thư mục với {img_count} ảnh", "success")
+            self._set_status(f"Da chon thu muc voi {img_count} anh", "success")
 
     def _count_images_in_folder(self, folder_path: str) -> int:
-        """Đếm số ảnh trong thư mục"""
+        """Count images in folder"""
         if not os.path.isdir(folder_path):
             return 0
         img_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
@@ -717,21 +721,8 @@ class ContentTab(ctk.CTkFrame):
                 count += 1
         return count
 
-    def _open_image_folder(self):
-        """Mở thư mục chứa ảnh"""
-        path = self.img_path_entry.get()
-        if path and os.path.isdir(path):
-            if os.name == 'nt':
-                os.startfile(path)
-            else:
-                os.system(f'xdg-open "{path}"')
-        else:
-            self._set_status("Thư mục không tồn tại!", "warning")
-
-    # ==================== IMPORT/EXPORT ====================
-
     def _import_contents(self):
-        """Nạp nội dung từ file"""
+        """Import contents from file"""
         filetypes = [("Text files", "*.txt"), ("All files", "*.*")]
         path = filedialog.askopenfilename(filetypes=filetypes)
         if path:
@@ -751,14 +742,14 @@ class ContentTab(ctk.CTkFrame):
                         count += 1
 
                 self._load_contents()
-                self._set_status(f"Đã nạp {count} nội dung", "success")
+                self._set_status(f"Da nap {count} noi dung", "success")
             except Exception as e:
-                self._set_status(f"Lỗi: {e}", "error")
+                self._set_status(f"Loi: {e}", "error")
 
     def _export_contents(self):
-        """Xuất nội dung ra file"""
+        """Export contents to file"""
         if not self.contents:
-            self._set_status("Không có nội dung để xuất!", "warning")
+            self._set_status("Khong co noi dung de xuat!", "warning")
             return
 
         path = filedialog.asksaveasfilename(
@@ -772,90 +763,30 @@ class ContentTab(ctk.CTkFrame):
                         f.write(f"{c.get('title', '')}\n")
                         f.write(f"{c.get('content', '')}\n")
                         f.write("-" * 50 + "\n")
-                self._set_status(f"Đã xuất {len(self.contents)} nội dung", "success")
+                self._set_status(f"Da xuat {len(self.contents)} noi dung", "success")
             except Exception as e:
-                self._set_status(f"Lỗi: {e}", "error")
-
-    # ==================== SEARCH ====================
-
-    def _on_search(self, event=None):
-        """Tìm kiếm nội dung"""
-        query = self.search_entry.get().lower()
-        if not query:
-            self._render_content_list()
-            return
-
-        filtered = [
-            c for c in self.contents
-            if query in c.get('title', '').lower()
-            or query in c.get('content', '').lower()
-        ]
-        self._render_content_list(filtered)
-
-    # ==================== MACRO HELP ====================
-
-    def _show_macro_help(self):
-        """Hiển thị hướng dẫn macro"""
-        help_text = """
-HƯỚNG DẪN SỬ DỤNG MACRO
-
-1. {r} - Random chọn 1 dòng từ nội dung
-   Ví dụ:
-   {r}
-   Xin chào!
-   Hello!
-   Hi there!
-   → Sẽ random chọn 1 trong 3 dòng
-
-2. {rrr} - Random tất cả các dòng
-   Tương tự {r} nhưng shuffle tất cả
-
-3. {name} - Thay thế biến
-   Định nghĩa biến khi chạy script
-
-4. {time} - Thời gian hiện tại
-5. {date} - Ngày hiện tại
-
-Mẹo: Kết hợp nhiều macro trong 1 bài viết
-để tạo nội dung đa dạng!
-"""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Hướng dẫn Macro")
-        dialog.geometry("450x400")
-        dialog.configure(fg_color=COLORS["bg_dark"])
-
-        text = ctk.CTkTextbox(dialog, fg_color=COLORS["bg_card"])
-        text.pack(fill="both", expand=True, padx=20, pady=20)
-        text.insert("1.0", help_text)
-        text.configure(state="disabled")
-
-    def _set_status(self, text: str, status_type: str = "info"):
-        """Cập nhật status bar"""
-        if self.status_callback:
-            self.status_callback(text, status_type)
-
-    # ==================== MACRO PROCESSING ====================
+                self._set_status(f"Loi: {e}", "error")
 
     def process_macros(self, content: str) -> str:
-        """Xử lý macros trong nội dung"""
-        # {r} - random 1 dòng
+        """Process macros in content"""
         if content.startswith('{r}'):
             lines = content[3:].strip().split('\n')
             lines = [l.strip() for l in lines if l.strip()]
             if lines:
                 return random.choice(lines)
 
-        # {rrr} - shuffle all
         if content.startswith('{rrr}'):
             lines = content[5:].strip().split('\n')
             lines = [l.strip() for l in lines if l.strip()]
             random.shuffle(lines)
             return '\n'.join(lines)
 
-        # {time} - current time
         content = content.replace('{time}', datetime.now().strftime('%H:%M:%S'))
-
-        # {date} - current date
         content = content.replace('{date}', datetime.now().strftime('%d/%m/%Y'))
 
         return content
+
+    def _set_status(self, text: str, status_type: str = "info"):
+        """Update status bar"""
+        if self.status_callback:
+            self.status_callback(text, status_type)
