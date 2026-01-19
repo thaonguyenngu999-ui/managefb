@@ -12,96 +12,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QColor, QSyntaxHighlighter, QTextCharFormat
 
-# Cyberpunk colors
-CYBER_COLORS = {
-    "cyan": "#00f0ff",
-    "magenta": "#ff00a8",
-    "green": "#00ff66",
-    "yellow": "#f0ff00",
-    "orange": "#ff6600",
-    "purple": "#9d4edd",
-    "red": "#ff3366",
-    "bg_dark": "#0a0a12",
-    "bg_card": "#12121f",
-    "bg_lighter": "#1a1a2e",
-    "text": "#e0e0e0",
-    "text_dim": "#808080"
-}
-
-
-class CyberTitle(QFrame):
-    """Cyberpunk styled title"""
-
-    def __init__(self, text: str, color: str = "cyan", parent=None):
-        super().__init__(parent)
-        self.text = text
-        self.color = CYBER_COLORS.get(color, color)
-        self._setup_ui()
-
-    def _setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 10, 0, 10)
-
-        triangle = QLabel("▶")
-        triangle.setStyleSheet(f"color: {self.color}; font-size: 16px;")
-        layout.addWidget(triangle)
-
-        title = QLabel(self.text)
-        title.setStyleSheet(f"""
-            color: {self.color};
-            font-size: 24px;
-            font-weight: bold;
-            font-family: 'Orbitron', 'Rajdhani', 'Consolas', monospace;
-            letter-spacing: 2px;
-        """)
-        layout.addWidget(title)
-
-        line = QFrame()
-        line.setFixedHeight(2)
-        line.setStyleSheet(f"""
-            background: qlineargradient(x1:0, x2:1,
-                stop:0 {self.color},
-                stop:0.5 {self.color}80,
-                stop:1 transparent);
-        """)
-        layout.addWidget(line, 1)
-
-
-class CyberButton(QPushButton):
-    """Cyberpunk styled button"""
-
-    def __init__(self, text: str, color: str = "cyan", icon: str = None, parent=None):
-        display_text = f"{icon} {text}" if icon and text else (icon or text)
-        super().__init__(display_text, parent)
-        self.color = CYBER_COLORS.get(color, color)
-        self.setObjectName("cyberButton")
-        self._apply_style()
-
-    def _apply_style(self):
-        self.setStyleSheet(f"""
-            QPushButton#cyberButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.color}30,
-                    stop:1 {self.color}10);
-                border: 1px solid {self.color};
-                border-radius: 4px;
-                color: {self.color};
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 13px;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }}
-            QPushButton#cyberButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {self.color}50,
-                    stop:1 {self.color}30);
-                border: 2px solid {self.color};
-            }}
-            QPushButton#cyberButton:pressed {{
-                background: {self.color}60;
-            }}
-        """)
+# Import shared Cyberpunk widgets
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cyber_widgets_qt import CyberTitle, CyberButton, CYBER_COLORS
 
 
 class ScriptItem(QFrame):
