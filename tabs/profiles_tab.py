@@ -108,7 +108,7 @@ class ProfilesTab(ctk.CTkFrame):
         # Title with neon effect
         title_container = ctk.CTkFrame(
             title_frame,
-            fg_color=COLORS["accent"] + "20",
+            fg_color="#2a1520",  # Dark accent background
             corner_radius=8
         )
         title_container.pack(side="left")

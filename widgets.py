@@ -161,19 +161,22 @@ class StatsCard(ctk.CTkFrame):
 class OSBadge(ctk.CTkFrame):
     """Operating system badge with color coding"""
 
-    OS_COLORS = {
-        "win": ("WINDOWS", COLORS["os_windows"]),
-        "windows": ("WINDOWS", COLORS["os_windows"]),
-        "mac": ("MACOS", COLORS["os_macos"]),
-        "macos": ("MACOS", COLORS["os_macos"]),
-        "android": ("ANDROID", COLORS["os_android"]),
-        "ios": ("IOS", COLORS["os_ios"]),
-        "linux": ("LINUX", COLORS["os_linux"]),
+    # OS -> (label, text_color, bg_color, border_color)
+    OS_STYLES = {
+        "win": ("WINDOWS", "#00d4ff", "#0a2530", "#1a4050"),
+        "windows": ("WINDOWS", "#00d4ff", "#0a2530", "#1a4050"),
+        "mac": ("MACOS", "#9d4edd", "#1a1030", "#2a2050"),
+        "macos": ("MACOS", "#9d4edd", "#1a1030", "#2a2050"),
+        "android": ("ANDROID", "#00ff88", "#0a2518", "#1a4530"),
+        "ios": ("IOS", "#ffcc00", "#252008", "#403510"),
+        "linux": ("LINUX", "#ff6b6b", "#250a0a", "#401515"),
     }
 
     def __init__(self, master, os_type: str, **kwargs):
         os_type_lower = os_type.lower() if os_type else "windows"
-        label, color = self.OS_COLORS.get(os_type_lower, ("UNKNOWN", COLORS["text_secondary"]))
+        label, text_color, bg_color, border_color = self.OS_STYLES.get(
+            os_type_lower, ("UNKNOWN", "#6b7280", "#1a1a25", "#2a2a35")
+        )
 
         super().__init__(
             master,
@@ -184,10 +187,10 @@ class OSBadge(ctk.CTkFrame):
         # Badge frame
         badge = ctk.CTkFrame(
             self,
-            fg_color=color + "20",  # Add transparency
+            fg_color=bg_color,
             corner_radius=4,
             border_width=1,
-            border_color=color + "40"
+            border_color=border_color
         )
         badge.pack()
 
@@ -195,7 +198,7 @@ class OSBadge(ctk.CTkFrame):
             badge,
             text=label,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
-            text_color=color,
+            text_color=text_color,
             width=70
         ).pack(padx=8, pady=3)
 

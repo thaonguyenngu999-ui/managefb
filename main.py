@@ -88,7 +88,7 @@ class FBManagerApp(ctk.CTk):
         # Version badge
         badge_frame = ctk.CTkFrame(
             title_frame,
-            fg_color=COLORS["success"] + "30",
+            fg_color="#0a3020",  # Dark green background
             corner_radius=4,
         )
         badge_frame.pack(anchor="w", pady=(2, 0))
