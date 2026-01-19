@@ -1,12 +1,13 @@
 """
-Profiles Tab - Modern Profile Management Interface
-Premium design with stats cards and smooth interactions
+Profiles Tab - Cyberpunk Profile Management Interface
+Neon design with glitch effects and smooth interactions
 """
 import customtkinter as ctk
 from typing import List, Dict
 import threading
-from config import COLORS, FONTS, SPACING, RADIUS, HEIGHTS
+from config import COLORS, FONTS, SPACING, RADIUS, HEIGHTS, TAB_COLORS
 from widgets import ModernCard, ModernButton, ModernEntry, ProfileCard, SearchBar, Badge, EmptyState
+from cyber_widgets import CyberTitle, CyberStatCard, CyberButton
 from api_service import api
 from db import get_profiles as db_get_profiles, sync_profiles, update_profile_local
 
@@ -91,95 +92,79 @@ class ProfilesTab(ctk.CTkFrame):
         super().destroy()
 
     def _create_ui(self):
-        """Create premium UI"""
+        """Create cyberpunk UI"""
         # ========== HEADER SECTION ==========
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=SPACING["2xl"], pady=(SPACING["2xl"], SPACING["lg"]))
+        header.pack(fill="x", padx=SPACING["2xl"], pady=(SPACING["xl"], SPACING["lg"]))
 
         # Title row
         title_row = ctk.CTkFrame(header, fg_color="transparent")
         title_row.pack(fill="x")
 
-        # Title
-        title_frame = ctk.CTkFrame(title_row, fg_color="transparent")
-        title_frame.pack(side="left")
+        # Cyberpunk Title with glitch effect
+        self.cyber_title = CyberTitle(
+            title_row,
+            title="PROFILES",
+            subtitle="Quan ly va dieu khien cac tai khoan Facebook",
+            tab_id="profiles"
+        )
+        self.cyber_title.pack(side="left")
 
-        ctk.CTkLabel(
-            title_frame,
-            text="Quan ly Profiles",
-            font=ctk.CTkFont(
-                family=FONTS["family"],
-                size=FONTS["size_2xl"],
-                weight="bold"
-            ),
-            text_color=COLORS["text_primary"]
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            title_frame,
-            text="Quan ly va dieu khien cac tai khoan Facebook",
-            font=ctk.CTkFont(size=FONTS["size_base"]),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w")
-
-        # Action buttons
+        # Action buttons with neon style
         actions = ctk.CTkFrame(title_row, fg_color="transparent")
         actions.pack(side="right")
 
-        ModernButton(
+        CyberButton(
             actions,
-            text="Tao Profile",
-            icon="",
+            text="TAO PROFILE",
             variant="success",
             command=self._show_create_dialog,
             width=130
         ).pack(side="left", padx=SPACING["xs"])
 
-        ModernButton(
+        CyberButton(
             actions,
-            text="Dong bo",
-            icon="",
+            text="DONG BO",
             variant="primary",
             command=self._sync_profiles,
             width=120
         ).pack(side="left", padx=SPACING["xs"])
 
-        ModernButton(
+        CyberButton(
             actions,
-            text="Lam moi",
-            icon="",
+            text="LAM MOI",
             variant="secondary",
             command=self._refresh_running_status,
             width=110
         ).pack(side="left", padx=SPACING["xs"])
 
-        # ========== STATS CARDS ==========
+        # ========== STATS CARDS - CYBERPUNK STYLE ==========
         stats_row = ctk.CTkFrame(self, fg_color="transparent")
         stats_row.pack(fill="x", padx=SPACING["2xl"], pady=(0, SPACING["lg"]))
 
         # Total profiles card
-        self.total_card = self._create_stat_card(
-            stats_row, "", "Tong so", "0", COLORS["info"]
+        self.total_card = CyberStatCard(
+            stats_row, "TONG SO", "0", "", "cyan"
         )
-        self.total_card.pack(side="left", padx=(0, SPACING["md"]))
+        self.total_card.pack(side="left", fill="x", expand=True, padx=(0, SPACING["md"]))
 
         # Running profiles card
-        self.running_card = self._create_stat_card(
-            stats_row, "", "Dang chay", "0", COLORS["success"]
+        self.running_card = CyberStatCard(
+            stats_row, "DANG CHAY", "0", "", "green"
         )
-        self.running_card.pack(side="left", padx=(0, SPACING["md"]))
+        self.running_card.pack(side="left", fill="x", expand=True, padx=(0, SPACING["md"]))
 
         # Selected profiles card
-        self.selected_card = self._create_stat_card(
-            stats_row, "", "Da chon", "0", COLORS["accent"]
+        self.selected_card = CyberStatCard(
+            stats_row, "DA CHON", "0", "", "magenta"
         )
-        self.selected_card.pack(side="left", padx=(0, SPACING["md"]))
+        self.selected_card.pack(side="left", fill="x", expand=True, padx=(0, SPACING["md"]))
 
         # Stopped profiles card
-        self.stopped_card = self._create_stat_card(
-            stats_row, "", "Da dung", "0", COLORS["text_tertiary"]
+        self.stopped_card = CyberStatCard(
+            stats_row, "DA DUNG", "0", "", "purple"
         )
-        self.stopped_card.pack(side="left")
+        self.stopped_card.pack(side="left", fill="x", expand=True)
 
         # ========== TOOLBAR ==========
         toolbar = ctk.CTkFrame(
@@ -253,34 +238,31 @@ class ProfilesTab(ctk.CTkFrame):
         )
         self.folder_menu.pack(side="left")
 
-        # Bulk actions
+        # Bulk actions - Cyberpunk style
         bulk_frame = ctk.CTkFrame(toolbar_inner, fg_color="transparent")
         bulk_frame.pack(side="right")
 
-        ModernButton(
+        CyberButton(
             bulk_frame,
-            text="Mo tat ca",
-            icon="",
+            text="MO TAT CA",
             variant="success",
             size="sm",
             command=self._open_selected,
             width=100
         ).pack(side="left", padx=2)
 
-        ModernButton(
+        CyberButton(
             bulk_frame,
-            text="Dong tat ca",
-            icon="",
+            text="DONG TAT CA",
             variant="danger",
             size="sm",
             command=self._close_selected,
-            width=105
+            width=110
         ).pack(side="left", padx=2)
 
-        ModernButton(
+        CyberButton(
             bulk_frame,
-            text="Xoa",
-            icon="",
+            text="XOA",
             variant="ghost",
             size="sm",
             command=self._delete_selected,
@@ -296,72 +278,24 @@ class ProfilesTab(ctk.CTkFrame):
         )
         self.scroll_frame.pack(fill="both", expand=True, padx=SPACING["2xl"], pady=(0, SPACING["xl"]))
 
-        # Loading state
+        # Loading state - Cyberpunk style
         self.loading_frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
         self.loading_frame.pack(fill="both", expand=True)
 
         ctk.CTkLabel(
             self.loading_frame,
-            text="",
-            font=ctk.CTkFont(size=32),
-            text_color=COLORS["accent"]
+            text="◢",
+            font=ctk.CTkFont(size=48),
+            text_color=COLORS["neon_cyan"]
         ).pack(pady=(SPACING["4xl"], SPACING["md"]))
 
         self.loading_label = ctk.CTkLabel(
             self.loading_frame,
-            text="Dang tai danh sach profiles...",
-            font=ctk.CTkFont(size=FONTS["size_md"]),
+            text="// LOADING PROFILES...",
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_md"]),
             text_color=COLORS["text_secondary"]
         )
         self.loading_label.pack()
-
-    def _create_stat_card(self, parent, icon: str, label: str, value: str, color: str):
-        """Create a statistics card"""
-        card = ctk.CTkFrame(
-            parent,
-            fg_color=COLORS["bg_card"],
-            corner_radius=RADIUS["lg"],
-            border_width=1,
-            border_color=COLORS["border"],
-            width=140,
-            height=80
-        )
-        card.pack_propagate(False)
-
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=SPACING["md"], pady=SPACING["md"])
-
-        # Icon and value row
-        top_row = ctk.CTkFrame(inner, fg_color="transparent")
-        top_row.pack(fill="x")
-
-        ctk.CTkLabel(
-            top_row,
-            text=icon,
-            font=ctk.CTkFont(size=FONTS["size_lg"]),
-            text_color=color
-        ).pack(side="left")
-
-        value_label = ctk.CTkLabel(
-            top_row,
-            text=value,
-            font=ctk.CTkFont(size=FONTS["size_2xl"], weight="bold"),
-            text_color=color
-        )
-        value_label.pack(side="right")
-
-        # Label
-        ctk.CTkLabel(
-            inner,
-            text=label,
-            font=ctk.CTkFont(size=FONTS["size_sm"]),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w")
-
-        # Store value label reference
-        card._value_label = value_label
-
-        return card
 
     def _load_profiles(self):
         """Load profiles from local database"""

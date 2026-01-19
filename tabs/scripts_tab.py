@@ -11,8 +11,9 @@ import os
 import random
 import re
 from datetime import datetime, timedelta
-from config import COLORS
+from config import COLORS, FONTS, SPACING, RADIUS, TAB_COLORS
 from widgets import ModernCard, ModernButton, ModernEntry, ModernTextbox
+from cyber_widgets import CyberTitle, CyberButton
 from db import (
     get_schedules, get_schedule, save_schedule, delete_schedule,
     update_schedule_stats, get_categories, get_groups, get_contents
@@ -46,26 +47,27 @@ class ScriptsTab(ctk.CTkFrame):
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.pack(fill="x", padx=20, pady=(20, 15))
 
-        ctk.CTkLabel(
+        self.cyber_title = CyberTitle(
             header_frame,
-            text="📅 Kịch bản Đăng bài",
-            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(side="left")
+            title="SCRIPTS",
+            subtitle="Kich ban dang bai tu dong theo lich",
+            tab_id="scripts"
+        )
+        self.cyber_title.pack(side="left")
 
         # Scheduler status
         self.scheduler_status = ctk.CTkLabel(
             header_frame,
-            text="⏸ Scheduler: Chưa chạy",
-            font=ctk.CTkFont(size=12),
+            text="⏸ Scheduler: Chua chay",
+            font=ctk.CTkFont(family=FONTS["main"], size=12),
             text_color=COLORS["text_secondary"]
         )
         self.scheduler_status.pack(side="right", padx=10)
 
-        ModernButton(
+        CyberButton(
             header_frame,
-            text="+ Tạo kịch bản",
-            icon="📝",
+            text="+ Tao kich ban",
+            icon="✎",
             variant="success",
             command=self._new_schedule,
             width=140

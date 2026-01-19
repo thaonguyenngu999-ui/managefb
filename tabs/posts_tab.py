@@ -9,8 +9,9 @@ import time
 import re
 import requests
 from datetime import datetime, date, timedelta
-from config import COLORS
+from config import COLORS, FONTS, SPACING, RADIUS, TAB_COLORS
 from widgets import ModernButton, ModernEntry
+from cyber_widgets import CyberTitle, CyberButton
 from db import get_post_history
 from api_service import api
 from automation.window_manager import acquire_window_slot, release_window_slot, get_window_bounds
@@ -43,17 +44,18 @@ class PostsTab(ctk.CTkFrame):
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.pack(fill="x", padx=20, pady=(20, 15))
 
-        ctk.CTkLabel(
+        self.cyber_title = CyberTitle(
             header_frame,
-            text="📰 Quản lý Bài đăng",
-            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(side="left")
+            title="POSTS",
+            subtitle="Quan ly bai dang va tang tuong tac",
+            tab_id="posts"
+        )
+        self.cyber_title.pack(side="left")
 
-        ModernButton(
+        CyberButton(
             header_frame,
-            text="Làm mới",
-            icon="🔄",
+            text="Lam moi",
+            icon="↻",
             variant="secondary",
             command=self._load_data,
             width=120

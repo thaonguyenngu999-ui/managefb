@@ -1,13 +1,14 @@
 """
-SonCuto FB - Professional Facebook Manager
-Modern UI inspired by GoLogin/Multilogin
+FB Manager Pro - Cyberpunk Edition
+Professional Facebook Manager with Neon Dark Theme
 """
 import customtkinter as ctk
 import sys
 import io
 from datetime import datetime
-from config import COLORS, WINDOW_WIDTH, WINDOW_HEIGHT, APP_NAME, APP_VERSION
+from config import COLORS, WINDOW_WIDTH, WINDOW_HEIGHT, APP_NAME, APP_VERSION, TAB_COLORS, FONTS, SPACING, RADIUS, HEIGHTS
 from widgets import StatusBar
+from cyber_widgets import CyberNavItem, CyberTerminal
 from tabs import ProfilesTab, ScriptsTab, PostsTab, ContentTab, GroupsTab, LoginTab, PagesTab, ReelsPageTab
 
 
@@ -31,7 +32,7 @@ class LogRedirector(io.StringIO):
 
 
 class FBManagerApp(ctk.CTk):
-    """SonCuto FB - Main Application"""
+    """FB Manager Pro - Cyberpunk Edition"""
 
     def __init__(self):
         super().__init__()
@@ -59,13 +60,13 @@ class FBManagerApp(ctk.CTk):
 
         # Show default
         self._show_tab("profiles")
-        self._add_log("[App] SonCuto FB started", "SUCCESS")
+        self._add_log("FB Manager Pro initialized", "success")
 
     def _create_sidebar(self):
-        """Modern icon-based sidebar"""
+        """Cyberpunk sidebar with neon accents"""
         self.sidebar = ctk.CTkFrame(
             self,
-            width=68,
+            width=SIDEBAR_WIDTH if 'SIDEBAR_WIDTH' in dir() else 240,
             corner_radius=0,
             fg_color=COLORS["bg_sidebar"]
         )
@@ -73,93 +74,115 @@ class FBManagerApp(ctk.CTk):
         self.sidebar.pack_propagate(False)
 
         # Logo at top
-        logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=60)
+        logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=80)
         logo_frame.pack(fill="x")
         logo_frame.pack_propagate(False)
 
-        # Brand icon - Gradient effect with 2 colors
-        logo_btn = ctk.CTkButton(
-            logo_frame,
-            text="S",
-            width=40,
-            height=40,
-            corner_radius=10,
-            fg_color=COLORS["primary"],
-            hover_color=COLORS["primary_hover"],
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=COLORS["bg_main"]
-        )
-        logo_btn.place(relx=0.5, rely=0.5, anchor="center")
+        # Cyberpunk brand logo
+        logo_container = ctk.CTkFrame(logo_frame, fg_color="transparent")
+        logo_container.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Navigation items - Icon only
+        # Glitch-style logo
+        ctk.CTkLabel(
+            logo_container,
+            text="◢",
+            font=ctk.CTkFont(size=32),
+            text_color=COLORS["neon_cyan"]
+        ).pack(side="left")
+
+        brand_frame = ctk.CTkFrame(logo_container, fg_color="transparent")
+        brand_frame.pack(side="left", padx=(8, 0))
+
+        ctk.CTkLabel(
+            brand_frame,
+            text="FB",
+            font=ctk.CTkFont(family=FONTS["family_display"], size=20, weight="bold"),
+            text_color=COLORS["neon_cyan"]
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            brand_frame,
+            text="MANAGER",
+            font=ctk.CTkFont(family=FONTS["family_display"], size=20, weight="bold"),
+            text_color=COLORS["neon_magenta"]
+        ).pack(side="left", padx=(4, 0))
+
+        # Divider
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=COLORS["border"]).pack(fill="x", padx=16)
+
+        # Navigation items
         nav_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        nav_frame.pack(fill="both", expand=True, pady=10)
+        nav_frame.pack(fill="both", expand=True, pady=16)
 
-        self.nav_buttons = {}
-        nav_items = [
-            ("profiles", "👤", "Profiles"),
-            ("login", "🔐", "Login"),
-            ("pages", "📄", "Pages"),
-            ("reels_page", "🎬", "Reels"),
-            ("content", "✏️", "Content"),
-            ("groups", "👥", "Groups"),
-            ("scripts", "📜", "Scripts"),
-            ("posts", "📊", "Posts"),
+        self.nav_items = {}
+        nav_config = [
+            ("profiles", "◢", "PROFILES"),
+            ("login", "◆", "LOGIN"),
+            ("pages", "◈", "PAGES"),
+            ("reels_page", "◇", "REELS"),
+            ("content", "◆", "CONTENT"),
+            ("groups", "◢", "GROUPS"),
+            ("scripts", "◇", "SCRIPTS"),
+            ("posts", "◈", "POSTS"),
         ]
 
-        for tab_id, icon, tooltip in nav_items:
-            btn = self._create_nav_icon(nav_frame, tab_id, icon, tooltip)
-            btn.pack(pady=2)
-            self.nav_buttons[tab_id] = btn
+        for tab_id, icon, text in nav_config:
+            nav_item = CyberNavItem(
+                nav_frame,
+                tab_id=tab_id,
+                icon=icon,
+                text=text,
+                command=self._show_tab
+            )
+            nav_item.pack(fill="x", pady=2, padx=8)
+            self.nav_items[tab_id] = nav_item
 
-        # Bottom section - Settings & Status
-        bottom_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=100)
-        bottom_frame.pack(side="bottom", fill="x", pady=10)
+        # Bottom section
+        bottom_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=120)
+        bottom_frame.pack(side="bottom", fill="x", pady=16)
         bottom_frame.pack_propagate(False)
 
-        # Settings icon
+        # Divider
+        ctk.CTkFrame(bottom_frame, height=1, fg_color=COLORS["border"]).pack(fill="x", padx=16, pady=(0, 16))
+
+        # Settings button
         settings_btn = ctk.CTkButton(
             bottom_frame,
-            text="⚙️",
-            width=44,
-            height=44,
-            corner_radius=8,
+            text="◆ SETTINGS",
+            height=HEIGHTS["nav_item"],
             fg_color="transparent",
-            hover_color=COLORS["bg_card"],
-            font=ctk.CTkFont(size=18),
+            hover_color=COLORS["bg_hover"],
+            corner_radius=RADIUS["md"],
+            font=ctk.CTkFont(family=FONTS["family_display"], size=FONTS["size_sm"], weight="bold"),
+            text_color=COLORS["text_secondary"],
+            anchor="w",
             command=self._open_settings
         )
-        settings_btn.pack(pady=4)
+        settings_btn.pack(fill="x", padx=12)
 
         # Connection indicator
+        conn_frame = ctk.CTkFrame(bottom_frame, fg_color="transparent")
+        conn_frame.pack(fill="x", padx=16, pady=(12, 0))
+
+        ctk.CTkLabel(
+            conn_frame,
+            text="HIDEMIUM",
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_muted"]
+        ).pack(side="left")
+
         self.connection_indicator = ctk.CTkLabel(
-            bottom_frame,
-            text="●",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["warning"]
+            conn_frame,
+            text="● CONNECTING",
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_xs"]),
+            text_color=COLORS["neon_yellow"]
         )
-        self.connection_indicator.pack(pady=4)
+        self.connection_indicator.pack(side="right")
 
         self.after(1000, self._check_hidemium_connection)
 
-    def _create_nav_icon(self, parent, tab_id: str, icon: str, tooltip: str):
-        """Create icon-only nav button with tooltip"""
-        btn = ctk.CTkButton(
-            parent,
-            text=icon,
-            width=44,
-            height=44,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color=COLORS["bg_card"],
-            font=ctk.CTkFont(size=18),
-            command=lambda: self._show_tab(tab_id)
-        )
-        # TODO: Add tooltip on hover
-        return btn
-
     def _create_content_area(self):
-        """Main content area with header"""
+        """Main content area with cyberpunk header"""
         self.content_area = ctk.CTkFrame(
             self,
             fg_color=COLORS["bg_main"],
@@ -170,38 +193,50 @@ class FBManagerApp(ctk.CTk):
         # Header bar
         self.header = ctk.CTkFrame(
             self.content_area,
-            height=56,
+            height=HEIGHTS["header"],
             fg_color=COLORS["bg_header"],
             corner_radius=0
         )
         self.header.pack(fill="x")
         self.header.pack_propagate(False)
 
-        # Header left - Page title
+        # Header left - Page title with accent
+        header_left = ctk.CTkFrame(self.header, fg_color="transparent")
+        header_left.pack(side="left", padx=24)
+
+        self.page_icon = ctk.CTkLabel(
+            header_left,
+            text="◢",
+            font=ctk.CTkFont(size=20),
+            text_color=TAB_COLORS["profiles"]
+        )
+        self.page_icon.pack(side="left")
+
         self.page_title = ctk.CTkLabel(
-            self.header,
-            text="👤  Profiles",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            header_left,
+            text="PROFILES",
+            font=ctk.CTkFont(family=FONTS["family_display"], size=FONTS["size_lg"], weight="bold"),
             text_color=COLORS["text_primary"]
         )
-        self.page_title.pack(side="left", padx=20)
+        self.page_title.pack(side="left", padx=(8, 0))
 
-        # Header right - Brand
-        brand_frame = ctk.CTkFrame(self.header, fg_color="transparent")
-        brand_frame.pack(side="right", padx=20)
+        # Header right - Version badge
+        header_right = ctk.CTkFrame(self.header, fg_color="transparent")
+        header_right.pack(side="right", padx=24)
+
+        version_badge = ctk.CTkFrame(
+            header_right,
+            fg_color=COLORS["bg_secondary"],
+            corner_radius=RADIUS["md"]
+        )
+        version_badge.pack()
 
         ctk.CTkLabel(
-            brand_frame,
-            text="SonCuto",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=COLORS["primary"]
-        ).pack(side="left")
-        ctk.CTkLabel(
-            brand_frame,
-            text="FB",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=COLORS["secondary"]
-        ).pack(side="left", padx=(2, 0))
+            version_badge,
+            text=f"v{APP_VERSION}",
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_xs"]),
+            text_color=COLORS["neon_cyan"]
+        ).pack(padx=12, pady=4)
 
         # Main frame for tabs
         self.main_frame = ctk.CTkFrame(
@@ -216,7 +251,7 @@ class FBManagerApp(ctk.CTk):
         self.status_bar.pack(side="bottom", fill="x")
 
     def _create_log_panel(self):
-        """Log panel on right side"""
+        """Log panel with cyberpunk terminal style"""
         self.log_panel = ctk.CTkFrame(
             self,
             width=360,
@@ -227,51 +262,51 @@ class FBManagerApp(ctk.CTk):
         self.log_panel.pack_propagate(False)
 
         # Header
-        header = ctk.CTkFrame(self.log_panel, fg_color=COLORS["bg_header"], height=56, corner_radius=0)
+        header = ctk.CTkFrame(self.log_panel, fg_color=COLORS["bg_header"], height=HEIGHTS["header"], corner_radius=0)
         header.pack(fill="x")
         header.pack_propagate(False)
 
+        header_content = ctk.CTkFrame(header, fg_color="transparent")
+        header_content.pack(fill="x", padx=16, pady=16)
+
         ctk.CTkLabel(
-            header,
-            text="📋 Logs",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            header_content,
+            text="◢",
+            font=ctk.CTkFont(size=16),
+            text_color=COLORS["neon_green"]
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            header_content,
+            text="SYSTEM LOG",
+            font=ctk.CTkFont(family=FONTS["family_display"], size=FONTS["size_sm"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(side="left", padx=16, pady=16)
+        ).pack(side="left", padx=(8, 0))
 
         ctk.CTkButton(
-            header,
-            text="Clear",
-            width=50,
+            header_content,
+            text="CLEAR",
+            width=60,
             height=28,
-            corner_radius=6,
-            fg_color=COLORS["secondary"],
-            hover_color=COLORS["secondary_hover"],
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["text_primary"],
+            corner_radius=RADIUS["md"],
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["neon_red"],
+            hover_color=COLORS["neon_red"],
+            font=ctk.CTkFont(family=FONTS["family_display"], size=FONTS["size_xs"], weight="bold"),
+            text_color=COLORS["neon_red"],
             command=self._clear_logs
-        ).pack(side="right", padx=16)
+        ).pack(side="right")
 
-        # Log content
+        # Log terminal
         log_container = ctk.CTkFrame(self.log_panel, fg_color="transparent")
         log_container.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self.log_text = ctk.CTkTextbox(
-            log_container,
-            fg_color=COLORS["bg_main"],
-            text_color=COLORS["text_primary"],
-            font=ctk.CTkFont(family="Consolas", size=11),
-            corner_radius=8,
-            wrap="word"
-        )
-        self.log_text.pack(fill="both", expand=True)
+        self.log_terminal = CyberTerminal(log_container)
+        self.log_terminal.pack(fill="both", expand=True)
 
-        # Log tags
-        self.log_text._textbox.tag_config("INFO", foreground=COLORS["info"])
-        self.log_text._textbox.tag_config("ERROR", foreground=COLORS["error"])
-        self.log_text._textbox.tag_config("WARNING", foreground=COLORS["warning"])
-        self.log_text._textbox.tag_config("SUCCESS", foreground=COLORS["success"])
-        self.log_text._textbox.tag_config("DEBUG", foreground=COLORS["text_muted"])
-        self.log_text._textbox.tag_config("TIMESTAMP", foreground=COLORS["text_muted"])
+        # Keep reference to textbox for compatibility
+        self.log_text = self.log_terminal.textbox
 
     def _create_tabs(self):
         """Initialize all tabs"""
@@ -286,39 +321,33 @@ class FBManagerApp(ctk.CTk):
         self.tabs["posts"] = PostsTab(self.main_frame, status_callback=self._update_status)
 
     def _show_tab(self, tab_id: str):
-        """Switch to selected tab"""
+        """Switch to selected tab with cyberpunk effects"""
         # Hide all
         for tab in self.tabs.values():
             tab.pack_forget()
 
-        # Update nav buttons
-        titles = {
-            "profiles": "👤  Profiles",
-            "login": "🔐  Login FB",
-            "pages": "📄  Pages",
-            "reels_page": "🎬  Reels",
-            "content": "✏️  Content",
-            "groups": "👥  Groups",
-            "scripts": "📜  Scripts",
-            "posts": "📊  Posts"
+        # Update nav items
+        for nav_id, nav_item in self.nav_items.items():
+            nav_item.set_active(nav_id == tab_id)
+
+        # Tab titles and icons
+        tab_info = {
+            "profiles": ("PROFILES", "◢"),
+            "login": ("LOGIN", "◆"),
+            "pages": ("PAGES", "◈"),
+            "reels_page": ("REELS", "◇"),
+            "content": ("CONTENT", "◆"),
+            "groups": ("GROUPS", "◢"),
+            "scripts": ("SCRIPTS", "◇"),
+            "posts": ("POSTS", "◈")
         }
 
-        for btn_id, btn in self.nav_buttons.items():
-            if btn_id == tab_id:
-                btn.configure(
-                    fg_color=COLORS["primary"],
-                    text_color=COLORS["bg_main"],
-                    hover_color=COLORS["primary_hover"]
-                )
-            else:
-                btn.configure(
-                    fg_color="transparent",
-                    text_color=COLORS["text_primary"],
-                    hover_color=COLORS["bg_card"]
-                )
+        title, icon = tab_info.get(tab_id, (tab_id.upper(), "◢"))
+        accent_color = TAB_COLORS.get(tab_id, COLORS["neon_cyan"])
 
-        # Update header title
-        self.page_title.configure(text=titles.get(tab_id, tab_id))
+        # Update header
+        self.page_icon.configure(text=icon, text_color=accent_color)
+        self.page_title.configure(text=title)
 
         # Show tab
         if tab_id in self.tabs:
@@ -337,31 +366,26 @@ class FBManagerApp(ctk.CTk):
 
     def _on_log_output(self, text):
         """Handle log output"""
-        level = "INFO"
-        if "ERROR" in text.upper():
-            level = "ERROR"
-        elif "WARNING" in text.upper() or "WARN" in text.upper():
-            level = "WARNING"
-        elif "SUCCESS" in text.upper() or "✓" in text or "[OK]" in text:
-            level = "SUCCESS"
-        elif "DEBUG" in text.upper():
-            level = "DEBUG"
+        level = "info"
+        text_upper = text.upper()
+        if "ERROR" in text_upper:
+            level = "error"
+        elif "WARNING" in text_upper or "WARN" in text_upper:
+            level = "warning"
+        elif "SUCCESS" in text_upper or "[OK]" in text:
+            level = "success"
         self.after(0, lambda: self._add_log(text.strip(), level))
 
-    def _add_log(self, text: str, level: str = "INFO"):
-        """Add log entry"""
-        if not hasattr(self, 'log_text') or not self.log_text:
-            return
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text._textbox.insert("end", f"[{timestamp}] ", "TIMESTAMP")
-        self.log_text._textbox.insert("end", f"{text}\n", level)
-        self.log_text._textbox.see("end")
+    def _add_log(self, text: str, level: str = "info"):
+        """Add log entry to terminal"""
+        if hasattr(self, 'log_terminal') and self.log_terminal:
+            self.log_terminal.add_line(text, level)
 
     def _clear_logs(self):
         """Clear log panel"""
-        if hasattr(self, 'log_text') and self.log_text:
-            self.log_text._textbox.delete("1.0", "end")
-            self._add_log("[App] Logs cleared", "INFO")
+        if hasattr(self, 'log_terminal') and self.log_terminal:
+            self.log_terminal.clear()
+            self._add_log("Log cleared", "info")
 
     def _update_status(self, text: str, status_type: str = "info"):
         """Update status bar"""
@@ -382,9 +406,15 @@ class FBManagerApp(ctk.CTk):
     def _set_connection_status(self, connected: bool):
         """Update connection indicator"""
         if connected:
-            self.connection_indicator.configure(text_color=COLORS["online"])
+            self.connection_indicator.configure(
+                text="● ONLINE",
+                text_color=COLORS["neon_green"]
+            )
         else:
-            self.connection_indicator.configure(text_color=COLORS["error"])
+            self.connection_indicator.configure(
+                text="● OFFLINE",
+                text_color=COLORS["neon_red"]
+            )
 
     def _open_settings(self):
         """Open settings dialog"""
@@ -393,11 +423,11 @@ class FBManagerApp(ctk.CTk):
 
 
 class SettingsDialog(ctk.CTkToplevel):
-    """Settings Dialog - Modern style"""
+    """Settings Dialog - Cyberpunk style"""
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("⚙️ Settings")
+        self.title("SETTINGS")
         self.geometry("500x400")
         self.configure(fg_color=COLORS["bg_main"])
         self.transient(parent)
@@ -405,45 +435,100 @@ class SettingsDialog(ctk.CTkToplevel):
 
     def _create_ui(self):
         # Header
-        header = ctk.CTkFrame(self, fg_color=COLORS["bg_header"], height=56, corner_radius=0)
+        header = ctk.CTkFrame(self, fg_color=COLORS["bg_header"], height=HEIGHTS["header"], corner_radius=0)
         header.pack(fill="x")
         header.pack_propagate(False)
 
+        header_content = ctk.CTkFrame(header, fg_color="transparent")
+        header_content.pack(fill="x", padx=20, pady=16)
+
         ctk.CTkLabel(
-            header,
-            text="⚙️  Settings",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            header_content,
+            text="◆",
+            font=ctk.CTkFont(size=20),
+            text_color=COLORS["neon_cyan"]
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            header_content,
+            text="SETTINGS",
+            font=ctk.CTkFont(family=FONTS["family_display"], size=FONTS["size_lg"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(side="left", padx=20, pady=16)
+        ).pack(side="left", padx=(8, 0))
 
         # Content
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.pack(fill="both", expand=True, padx=20, pady=20)
 
         # Hidemium section
-        section = ctk.CTkFrame(content, fg_color=COLORS["bg_card"], corner_radius=8)
+        section = ctk.CTkFrame(content, fg_color=COLORS["bg_card"], corner_radius=RADIUS["lg"])
         section.pack(fill="x", pady=(0, 12))
 
+        section_header = ctk.CTkFrame(section, fg_color="transparent")
+        section_header.pack(fill="x", padx=16, pady=(12, 8))
+
         ctk.CTkLabel(
-            section,
-            text="🌐 Hidemium API",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            section_header,
+            text="◢",
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS["neon_cyan"]
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            section_header,
+            text="HIDEMIUM API",
+            font=ctk.CTkFont(family=FONTS["family_display"], size=FONTS["size_sm"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=16, pady=(12, 8))
+        ).pack(side="left", padx=(8, 0))
 
         # API URL
         url_frame = ctk.CTkFrame(section, fg_color="transparent")
         url_frame.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(url_frame, text="URL:", width=60, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
-        self.api_url = ctk.CTkEntry(url_frame, fg_color=COLORS["bg_input"], border_color=COLORS["border"], height=32)
+
+        ctk.CTkLabel(
+            url_frame,
+            text="URL",
+            width=60,
+            anchor="w",
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_muted"]
+        ).pack(side="left")
+
+        self.api_url = ctk.CTkEntry(
+            url_frame,
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_sm"]),
+            height=36,
+            corner_radius=RADIUS["md"]
+        )
         self.api_url.pack(side="left", fill="x", expand=True)
         self.api_url.insert(0, "http://127.0.0.1:2222")
 
         # Token
         token_frame = ctk.CTkFrame(section, fg_color="transparent")
         token_frame.pack(fill="x", padx=16, pady=(4, 12))
-        ctk.CTkLabel(token_frame, text="Token:", width=60, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
-        self.api_token = ctk.CTkEntry(token_frame, fg_color=COLORS["bg_input"], border_color=COLORS["border"], show="*", height=32)
+
+        ctk.CTkLabel(
+            token_frame,
+            text="TOKEN",
+            width=60,
+            anchor="w",
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_xs"]),
+            text_color=COLORS["text_muted"]
+        ).pack(side="left")
+
+        self.api_token = ctk.CTkEntry(
+            token_frame,
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_sm"]),
+            show="*",
+            height=36,
+            corner_radius=RADIUS["md"]
+        )
         self.api_token.pack(side="left", fill="x", expand=True)
 
         # Buttons
@@ -452,25 +537,29 @@ class SettingsDialog(ctk.CTkToplevel):
 
         ctk.CTkButton(
             btn_frame,
-            text="Save",
+            text="SAVE",
             width=100,
-            height=36,
-            corner_radius=6,
-            fg_color=COLORS["primary"],
-            hover_color=COLORS["primary_hover"],
-            font=ctk.CTkFont(weight="bold"),
-            text_color=COLORS["bg_main"],
+            height=40,
+            corner_radius=RADIUS["md"],
+            fg_color=COLORS["neon_green"],
+            hover_color=COLORS["success_hover"],
+            font=ctk.CTkFont(family=FONTS["family_display"], size=FONTS["size_sm"], weight="bold"),
+            text_color=COLORS["bg_dark"],
             command=self._save_settings
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
             btn_frame,
-            text="Cancel",
+            text="CANCEL",
             width=80,
-            height=36,
-            corner_radius=6,
-            fg_color=COLORS["bg_card"],
-            hover_color=COLORS["bg_card_hover"],
+            height=40,
+            corner_radius=RADIUS["md"],
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["border"],
+            hover_color=COLORS["bg_hover"],
+            font=ctk.CTkFont(family=FONTS["family_display"], size=FONTS["size_sm"], weight="bold"),
+            text_color=COLORS["text_secondary"],
             command=self.destroy
         ).pack(side="left")
 

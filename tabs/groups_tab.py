@@ -11,8 +11,9 @@ import time
 import unicodedata
 from datetime import datetime, date
 from tkinter import filedialog
-from config import COLORS
+from config import COLORS, FONTS, SPACING, RADIUS, TAB_COLORS
 from widgets import ModernButton, ModernEntry
+from cyber_widgets import CyberTitle, CyberButton
 from db import (
     get_profiles, get_profile_by_uuid, get_groups, get_groups_for_profiles, save_group, delete_group,
     update_group_selection, get_selected_groups, sync_groups, clear_groups,
@@ -86,15 +87,27 @@ class GroupsTab(ctk.CTkFrame):
         header = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
         header.pack(fill="x", padx=15, pady=(15, 10))
 
+        # CyberTitle header
+        title_row = ctk.CTkFrame(header, fg_color="transparent")
+        title_row.pack(fill="x", padx=15, pady=(12, 5))
+
+        self.cyber_title = CyberTitle(
+            title_row,
+            title="GROUPS",
+            subtitle="Quet nhom, dang bai va day tin vao cac nhom Facebook",
+            tab_id="groups"
+        )
+        self.cyber_title.pack(side="left")
+
         # Row 1: Folder filter & Refresh
         header_row1 = ctk.CTkFrame(header, fg_color="transparent")
-        header_row1.pack(fill="x", padx=15, pady=(12, 5))
+        header_row1.pack(fill="x", padx=15, pady=(5, 5))
 
         ctk.CTkLabel(
             header_row1,
-            text="📁 Thư mục:",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_primary"]
+            text="Thu muc:",
+            font=ctk.CTkFont(family=FONTS["main"], size=12),
+            text_color=TAB_COLORS["groups"]
         ).pack(side="left")
 
         self.folder_var = ctk.StringVar(value="-- Tất cả --")
@@ -109,10 +122,10 @@ class GroupsTab(ctk.CTkFrame):
         )
         self.folder_menu.pack(side="left", padx=10)
 
-        ModernButton(
+        CyberButton(
             header_row1,
-            text="Làm mới",
-            icon="🔄",
+            text="Lam moi",
+            icon="↻",
             variant="secondary",
             command=self._load_profiles,
             width=100
