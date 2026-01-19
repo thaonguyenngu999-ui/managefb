@@ -65,7 +65,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ctk.CTkLabel(
             header_inner,
-            text="📱 Chọn Profile:",
+            text="Chon Profile:",
             font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(side="left")
@@ -89,8 +89,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ModernButton(
             header_inner,
-            text="Làm mới",
-            icon="🔄",
+            text="Lam moi",
             variant="secondary",
             command=self._load_profiles,
             width=100
@@ -139,8 +138,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ModernButton(
             action_bar,
-            text="Quét nhóm",
-            icon="🔍",
+            text="Quet nhom",
             variant="primary",
             command=self._scan_groups,
             width=130
@@ -148,8 +146,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ModernButton(
             action_bar,
-            text="Xóa tất cả",
-            icon="🗑️",
+            text="Xoa tat ca",
             variant="danger",
             command=self._clear_all_groups,
             width=110
@@ -515,8 +512,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ModernButton(
             post_btn_frame,
-            text="Đăng tường",
-            icon="📤",
+            text="Dang tuong",
             variant="success",
             command=self._start_posting,
             width=120
@@ -524,8 +520,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ModernButton(
             post_btn_frame,
-            text="Dừng",
-            icon="⏹️",
+            text="Dung",
             variant="danger",
             command=self._stop_posting,
             width=80
@@ -627,8 +622,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ModernButton(
             left_header,
-            text="Làm mới",
-            icon="🔄",
+            text="Lam moi",
             variant="secondary",
             command=self._load_today_posts,
             width=90
@@ -772,8 +766,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ModernButton(
             btn_row,
-            text="Bình luận",
-            icon="💬",
+            text="Binh luan",
             variant="success",
             command=self._start_commenting,
             width=120
@@ -781,8 +774,7 @@ class GroupsTab(ctk.CTkFrame):
 
         ModernButton(
             btn_row,
-            text="Dừng",
-            icon="⏹️",
+            text="Dung",
             variant="danger",
             command=self._stop_commenting,
             width=80

@@ -1,6 +1,5 @@
 """
-FB Manager Pro - Modern Facebook Account Manager
-Premium Dark UI with Glassmorphism Design
+FB Manager Pro - Clean UI
 """
 import customtkinter as ctk
 from config import (
@@ -8,48 +7,42 @@ from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, MIN_WIDTH, MIN_HEIGHT,
     APP_NAME, APP_VERSION, SIDEBAR_WIDTH
 )
-from widgets import StatusBar, ModernButton, ModernEntry, Badge
+from widgets import StatusBar, ModernButton, ModernEntry
 from tabs import ProfilesTab, ScriptsTab, PostsTab, ContentTab, GroupsTab
 
 
 class FBManagerApp(ctk.CTk):
-    """Main Application - Premium Facebook Manager"""
+    """Main Application"""
 
     def __init__(self):
         super().__init__()
 
-        # Window setup
         self.title(f"{APP_NAME} v{APP_VERSION}")
         self.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.minsize(MIN_WIDTH, MIN_HEIGHT)
 
-        # Center window on screen
+        # Center window
         self.update_idletasks()
         x = (self.winfo_screenwidth() - WINDOW_WIDTH) // 2
         y = (self.winfo_screenheight() - WINDOW_HEIGHT) // 2
         self.geometry(f"+{x}+{y}")
 
-        # Set theme
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        # Configure colors
         self.configure(fg_color=COLORS["bg_dark"])
 
-        # Initialize status_bar as None first
         self.status_bar = None
 
-        # Create UI
         self._create_sidebar()
         self._create_main_frame()
         self._create_status_bar()
         self._create_tabs()
 
-        # Show default tab
         self._show_tab("profiles")
 
     def _create_sidebar(self):
-        """Create premium sidebar navigation"""
+        """Create clean sidebar"""
         self.sidebar = ctk.CTkFrame(
             self,
             width=SIDEBAR_WIDTH,
@@ -60,81 +53,82 @@ class FBManagerApp(ctk.CTk):
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
-        # ========== LOGO SECTION ==========
+        # Logo Section
         logo_section = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        logo_section.pack(fill="x", padx=SPACING["xl"], pady=SPACING["2xl"])
+        logo_section.pack(fill="x", padx=SPACING["lg"], pady=SPACING["xl"])
 
-        # Logo container with gradient effect
-        logo_container = ctk.CTkFrame(
+        # Logo box
+        logo_box = ctk.CTkFrame(
             logo_section,
             fg_color=COLORS["accent"],
             corner_radius=RADIUS["lg"],
-            width=52,
-            height=52
+            width=44,
+            height=44
         )
-        logo_container.pack(side="left")
-        logo_container.pack_propagate(False)
+        logo_box.pack(side="left")
+        logo_box.pack_propagate(False)
 
-        # Logo icon
         ctk.CTkLabel(
-            logo_container,
-            text="",
-            font=ctk.CTkFont(size=24),
-            text_color=COLORS["text_primary"]
+            logo_box,
+            text="FB",
+            font=ctk.CTkFont(size=FONTS["size_lg"], weight="bold"),
+            text_color="#ffffff"
         ).place(relx=0.5, rely=0.5, anchor="center")
 
-        # Title section
-        title_section = ctk.CTkFrame(logo_section, fg_color="transparent")
-        title_section.pack(side="left", padx=SPACING["md"])
+        # Title
+        title_frame = ctk.CTkFrame(logo_section, fg_color="transparent")
+        title_frame.pack(side="left", padx=SPACING["md"])
 
         ctk.CTkLabel(
-            title_section,
+            title_frame,
             text="FB Manager",
-            font=ctk.CTkFont(
-                family=FONTS["family"],
-                size=FONTS["size_xl"],
-                weight="bold"
-            ),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_lg"], weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(anchor="w")
 
         ctk.CTkLabel(
-            title_section,
+            title_frame,
             text="Pro Edition",
-            font=ctk.CTkFont(size=FONTS["size_sm"]),
-            text_color=COLORS["accent_light"]
+            font=ctk.CTkFont(size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
         ).pack(anchor="w")
 
-        # ========== NAVIGATION SECTION ==========
-        nav_section = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        nav_section.pack(fill="x", padx=SPACING["md"], pady=SPACING["md"])
+        # Divider
+        ctk.CTkFrame(
+            self.sidebar,
+            fg_color=COLORS["border"],
+            height=1
+        ).pack(fill="x", padx=SPACING["lg"], pady=SPACING["sm"])
 
-        # Section label
+        # Navigation Section
+        nav_section = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        nav_section.pack(fill="x", padx=SPACING["sm"], pady=SPACING["sm"])
+
         ctk.CTkLabel(
             nav_section,
-            text="MENU CHINH",
+            text="MENU",
             font=ctk.CTkFont(size=FONTS["size_xs"], weight="bold"),
             text_color=COLORS["text_tertiary"]
         ).pack(anchor="w", padx=SPACING["sm"], pady=(0, SPACING["sm"]))
 
-        # Navigation items
+        # Navigation items - clean text only
         self.nav_buttons = {}
         nav_items = [
-            ("profiles", "", "Quan ly Profiles", "Quan ly tai khoan"),
-            ("content", "", "Soan tin", "Tao noi dung"),
-            ("groups", "", "Dang Nhom", "Dang vao nhom"),
-            ("scripts", "", "Kich ban", "Automation"),
-            ("posts", "", "Bai dang", "Theo doi bai"),
+            ("profiles", "Profiles"),
+            ("content", "Soan tin"),
+            ("groups", "Dang nhom"),
+            ("scripts", "Kich ban"),
+            ("posts", "Bai dang"),
         ]
 
-        for tab_id, icon, text, subtitle in nav_items:
-            btn = self._create_nav_item(tab_id, icon, text, subtitle)
-            btn.pack(fill="x", pady=2)
+        for tab_id, text in nav_items:
+            btn = self._create_nav_button(nav_section, tab_id, text)
+            btn.pack(fill="x", pady=1)
             self.nav_buttons[tab_id] = btn
 
-        # ========== BOTTOM SECTION ==========
+        # Bottom Section
         bottom_section = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        bottom_section.pack(side="bottom", fill="x", padx=SPACING["md"], pady=SPACING["xl"])
+        bottom_section.pack(side="bottom", fill="x", padx=SPACING["md"], pady=SPACING["lg"])
 
         # Divider
         ctk.CTkFrame(
@@ -144,9 +138,9 @@ class FBManagerApp(ctk.CTk):
         ).pack(fill="x", pady=SPACING["md"])
 
         # Settings button
-        settings_btn = ctk.CTkButton(
+        ctk.CTkButton(
             bottom_section,
-            text="  Cai dat",
+            text="Cai dat",
             fg_color="transparent",
             hover_color=COLORS["bg_card"],
             anchor="w",
@@ -155,10 +149,9 @@ class FBManagerApp(ctk.CTk):
             font=ctk.CTkFont(size=FONTS["size_base"]),
             text_color=COLORS["text_secondary"],
             command=self._open_settings
-        )
-        settings_btn.pack(fill="x", pady=2)
+        ).pack(fill="x", pady=2)
 
-        # Connection status card
+        # Connection status
         self.connection_card = ctk.CTkFrame(
             bottom_section,
             fg_color=COLORS["bg_card"],
@@ -166,100 +159,44 @@ class FBManagerApp(ctk.CTk):
             border_width=1,
             border_color=COLORS["border"]
         )
-        self.connection_card.pack(fill="x", pady=SPACING["md"])
+        self.connection_card.pack(fill="x", pady=SPACING["sm"])
 
-        connection_inner = ctk.CTkFrame(self.connection_card, fg_color="transparent")
-        connection_inner.pack(fill="x", padx=SPACING["md"], pady=SPACING["md"])
-
-        # Connection icon
-        self.connection_icon = ctk.CTkLabel(
-            connection_inner,
-            text="",
-            font=ctk.CTkFont(size=FONTS["size_lg"]),
-            text_color=COLORS["warning"]
-        )
-        self.connection_icon.pack(side="left")
-
-        # Connection text
-        conn_text_frame = ctk.CTkFrame(connection_inner, fg_color="transparent")
-        conn_text_frame.pack(side="left", padx=SPACING["sm"])
+        conn_inner = ctk.CTkFrame(self.connection_card, fg_color="transparent")
+        conn_inner.pack(fill="x", padx=SPACING["md"], pady=SPACING["md"])
 
         ctk.CTkLabel(
-            conn_text_frame,
+            conn_inner,
             text="Hidemium",
             font=ctk.CTkFont(size=FONTS["size_sm"], weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(anchor="w")
 
         self.connection_status = ctk.CTkLabel(
-            conn_text_frame,
+            conn_inner,
             text="Dang ket noi...",
             font=ctk.CTkFont(size=FONTS["size_xs"]),
             text_color=COLORS["warning"]
         )
         self.connection_status.pack(anchor="w")
 
-        # Check connection
         self.after(1000, self._check_hidemium_connection)
 
-    def _create_nav_item(self, tab_id: str, icon: str, text: str, subtitle: str):
-        """Create navigation item with icon and text"""
-        btn_frame = ctk.CTkFrame(
-            self.sidebar,
-            fg_color="transparent",
-            corner_radius=RADIUS["md"],
-            height=HEIGHTS["sidebar_item"]
-        )
-        btn_frame.pack_propagate(False)
-
-        # Main button
+    def _create_nav_button(self, parent, tab_id: str, text: str):
+        """Create navigation button"""
         btn = ctk.CTkButton(
-            btn_frame,
-            text="",
+            parent,
+            text=text,
             fg_color="transparent",
             hover_color=COLORS["bg_card"],
-            corner_radius=RADIUS["md"],
+            anchor="w",
             height=HEIGHTS["sidebar_item"],
+            corner_radius=RADIUS["md"],
+            font=ctk.CTkFont(size=FONTS["size_base"]),
+            text_color=COLORS["text_primary"],
             command=lambda: self._show_tab(tab_id)
         )
-        btn.pack(fill="both", expand=True)
-
-        # Content overlay
-        content = ctk.CTkFrame(btn_frame, fg_color="transparent")
-        content.place(relx=0, rely=0.5, anchor="w", x=SPACING["md"])
-        content.bind("<Button-1>", lambda e: self._show_tab(tab_id))
-
-        # Icon
-        icon_label = ctk.CTkLabel(
-            content,
-            text=icon,
-            font=ctk.CTkFont(size=FONTS["size_lg"]),
-            text_color=COLORS["text_secondary"]
-        )
-        icon_label.pack(side="left")
-        icon_label.bind("<Button-1>", lambda e: self._show_tab(tab_id))
-
-        # Text
-        text_frame = ctk.CTkFrame(content, fg_color="transparent")
-        text_frame.pack(side="left", padx=SPACING["md"])
-        text_frame.bind("<Button-1>", lambda e: self._show_tab(tab_id))
-
-        title_label = ctk.CTkLabel(
-            text_frame,
-            text=text,
-            font=ctk.CTkFont(size=FONTS["size_base"], weight="bold"),
-            text_color=COLORS["text_primary"]
-        )
-        title_label.pack(anchor="w")
-        title_label.bind("<Button-1>", lambda e: self._show_tab(tab_id))
-
-        # Store references for styling
-        btn_frame._icon = icon_label
-        btn_frame._title = title_label
-        btn_frame._tab_id = tab_id
-        btn_frame._btn = btn
-
-        return btn_frame
+        btn._tab_id = tab_id
+        return btn
 
     def _create_main_frame(self):
         """Create main content area"""
@@ -274,61 +211,53 @@ class FBManagerApp(ctk.CTk):
         """Create tab views"""
         self.tabs = {}
 
-        # Profiles tab
         self.tabs["profiles"] = ProfilesTab(
             self.main_frame,
             status_callback=self._update_status
         )
 
-        # Content tab
         self.tabs["content"] = ContentTab(
             self.main_frame,
             status_callback=self._update_status
         )
 
-        # Groups tab
         self.tabs["groups"] = GroupsTab(
             self.main_frame,
             status_callback=self._update_status
         )
 
-        # Scripts tab
         self.tabs["scripts"] = ScriptsTab(
             self.main_frame,
             status_callback=self._update_status
         )
 
-        # Posts tab
         self.tabs["posts"] = PostsTab(
             self.main_frame,
             status_callback=self._update_status
         )
 
     def _create_status_bar(self):
-        """Create bottom status bar"""
+        """Create status bar"""
         self.status_bar = StatusBar(self.main_frame)
         self.status_bar.pack(side="bottom", fill="x")
 
     def _show_tab(self, tab_id: str):
-        """Show selected tab and update navigation styling"""
-        # Hide all tabs
+        """Show selected tab"""
         for tab in self.tabs.values():
             tab.pack_forget()
 
-        # Update nav button styles
-        for btn_id, btn_frame in self.nav_buttons.items():
+        for btn_id, btn in self.nav_buttons.items():
             if btn_id == tab_id:
-                # Active state
-                btn_frame._btn.configure(fg_color=COLORS["bg_card"])
-                btn_frame._icon.configure(text_color=COLORS["accent"])
-                btn_frame._title.configure(text_color=COLORS["accent"])
+                btn.configure(
+                    fg_color=COLORS["accent"],
+                    text_color="#ffffff"
+                )
             else:
-                # Inactive state
-                btn_frame._btn.configure(fg_color="transparent")
-                btn_frame._icon.configure(text_color=COLORS["text_secondary"])
-                btn_frame._title.configure(text_color=COLORS["text_primary"])
+                btn.configure(
+                    fg_color="transparent",
+                    text_color=COLORS["text_primary"]
+                )
 
-        # Show selected tab
         if tab_id in self.tabs:
             self.tabs[tab_id].pack(fill="both", expand=True, before=self.status_bar)
 
@@ -338,7 +267,7 @@ class FBManagerApp(ctk.CTk):
             self.status_bar.set_status(text, status_type)
 
     def _check_hidemium_connection(self):
-        """Check Hidemium connection status"""
+        """Check Hidemium connection"""
         from api_service import api
         import threading
 
@@ -349,16 +278,14 @@ class FBManagerApp(ctk.CTk):
         threading.Thread(target=check, daemon=True).start()
 
     def _set_connection_status(self, connected: bool):
-        """Update connection status display"""
+        """Update connection status"""
         if connected:
-            self.connection_icon.configure(text_color=COLORS["success"])
             self.connection_status.configure(
                 text="Da ket noi",
                 text_color=COLORS["success"]
             )
             self.connection_card.configure(border_color=COLORS["success"])
         else:
-            self.connection_icon.configure(text_color=COLORS["error"])
             self.connection_status.configure(
                 text="Chua ket noi",
                 text_color=COLORS["error"]
@@ -372,20 +299,19 @@ class FBManagerApp(ctk.CTk):
 
 
 class SettingsDialog(ctk.CTkToplevel):
-    """Premium Settings Dialog"""
+    """Settings Dialog"""
 
     def __init__(self, parent):
         super().__init__(parent)
 
         self.title("Cai dat")
-        self.geometry("650x550")
+        self.geometry("600x500")
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
 
-        # Center on parent
         self.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() - 650) // 2
-        y = parent.winfo_y() + (parent.winfo_height() - 550) // 2
+        x = parent.winfo_x() + (parent.winfo_width() - 600) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - 500) // 2
         self.geometry(f"+{x}+{y}")
 
         self._create_ui()
@@ -397,12 +323,8 @@ class SettingsDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             header,
-            text="  Cai dat ung dung",
-            font=ctk.CTkFont(
-                family=FONTS["family"],
-                size=FONTS["size_2xl"],
-                weight="bold"
-            ),
+            text="Cai dat ung dung",
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_2xl"], weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(anchor="w")
 
@@ -413,11 +335,11 @@ class SettingsDialog(ctk.CTkToplevel):
             text_color=COLORS["text_secondary"]
         ).pack(anchor="w", pady=(SPACING["xs"], 0))
 
-        # Content scroll
+        # Content
         content = ctk.CTkScrollableFrame(self, fg_color="transparent")
         content.pack(fill="both", expand=True, padx=SPACING["2xl"])
 
-        # ========== HIDEMIUM SETTINGS ==========
+        # Hidemium Settings Card
         hidemium_card = ctk.CTkFrame(
             content,
             fg_color=COLORS["bg_card"],
@@ -430,23 +352,12 @@ class SettingsDialog(ctk.CTkToplevel):
         hidemium_inner = ctk.CTkFrame(hidemium_card, fg_color="transparent")
         hidemium_inner.pack(fill="x", padx=SPACING["lg"], pady=SPACING["lg"])
 
-        # Section header
-        section_header = ctk.CTkFrame(hidemium_inner, fg_color="transparent")
-        section_header.pack(fill="x", pady=(0, SPACING["md"]))
-
         ctk.CTkLabel(
-            section_header,
-            text="",
-            font=ctk.CTkFont(size=FONTS["size_xl"]),
-            text_color=COLORS["accent"]
-        ).pack(side="left")
-
-        ctk.CTkLabel(
-            section_header,
+            hidemium_inner,
             text="Cau hinh Hidemium",
             font=ctk.CTkFont(size=FONTS["size_lg"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(side="left", padx=SPACING["sm"])
+        ).pack(anchor="w", pady=(0, SPACING["md"]))
 
         # API URL
         url_row = ctk.CTkFrame(hidemium_inner, fg_color="transparent")
@@ -483,7 +394,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.api_token.configure(show="*")
         self.api_token.insert(0, "your_token_here")
 
-        # ========== UI SETTINGS ==========
+        # UI Settings Card
         ui_card = ctk.CTkFrame(
             content,
             fg_color=COLORS["bg_card"],
@@ -496,23 +407,12 @@ class SettingsDialog(ctk.CTkToplevel):
         ui_inner = ctk.CTkFrame(ui_card, fg_color="transparent")
         ui_inner.pack(fill="x", padx=SPACING["lg"], pady=SPACING["lg"])
 
-        # Section header
-        ui_header = ctk.CTkFrame(ui_inner, fg_color="transparent")
-        ui_header.pack(fill="x", pady=(0, SPACING["md"]))
-
         ctk.CTkLabel(
-            ui_header,
-            text="",
-            font=ctk.CTkFont(size=FONTS["size_xl"]),
-            text_color=COLORS["secondary"]
-        ).pack(side="left")
-
-        ctk.CTkLabel(
-            ui_header,
+            ui_inner,
             text="Giao dien",
             font=ctk.CTkFont(size=FONTS["size_lg"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(side="left", padx=SPACING["sm"])
+        ).pack(anchor="w", pady=(0, SPACING["md"]))
 
         # Theme
         theme_row = ctk.CTkFrame(ui_inner, fg_color="transparent")
@@ -538,7 +438,7 @@ class SettingsDialog(ctk.CTkToplevel):
         )
         self.theme_menu.pack(side="left")
 
-        # ========== ABOUT ==========
+        # About Card
         about_card = ctk.CTkFrame(
             content,
             fg_color=COLORS["bg_card"],
@@ -560,22 +460,21 @@ class SettingsDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             about_inner,
-            text="Premium Facebook Account Manager",
+            text="Facebook Account Manager",
             font=ctk.CTkFont(size=FONTS["size_base"]),
             text_color=COLORS["text_secondary"]
         ).pack(anchor="w")
 
-        # ========== BUTTONS ==========
+        # Buttons
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=SPACING["2xl"], pady=SPACING["xl"])
 
         ModernButton(
             btn_frame,
             text="Luu cai dat",
-            icon="",
             variant="success",
             command=self._save_settings,
-            width=140
+            width=120
         ).pack(side="left", padx=SPACING["xs"])
 
         ModernButton(

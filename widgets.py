@@ -1,104 +1,23 @@
 """
-Modern UI Widgets - Premium Design System for FB Manager Pro
-Glassmorphism, Gradient Accents, Smooth Interactions
+Clean UI Widgets - FB Manager Pro
+Simple, clean design without emoji icons
 """
 import customtkinter as ctk
-from typing import Callable, Optional, List, Dict
+from typing import Callable, Optional, Dict
 from config import COLORS, FONTS, SPACING, RADIUS, HEIGHTS
 
 
 # ============================================================
-# MODERN CARD - Glassmorphism Style
-# ============================================================
-class ModernCard(ctk.CTkFrame):
-    """Premium card with glassmorphism effect and optional gradient border"""
-
-    def __init__(
-        self,
-        master,
-        title: str = "",
-        subtitle: str = "",
-        icon: str = "",
-        gradient_border: bool = False,
-        **kwargs
-    ):
-        # Default styling
-        kwargs.setdefault("fg_color", COLORS["bg_card"])
-        kwargs.setdefault("corner_radius", RADIUS["lg"])
-        kwargs.setdefault("border_width", 1)
-        kwargs.setdefault("border_color", COLORS["border"])
-
-        super().__init__(master, **kwargs)
-
-        self._gradient_border = gradient_border
-        self._is_hovered = False
-
-        # Header with icon and title
-        if title or icon:
-            header = ctk.CTkFrame(self, fg_color="transparent")
-            header.pack(fill="x", padx=SPACING["lg"], pady=(SPACING["lg"], SPACING["sm"]))
-
-            if icon:
-                ctk.CTkLabel(
-                    header,
-                    text=icon,
-                    font=ctk.CTkFont(size=FONTS["size_xl"]),
-                    text_color=COLORS["accent"]
-                ).pack(side="left", padx=(0, SPACING["sm"]))
-
-            title_frame = ctk.CTkFrame(header, fg_color="transparent")
-            title_frame.pack(side="left", fill="x", expand=True)
-
-            if title:
-                ctk.CTkLabel(
-                    title_frame,
-                    text=title,
-                    font=ctk.CTkFont(
-                        family=FONTS["family"],
-                        size=FONTS["size_lg"],
-                        weight="bold"
-                    ),
-                    text_color=COLORS["text_primary"]
-                ).pack(anchor="w")
-
-            if subtitle:
-                ctk.CTkLabel(
-                    title_frame,
-                    text=subtitle,
-                    font=ctk.CTkFont(size=FONTS["size_sm"]),
-                    text_color=COLORS["text_secondary"]
-                ).pack(anchor="w")
-
-        # Hover effects
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
-
-    def _on_enter(self, event):
-        self._is_hovered = True
-        self.configure(
-            fg_color=COLORS["bg_card_hover"],
-            border_color=COLORS["border_hover"]
-        )
-
-    def _on_leave(self, event):
-        self._is_hovered = False
-        self.configure(
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"]
-        )
-
-
-# ============================================================
-# MODERN BUTTON - Multiple Variants
+# MODERN BUTTON - Clean Design
 # ============================================================
 class ModernButton(ctk.CTkButton):
-    """Premium button with multiple variants and smooth interactions"""
+    """Clean button with multiple variants"""
 
     VARIANTS = {
         "primary": {
             "fg": COLORS["accent"],
             "hover": COLORS["accent_hover"],
-            "text": COLORS["text_primary"]
+            "text": "#ffffff"
         },
         "secondary": {
             "fg": COLORS["bg_elevated"],
@@ -108,17 +27,17 @@ class ModernButton(ctk.CTkButton):
         "success": {
             "fg": COLORS["success"],
             "hover": COLORS["success_hover"],
-            "text": COLORS["text_primary"]
+            "text": "#ffffff"
         },
         "warning": {
             "fg": COLORS["warning"],
             "hover": COLORS["warning_hover"],
-            "text": COLORS["bg_dark"]
+            "text": "#000000"
         },
         "danger": {
             "fg": COLORS["error"],
             "hover": COLORS["error_hover"],
-            "text": COLORS["text_primary"]
+            "text": "#ffffff"
         },
         "ghost": {
             "fg": "transparent",
@@ -137,26 +56,22 @@ class ModernButton(ctk.CTkButton):
         master,
         text: str,
         variant: str = "primary",
-        icon: str = None,
-        size: str = "md",  # sm, md, lg
+        icon: str = None,  # Ignored - no icons
+        size: str = "md",
         **kwargs
     ):
         style = self.VARIANTS.get(variant, self.VARIANTS["primary"])
 
-        # Size presets
         sizes = {
-            "sm": {"height": HEIGHTS["button_sm"], "font_size": FONTS["size_sm"], "padding": SPACING["sm"]},
-            "md": {"height": HEIGHTS["button_md"], "font_size": FONTS["size_base"], "padding": SPACING["md"]},
-            "lg": {"height": HEIGHTS["button_lg"], "font_size": FONTS["size_md"], "padding": SPACING["lg"]}
+            "sm": {"height": HEIGHTS["button_sm"], "font_size": FONTS["size_sm"]},
+            "md": {"height": HEIGHTS["button_md"], "font_size": FONTS["size_base"]},
+            "lg": {"height": HEIGHTS["button_lg"], "font_size": FONTS["size_md"]}
         }
         size_config = sizes.get(size, sizes["md"])
 
-        # Build button text
-        display_text = f"{icon}  {text}" if icon else text
-
         super().__init__(
             master,
-            text=display_text,
+            text=text,
             fg_color=style["fg"],
             hover_color=style["hover"],
             text_color=style["text"],
@@ -174,18 +89,12 @@ class ModernButton(ctk.CTkButton):
 
 
 # ============================================================
-# MODERN INPUT - Clean Entry Field
+# MODERN INPUT
 # ============================================================
 class ModernEntry(ctk.CTkEntry):
-    """Premium text input with focus states"""
+    """Clean text input"""
 
-    def __init__(
-        self,
-        master,
-        placeholder: str = "",
-        icon: str = None,
-        **kwargs
-    ):
+    def __init__(self, master, placeholder: str = "", **kwargs):
         kwargs.setdefault("height", HEIGHTS["input"])
         kwargs.setdefault("corner_radius", RADIUS["md"])
 
@@ -201,22 +110,15 @@ class ModernEntry(ctk.CTkEntry):
             **kwargs
         )
 
-        # Focus effects
-        self.bind("<FocusIn>", self._on_focus)
-        self.bind("<FocusOut>", self._on_blur)
-
-    def _on_focus(self, event):
-        self.configure(border_color=COLORS["accent"])
-
-    def _on_blur(self, event):
-        self.configure(border_color=COLORS["border"])
+        self.bind("<FocusIn>", lambda e: self.configure(border_color=COLORS["accent"]))
+        self.bind("<FocusOut>", lambda e: self.configure(border_color=COLORS["border"]))
 
 
 # ============================================================
-# MODERN TEXTBOX - Multi-line Input
+# MODERN TEXTBOX
 # ============================================================
 class ModernTextbox(ctk.CTkTextbox):
-    """Premium multi-line text editor"""
+    """Clean multi-line text editor"""
 
     def __init__(self, master, **kwargs):
         kwargs.setdefault("corner_radius", RADIUS["md"])
@@ -227,7 +129,7 @@ class ModernTextbox(ctk.CTkTextbox):
             fg_color=COLORS["bg_secondary"],
             border_color=COLORS["border"],
             text_color=COLORS["text_primary"],
-            font=ctk.CTkFont(family="Consolas", size=FONTS["size_base"]),
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_base"]),
             **kwargs
         )
 
@@ -236,10 +138,10 @@ class ModernTextbox(ctk.CTkTextbox):
 
 
 # ============================================================
-# PROFILE CARD - Premium Profile Display
+# PROFILE CARD - Clean Design
 # ============================================================
 class ProfileCard(ctk.CTkFrame):
-    """Premium profile card with avatar, status, and actions"""
+    """Clean profile card"""
 
     def __init__(
         self,
@@ -268,140 +170,111 @@ class ProfileCard(ctk.CTkFrame):
         self.pack_propagate(False)
         self._create_widgets()
 
-        # Hover effects
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
 
     def _create_widgets(self):
-        # Main content frame
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.pack(fill="both", expand=True, padx=SPACING["md"], pady=SPACING["sm"])
 
-        # Left section: Checkbox + Avatar
+        # Left: Checkbox + Avatar
         left = ctk.CTkFrame(content, fg_color="transparent")
         left.pack(side="left", fill="y")
 
-        # Checkbox
         self.checkbox_var = ctk.BooleanVar(value=False)
         self.checkbox = ctk.CTkCheckBox(
             left,
             text="",
             variable=self.checkbox_var,
-            width=22,
-            checkbox_width=20,
-            checkbox_height=20,
+            width=20,
+            checkbox_width=18,
+            checkbox_height=18,
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             border_color=COLORS["border"],
+            corner_radius=RADIUS["xs"],
             command=self._on_checkbox_change
         )
         self.checkbox.pack(side="left", padx=(0, SPACING["sm"]))
 
-        # Avatar with gradient background
-        avatar_frame = ctk.CTkFrame(
+        # Avatar - simple circle with initial
+        avatar = ctk.CTkFrame(
             left,
-            width=48,
-            height=48,
-            corner_radius=RADIUS["lg"],
+            width=44,
+            height=44,
+            corner_radius=22,
             fg_color=COLORS["accent"]
         )
-        avatar_frame.pack(side="left")
-        avatar_frame.pack_propagate(False)
+        avatar.pack(side="left")
+        avatar.pack_propagate(False)
 
-        # Avatar icon
         name = self.profile_data.get('name', 'U')
         initial = name[0].upper() if name else 'U'
         ctk.CTkLabel(
-            avatar_frame,
+            avatar,
             text=initial,
-            font=ctk.CTkFont(size=FONTS["size_xl"], weight="bold"),
-            text_color=COLORS["text_primary"]
+            font=ctk.CTkFont(size=FONTS["size_lg"], weight="bold"),
+            text_color="#ffffff"
         ).place(relx=0.5, rely=0.5, anchor="center")
 
-        # Middle section: Info
+        # Middle: Info
         info = ctk.CTkFrame(content, fg_color="transparent")
         info.pack(side="left", fill="both", expand=True, padx=SPACING["md"])
 
         # Name
         name_display = self.profile_data.get('name', 'Unknown')
-        if len(name_display) > 28:
-            name_display = name_display[:28] + "..."
+        if len(name_display) > 30:
+            name_display = name_display[:30] + "..."
 
         self.name_label = ctk.CTkLabel(
             info,
             text=name_display,
-            font=ctk.CTkFont(
-                family=FONTS["family"],
-                size=FONTS["size_md"],
-                weight="bold"
-            ),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"],
             anchor="w"
         )
         self.name_label.pack(anchor="w")
 
         # UUID
-        uuid_display = self.profile_data.get('uuid', '')[:16] + "..."
+        uuid_display = self.profile_data.get('uuid', '')[:20] + "..."
         ctk.CTkLabel(
             info,
             text=uuid_display,
-            font=ctk.CTkFont(family="Consolas", size=FONTS["size_xs"]),
+            font=ctk.CTkFont(family=FONTS["family_mono"], size=FONTS["size_xs"]),
             text_color=COLORS["text_tertiary"],
             anchor="w"
         ).pack(anchor="w")
 
-        # Status row
-        status_row = ctk.CTkFrame(info, fg_color="transparent")
-        status_row.pack(anchor="w", pady=(SPACING["xs"], 0))
-
-        # Status badge
+        # Status
         status_color = COLORS["success"] if self.is_running else COLORS["text_tertiary"]
         status_text = "RUNNING" if self.is_running else "STOPPED"
 
         self.status_label = ctk.CTkLabel(
-            status_row,
-            text=f"  {status_text}",
+            info,
+            text=status_text,
             font=ctk.CTkFont(size=FONTS["size_xs"], weight="bold"),
             text_color=status_color
         )
-        self.status_label.pack(side="left")
+        self.status_label.pack(anchor="w", pady=(SPACING["xs"], 0))
 
-        # Folder badge
-        folder_name = self.profile_data.get('folder_name', '')
-        if folder_name:
-            folder_badge = ctk.CTkFrame(
-                status_row,
-                fg_color=COLORS["bg_elevated"],
-                corner_radius=RADIUS["sm"]
-            )
-            folder_badge.pack(side="left", padx=(SPACING["sm"], 0))
-            ctk.CTkLabel(
-                folder_badge,
-                text=f" {folder_name}",
-                font=ctk.CTkFont(size=FONTS["size_xs"]),
-                text_color=COLORS["text_secondary"]
-            ).pack(padx=SPACING["xs"], pady=2)
-
-        # Right section: Actions
+        # Right: Actions
         actions = ctk.CTkFrame(content, fg_color="transparent")
         actions.pack(side="right", fill="y")
 
-        # Toggle button (Open/Close)
+        # Toggle button
         if self.is_running:
             btn_text = "Dung"
             btn_color = COLORS["error"]
             btn_hover = COLORS["error_hover"]
-            btn_icon = ""
         else:
             btn_text = "Mo"
             btn_color = COLORS["success"]
             btn_hover = COLORS["success_hover"]
-            btn_icon = ""
 
         self.toggle_btn = ctk.CTkButton(
             actions,
-            text=f"{btn_icon} {btn_text}",
-            width=75,
+            text=btn_text,
+            width=70,
             height=HEIGHTS["button_sm"],
             fg_color=btn_color,
             hover_color=btn_hover,
@@ -414,13 +287,13 @@ class ProfileCard(ctk.CTkFrame):
         # Edit button
         self.edit_btn = ctk.CTkButton(
             actions,
-            text="",
-            width=36,
+            text="Edit",
+            width=50,
             height=HEIGHTS["button_sm"],
             fg_color=COLORS["bg_elevated"],
             hover_color=COLORS["border_hover"],
             corner_radius=RADIUS["md"],
-            font=ctk.CTkFont(size=FONTS["size_md"]),
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
             command=lambda: self.on_edit(self.profile_data) if self.on_edit else None
         )
         self.edit_btn.pack(side="left", padx=SPACING["xs"])
@@ -440,24 +313,18 @@ class ProfileCard(ctk.CTkFrame):
 
     def _on_enter(self, event):
         if not self.is_selected:
-            self.configure(
-                fg_color=COLORS["bg_card_hover"],
-                border_color=COLORS["border_hover"]
-            )
+            self.configure(fg_color=COLORS["bg_card_hover"])
 
     def _on_leave(self, event):
         if not self.is_selected:
-            self.configure(
-                fg_color=COLORS["bg_card"],
-                border_color=COLORS["border"]
-            )
+            self.configure(fg_color=COLORS["bg_card"])
 
 
 # ============================================================
-# POST CARD - Content Display
+# POST CARD
 # ============================================================
 class PostCard(ctk.CTkFrame):
-    """Premium post card with stats and actions"""
+    """Clean post card"""
 
     def __init__(
         self,
@@ -482,7 +349,6 @@ class PostCard(ctk.CTkFrame):
 
         self._create_widgets()
 
-        # Hover effects
         self.bind("<Enter>", lambda e: self.configure(fg_color=COLORS["bg_card_hover"]))
         self.bind("<Leave>", lambda e: self.configure(fg_color=COLORS["bg_card"]))
 
@@ -494,60 +360,39 @@ class PostCard(ctk.CTkFrame):
         url = self.post_data.get('url', '')
         url_display = url[:55] + "..." if len(url) > 55 else url
 
-        url_label = ctk.CTkLabel(
+        ctk.CTkLabel(
             content,
             text=url_display,
             font=ctk.CTkFont(size=FONTS["size_sm"]),
             text_color=COLORS["text_link"],
             cursor="hand2"
-        )
-        url_label.pack(anchor="w")
+        ).pack(anchor="w")
 
         # Title
-        title = self.post_data.get('title', 'Khong co tieu de')
+        title = self.post_data.get('title', 'No title')
         title_display = title[:70] + "..." if len(title) > 70 else title
 
         ctk.CTkLabel(
             content,
             text=title_display,
-            font=ctk.CTkFont(
-                family=FONTS["family"],
-                size=FONTS["size_md"],
-                weight="bold"
-            ),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(anchor="w", pady=(SPACING["xs"], 0))
 
-        # Bottom row: Stats + Actions
+        # Bottom: Stats + Actions
         bottom = ctk.CTkFrame(content, fg_color="transparent")
         bottom.pack(fill="x", pady=(SPACING["sm"], 0))
 
         # Stats
-        stats = ctk.CTkFrame(bottom, fg_color="transparent")
-        stats.pack(side="left")
-
         like_count = self.post_data.get('like_count', 0)
         comment_count = self.post_data.get('comment_count', 0)
 
-        # Like stat
-        like_frame = ctk.CTkFrame(stats, fg_color=COLORS["bg_elevated"], corner_radius=RADIUS["sm"])
-        like_frame.pack(side="left", padx=(0, SPACING["sm"]))
         ctk.CTkLabel(
-            like_frame,
-            text=f" {like_count}",
-            font=ctk.CTkFont(size=FONTS["size_sm"]),
-            text_color=COLORS["error"]
-        ).pack(padx=SPACING["sm"], pady=2)
-
-        # Comment stat
-        comment_frame = ctk.CTkFrame(stats, fg_color=COLORS["bg_elevated"], corner_radius=RADIUS["sm"])
-        comment_frame.pack(side="left")
-        ctk.CTkLabel(
-            comment_frame,
-            text=f" {comment_count}",
-            font=ctk.CTkFont(size=FONTS["size_sm"]),
-            text_color=COLORS["info"]
-        ).pack(padx=SPACING["sm"], pady=2)
+            bottom,
+            text=f"Likes: {like_count}  |  Comments: {comment_count}",
+            font=ctk.CTkFont(size=FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"]
+        ).pack(side="left")
 
         # Actions
         actions = ctk.CTkFrame(bottom, fg_color="transparent")
@@ -556,38 +401,36 @@ class PostCard(ctk.CTkFrame):
         ModernButton(
             actions,
             text="Like",
-            icon="",
             variant="danger",
             size="sm",
-            width=70,
+            width=60,
             command=lambda: self.on_like(self.post_data) if self.on_like else None
         ).pack(side="left", padx=2)
 
         ModernButton(
             actions,
             text="Comment",
-            icon="",
             variant="primary",
             size="sm",
-            width=90,
+            width=80,
             command=lambda: self.on_comment(self.post_data) if self.on_comment else None
         ).pack(side="left", padx=2)
 
         ModernButton(
             actions,
-            text="",
+            text="X",
             variant="ghost",
             size="sm",
-            width=36,
+            width=30,
             command=lambda: self.on_delete(self.post_data) if self.on_delete else None
         ).pack(side="left", padx=2)
 
 
 # ============================================================
-# SCRIPT CARD - Script Display
+# SCRIPT CARD
 # ============================================================
 class ScriptCard(ctk.CTkFrame):
-    """Premium script card with actions"""
+    """Clean script card"""
 
     def __init__(
         self,
@@ -612,7 +455,6 @@ class ScriptCard(ctk.CTkFrame):
 
         self._create_widgets()
 
-        # Hover
         self.bind("<Enter>", lambda e: self.configure(fg_color=COLORS["bg_card_hover"]))
         self.bind("<Leave>", lambda e: self.configure(fg_color=COLORS["bg_card"]))
 
@@ -620,62 +462,29 @@ class ScriptCard(ctk.CTkFrame):
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.pack(fill="x", padx=SPACING["lg"], pady=SPACING["md"])
 
-        # Header with icon
+        # Header
         header = ctk.CTkFrame(content, fg_color="transparent")
         header.pack(fill="x")
 
-        # Script icon
-        icon_frame = ctk.CTkFrame(
-            header,
-            width=40,
-            height=40,
-            corner_radius=RADIUS["md"],
-            fg_color=COLORS["accent"]
-        )
-        icon_frame.pack(side="left")
-        icon_frame.pack_propagate(False)
-        ctk.CTkLabel(
-            icon_frame,
-            text="",
-            font=ctk.CTkFont(size=18),
-            text_color=COLORS["text_primary"]
-        ).place(relx=0.5, rely=0.5, anchor="center")
-
-        # Name and description
-        info = ctk.CTkFrame(header, fg_color="transparent")
-        info.pack(side="left", fill="x", expand=True, padx=SPACING["md"])
-
+        # Name
         name = self.script_data.get('name', 'Untitled Script')
         ctk.CTkLabel(
-            info,
+            header,
             text=name,
-            font=ctk.CTkFont(
-                family=FONTS["family"],
-                size=FONTS["size_md"],
-                weight="bold"
-            ),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_md"], weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w")
+        ).pack(side="left")
 
+        # Description
         desc = self.script_data.get('description', '')
         if desc:
             desc_display = desc[:80] + "..." if len(desc) > 80 else desc
             ctk.CTkLabel(
-                info,
+                content,
                 text=desc_display,
                 font=ctk.CTkFont(size=FONTS["size_sm"]),
                 text_color=COLORS["text_secondary"]
-            ).pack(anchor="w")
-
-        # Updated time
-        updated = self.script_data.get('updated_at', '')
-        if updated:
-            ctk.CTkLabel(
-                content,
-                text=f" {updated[:16]}",
-                font=ctk.CTkFont(size=FONTS["size_xs"]),
-                text_color=COLORS["text_tertiary"]
-            ).pack(anchor="w", pady=(SPACING["sm"], 0))
+            ).pack(anchor="w", pady=(SPACING["xs"], 0))
 
         # Actions
         actions = ctk.CTkFrame(content, fg_color="transparent")
@@ -683,40 +492,37 @@ class ScriptCard(ctk.CTkFrame):
 
         ModernButton(
             actions,
-            text="Chay",
-            icon="",
+            text="Run",
             variant="success",
             size="sm",
-            width=85,
+            width=70,
             command=lambda: self.on_run(self.script_data) if self.on_run else None
         ).pack(side="left", padx=2)
 
         ModernButton(
             actions,
-            text="Sua",
-            icon="",
+            text="Edit",
             variant="secondary",
             size="sm",
-            width=75,
+            width=60,
             command=lambda: self.on_edit(self.script_data) if self.on_edit else None
         ).pack(side="left", padx=2)
 
         ModernButton(
             actions,
-            text="Xoa",
-            icon="",
+            text="Delete",
             variant="danger",
             size="sm",
-            width=75,
+            width=70,
             command=lambda: self.on_delete(self.script_data) if self.on_delete else None
         ).pack(side="left", padx=2)
 
 
 # ============================================================
-# STATUS BAR - Bottom Status
+# STATUS BAR
 # ============================================================
 class StatusBar(ctk.CTkFrame):
-    """Premium status bar with indicator and version"""
+    """Clean status bar"""
 
     def __init__(self, master, **kwargs):
         kwargs.setdefault("fg_color", COLORS["bg_secondary"])
@@ -729,7 +535,7 @@ class StatusBar(ctk.CTkFrame):
         # Left: Status
         self.status_label = ctk.CTkLabel(
             self,
-            text="  San sang",
+            text="Ready",
             font=ctk.CTkFont(size=FONTS["size_sm"]),
             text_color=COLORS["success"]
         )
@@ -737,48 +543,35 @@ class StatusBar(ctk.CTkFrame):
 
         # Right: Version
         from config import APP_VERSION
-        self.version_label = ctk.CTkLabel(
+        ctk.CTkLabel(
             self,
             text=f"FB Manager Pro v{APP_VERSION}",
             font=ctk.CTkFont(size=FONTS["size_sm"]),
             text_color=COLORS["text_tertiary"]
-        )
-        self.version_label.pack(side="right", padx=SPACING["lg"])
+        ).pack(side="right", padx=SPACING["lg"])
 
     def set_status(self, text: str, status_type: str = "info"):
-        """Update status with icon and color"""
-        icons = {
-            "success": "",
-            "error": "",
-            "warning": "",
-            "info": ""
-        }
+        """Update status"""
         colors = {
             "success": COLORS["success"],
             "error": COLORS["error"],
             "warning": COLORS["warning"],
             "info": COLORS["text_secondary"]
         }
-
-        icon = icons.get(status_type, "")
         color = colors.get(status_type, COLORS["text_secondary"])
-
-        self.status_label.configure(
-            text=f"{icon}  {text}",
-            text_color=color
-        )
+        self.status_label.configure(text=text, text_color=color)
 
 
 # ============================================================
-# SEARCH BAR - Search Input with Button
+# SEARCH BAR
 # ============================================================
 class SearchBar(ctk.CTkFrame):
-    """Premium search bar with icon"""
+    """Clean search bar"""
 
     def __init__(
         self,
         master,
-        placeholder: str = "Tim kiem...",
+        placeholder: str = "Search...",
         on_search: Callable = None,
         **kwargs
     ):
@@ -791,19 +584,9 @@ class SearchBar(ctk.CTkFrame):
 
         self.on_search = on_search
 
-        # Container
         container = ctk.CTkFrame(self, fg_color="transparent")
         container.pack(fill="x", padx=SPACING["sm"], pady=SPACING["xs"])
 
-        # Search icon
-        ctk.CTkLabel(
-            container,
-            text="",
-            font=ctk.CTkFont(size=FONTS["size_md"]),
-            text_color=COLORS["text_tertiary"]
-        ).pack(side="left", padx=(SPACING["xs"], SPACING["sm"]))
-
-        # Entry
         self.search_entry = ctk.CTkEntry(
             container,
             placeholder_text=placeholder,
@@ -812,25 +595,25 @@ class SearchBar(ctk.CTkFrame):
             text_color=COLORS["text_primary"],
             placeholder_text_color=COLORS["text_tertiary"],
             font=ctk.CTkFont(size=FONTS["size_base"]),
-            height=34
+            height=32,
+            width=200
         )
         self.search_entry.pack(side="left", fill="x", expand=True)
         self.search_entry.bind("<Return>", self._do_search)
 
-        # Search button
         self.search_btn = ctk.CTkButton(
             container,
-            text="",
-            width=36,
-            height=32,
+            text="Go",
+            width=40,
+            height=28,
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             corner_radius=RADIUS["md"],
+            font=ctk.CTkFont(size=FONTS["size_sm"]),
             command=self._do_search
         )
         self.search_btn.pack(side="right")
 
-        # Focus effects
         self.search_entry.bind("<FocusIn>", lambda e: self.configure(border_color=COLORS["accent"]))
         self.search_entry.bind("<FocusOut>", lambda e: self.configure(border_color=COLORS["border"]))
 
@@ -843,16 +626,16 @@ class SearchBar(ctk.CTkFrame):
 
 
 # ============================================================
-# BADGE - Small Label Tag
+# BADGE
 # ============================================================
 class Badge(ctk.CTkFrame):
-    """Small badge/tag for status indicators"""
+    """Small badge/tag"""
 
     def __init__(
         self,
         master,
         text: str,
-        variant: str = "default",  # default, success, warning, error, info
+        variant: str = "default",
         **kwargs
     ):
         colors = {
@@ -880,29 +663,16 @@ class Badge(ctk.CTkFrame):
 
 
 # ============================================================
-# DIVIDER - Horizontal Line
-# ============================================================
-class Divider(ctk.CTkFrame):
-    """Simple horizontal divider"""
-
-    def __init__(self, master, **kwargs):
-        kwargs.setdefault("fg_color", COLORS["border"])
-        kwargs.setdefault("height", 1)
-
-        super().__init__(master, **kwargs)
-
-
-# ============================================================
-# EMPTY STATE - Placeholder for Empty Lists
+# EMPTY STATE
 # ============================================================
 class EmptyState(ctk.CTkFrame):
-    """Empty state placeholder with icon and message"""
+    """Empty state placeholder"""
 
     def __init__(
         self,
         master,
-        icon: str = "",
-        title: str = "Khong co du lieu",
+        icon: str = "",  # Ignored
+        title: str = "No data",
         description: str = "",
         action_text: str = None,
         on_action: Callable = None,
@@ -912,25 +682,13 @@ class EmptyState(ctk.CTkFrame):
 
         super().__init__(master, **kwargs)
 
-        # Icon
-        ctk.CTkLabel(
-            self,
-            text=icon,
-            font=ctk.CTkFont(size=48),
-            text_color=COLORS["text_tertiary"]
-        ).pack(pady=(SPACING["2xl"], SPACING["md"]))
-
         # Title
         ctk.CTkLabel(
             self,
             text=title,
-            font=ctk.CTkFont(
-                family=FONTS["family"],
-                size=FONTS["size_lg"],
-                weight="bold"
-            ),
+            font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_lg"], weight="bold"),
             text_color=COLORS["text_secondary"]
-        ).pack()
+        ).pack(pady=(SPACING["2xl"], SPACING["sm"]))
 
         # Description
         if description:
@@ -939,7 +697,7 @@ class EmptyState(ctk.CTkFrame):
                 text=description,
                 font=ctk.CTkFont(size=FONTS["size_base"]),
                 text_color=COLORS["text_tertiary"]
-            ).pack(pady=(SPACING["xs"], 0))
+            ).pack()
 
         # Action button
         if action_text and on_action:
@@ -949,3 +707,52 @@ class EmptyState(ctk.CTkFrame):
                 variant="primary",
                 command=on_action
             ).pack(pady=SPACING["lg"])
+
+
+# ============================================================
+# MODERN CARD (for backwards compatibility)
+# ============================================================
+class ModernCard(ctk.CTkFrame):
+    """Simple card container"""
+
+    def __init__(self, master, title: str = "", subtitle: str = "", icon: str = "", **kwargs):
+        kwargs.setdefault("fg_color", COLORS["bg_card"])
+        kwargs.setdefault("corner_radius", RADIUS["lg"])
+        kwargs.setdefault("border_width", 1)
+        kwargs.setdefault("border_color", COLORS["border"])
+
+        super().__init__(master, **kwargs)
+
+        if title:
+            header = ctk.CTkFrame(self, fg_color="transparent")
+            header.pack(fill="x", padx=SPACING["lg"], pady=(SPACING["lg"], SPACING["sm"]))
+
+            ctk.CTkLabel(
+                header,
+                text=title,
+                font=ctk.CTkFont(family=FONTS["family"], size=FONTS["size_lg"], weight="bold"),
+                text_color=COLORS["text_primary"]
+            ).pack(anchor="w")
+
+            if subtitle:
+                ctk.CTkLabel(
+                    header,
+                    text=subtitle,
+                    font=ctk.CTkFont(size=FONTS["size_sm"]),
+                    text_color=COLORS["text_secondary"]
+                ).pack(anchor="w")
+
+        self.bind("<Enter>", lambda e: self.configure(fg_color=COLORS["bg_card_hover"]))
+        self.bind("<Leave>", lambda e: self.configure(fg_color=COLORS["bg_card"]))
+
+
+# ============================================================
+# DIVIDER
+# ============================================================
+class Divider(ctk.CTkFrame):
+    """Horizontal divider"""
+
+    def __init__(self, master, **kwargs):
+        kwargs.setdefault("fg_color", COLORS["border"])
+        kwargs.setdefault("height", 1)
+        super().__init__(master, **kwargs)
