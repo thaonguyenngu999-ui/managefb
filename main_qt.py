@@ -442,6 +442,9 @@ class FBManagerApp(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
+        # Create terminal first (needed for log callbacks)
+        self.terminal = Terminal()
+
         # Sidebar
         self._create_sidebar(main_layout)
 
@@ -677,8 +680,7 @@ class FBManagerApp(QMainWindow):
 
         layout.addWidget(header)
 
-        # Terminal
-        self.terminal = Terminal()
+        # Terminal (already created in _setup_ui)
         layout.addWidget(self.terminal, 1)
 
         layout.addSpacing(16)
