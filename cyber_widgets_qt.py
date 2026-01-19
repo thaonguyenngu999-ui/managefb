@@ -52,6 +52,16 @@ TAB_COLORS = {
 }
 
 
+def add_glow_effect(widget, color: str, blur_radius: int = 20):
+    """Thêm hiệu ứng glow neon cho widget"""
+    effect = QGraphicsDropShadowEffect()
+    effect.setBlurRadius(blur_radius)
+    effect.setColor(QColor(color))
+    effect.setOffset(0, 0)
+    widget.setGraphicsEffect(effect)
+    return effect
+
+
 # ========================================
 # GLITCH LABEL - Với cyan/magenta offset
 # ========================================
@@ -60,6 +70,7 @@ class CyberGlitchLabel(QWidget):
     Label với hiệu ứng glitch như HTML:
     - 3 layers: main, cyan offset, magenta offset
     - Glitch ngẫu nhiên mỗi vài giây
+    - Neon glow effect
     """
 
     def __init__(self, text: str, color: str = "#00f0ff", font_size: int = 42, parent=None):
@@ -96,11 +107,14 @@ class CyberGlitchLabel(QWidget):
         self.cyan_layer.move(3, 0)
         self.cyan_layer.adjustSize()
 
-        # Layer 3: Main (phía trước)
+        # Layer 3: Main (phía trước) - với glow effect
         self.main_layer = QLabel(self.text, self)
         self.main_layer.setStyleSheet(f"color: {self.color}; {font_style}")
         self.main_layer.move(0, 0)
         self.main_layer.adjustSize()
+
+        # Add glow to main layer
+        add_glow_effect(self.main_layer, self.color, 30)
 
         # Set widget size
         self.setMinimumWidth(self.main_layer.width() + 10)
@@ -109,38 +123,39 @@ class CyberGlitchLabel(QWidget):
     def _start_animation(self):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._animate)
-        self._timer.start(100)  # 100ms per frame
+        self._timer.start(80)  # 80ms per frame - faster glitch
 
     def _animate(self):
         import random
 
-        self._glitch_step = (self._glitch_step + 1) % 80  # 80 frames = 8 giây
+        self._glitch_step = (self._glitch_step + 1) % 50  # 50 frames = 4 giây cycle
 
         try:
-            # Glitch trong 3 frames đầu (frame 0, 1, 2)
-            if self._glitch_step < 3:
-                # Hiện các layer offset
-                offset = 3 if self._glitch_step % 2 == 0 else -3
+            # Glitch trong 5 frames (frame 0-4) - more visible
+            if self._glitch_step < 5:
+                # Hiện các layer offset với random positions
+                offset_x = random.randint(-5, 5)
+                offset_y = random.randint(-2, 2)
 
                 self.cyan_layer.setStyleSheet(f"""
-                    color: rgba(0, 240, 255, 0.8);
+                    color: rgba(0, 240, 255, 0.9);
                     font-family: 'Orbitron', 'Consolas', monospace;
                     font-size: {self.font_size}px;
                     font-weight: bold;
                     letter-spacing: 8px;
                     background: transparent;
                 """)
-                self.cyan_layer.move(offset + random.randint(-2, 2), random.randint(-1, 1))
+                self.cyan_layer.move(3 + offset_x, offset_y)
 
                 self.magenta_layer.setStyleSheet(f"""
-                    color: rgba(255, 0, 168, 0.8);
+                    color: rgba(255, 0, 168, 0.9);
                     font-family: 'Orbitron', 'Consolas', monospace;
                     font-size: {self.font_size}px;
                     font-weight: bold;
                     letter-spacing: 8px;
                     background: transparent;
                 """)
-                self.magenta_layer.move(-offset + random.randint(-2, 2), random.randint(-1, 1))
+                self.magenta_layer.move(-3 - offset_x, -offset_y)
 
             else:
                 # Ẩn các layer offset
@@ -167,15 +182,19 @@ class CyberGlitchLabel(QWidget):
 
 
 # ========================================
-# TRIANGLE WIDGET - Tam giác accent
+# TRIANGLE WIDGET - Tam giác accent với glow
 # ========================================
 class CyberTriangle(QWidget):
-    """Tam giác accent ◢"""
+    """Tam giác accent ◢ với neon glow"""
 
     def __init__(self, color: str = "#00f0ff", size: int = 50, parent=None):
         super().__init__(parent)
+        self.color_str = color
         self.color = QColor(color)
         self.setFixedSize(size, size)
+
+        # Add glow effect
+        add_glow_effect(self, color, 25)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -194,6 +213,8 @@ class CyberTriangle(QWidget):
 
     def set_color(self, color: str):
         self.color = QColor(color)
+        self.color_str = color
+        add_glow_effect(self, color, 25)
         self.update()
 
 
@@ -235,7 +256,7 @@ class CyberTitle(QWidget):
         title_row = QHBoxLayout()
         title_row.setSpacing(15)
 
-        # Triangle accent
+        # Triangle accent (đã có glow)
         self.triangle = CyberTriangle(self.accent_color, 50)
         title_row.addWidget(self.triangle)
 
@@ -243,22 +264,24 @@ class CyberTitle(QWidget):
         text_wrapper = QVBoxLayout()
         text_wrapper.setSpacing(8)
 
-        # Đường kẻ trên (animated)
+        # Đường kẻ trên (animated) - với glow
         self.top_line = QFrame()
-        self.top_line.setFixedHeight(2)
+        self.top_line.setFixedHeight(3)  # Thicker
         self.top_line.setFixedWidth(300)
-        self.top_line.setStyleSheet(f"background-color: {self.accent_color};")
+        self.top_line.setStyleSheet(f"background-color: {self.accent_color}; border-radius: 1px;")
+        add_glow_effect(self.top_line, self.accent_color, 15)
         text_wrapper.addWidget(self.top_line)
 
-        # Title với glitch
+        # Title với glitch (đã có glow)
         self.title_label = CyberGlitchLabel(title.upper(), self.accent_color, 42)
         text_wrapper.addWidget(self.title_label)
 
-        # Đường kẻ dưới (ngắn hơn, animated)
+        # Đường kẻ dưới (ngắn hơn, animated) - với glow
         self.bottom_line = QFrame()
-        self.bottom_line.setFixedHeight(2)
+        self.bottom_line.setFixedHeight(3)  # Thicker
         self.bottom_line.setFixedWidth(150)
-        self.bottom_line.setStyleSheet(f"background-color: {self.accent_color};")
+        self.bottom_line.setStyleSheet(f"background-color: {self.accent_color}; border-radius: 1px;")
+        add_glow_effect(self.bottom_line, self.accent_color, 15)
         text_wrapper.addWidget(self.bottom_line)
 
         title_row.addLayout(text_wrapper)
@@ -381,10 +404,11 @@ class CyberStatCard(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Accent bar trên cùng
+        # Accent bar trên cùng - với glow
         accent_bar = QFrame()
-        accent_bar.setFixedHeight(3)
+        accent_bar.setFixedHeight(4)  # Thicker
         accent_bar.setStyleSheet(f"background-color: {self.accent_color}; border-radius: 0;")
+        add_glow_effect(accent_bar, self.accent_color, 12)
         layout.addWidget(accent_bar)
 
         # Content
@@ -392,10 +416,11 @@ class CyberStatCard(QFrame):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(24, 20, 24, 20)
 
-        # Icon (if present)
+        # Icon (if present) - với glow
         if self.icon:
             icon_lbl = QLabel(self.icon)
             icon_lbl.setStyleSheet(f"font-size: 28px; color: {self.accent_color};")
+            add_glow_effect(icon_lbl, self.accent_color, 15)
             content_layout.addWidget(icon_lbl)
 
         # Label
@@ -408,7 +433,7 @@ class CyberStatCard(QFrame):
         """)
         content_layout.addWidget(lbl)
 
-        # Value (số lớn)
+        # Value (số lớn) - với glow
         self.value_label = QLabel(self.value_text)
         self.value_label.setStyleSheet(f"""
             color: {self.accent_color};
@@ -416,6 +441,7 @@ class CyberStatCard(QFrame):
             font-size: 42px;
             font-weight: bold;
         """)
+        add_glow_effect(self.value_label, self.accent_color, 20)
         content_layout.addWidget(self.value_label)
 
         # Change
@@ -440,12 +466,12 @@ class CyberStatCard(QFrame):
 
 
 # ========================================
-# CYBER BUTTON - Nút với viền neon
+# CYBER BUTTON - Nút với viền neon và glow
 # ========================================
 class CyberButton(QPushButton):
     """
     Button chuẩn Cyberpunk:
-    - Viền neon
+    - Viền neon với glow effect
     - Hover đổi màu nền
     """
 
@@ -456,21 +482,25 @@ class CyberButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         colors = {
-            "primary": ("#00f0ff", "transparent"),
-            "success": ("#00ff66", "transparent"),
-            "danger": ("#ff003c", "transparent"),
-            "ghost": ("#1a1a2e", "transparent"),
-            "secondary": ("#ff00a8", "transparent"),
+            "primary": ("#00f0ff", "rgba(0, 240, 255, 0.1)"),
+            "success": ("#00ff66", "#00ff66"),
+            "danger": ("#ff003c", "rgba(255, 0, 60, 0.1)"),
+            "ghost": ("#3f3f46", "transparent"),
+            "secondary": ("#ff00a8", "#ff00a8"),
         }
 
         border_color, bg_color = colors.get(variant, colors["primary"])
+        self.border_color = border_color
+
+        # Text color based on background
+        text_color = CYBER_COLORS['bg_dark'] if bg_color not in ["transparent", "rgba(0, 240, 255, 0.1)", "rgba(255, 0, 60, 0.1)"] else border_color
 
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg_color};
-                border: 1px solid {border_color};
+                border: 2px solid {border_color};
                 border-radius: 6px;
-                color: {border_color};
+                color: {text_color};
                 font-family: 'Orbitron', 'Consolas', monospace;
                 font-size: 11px;
                 font-weight: bold;
@@ -480,8 +510,12 @@ class CyberButton(QPushButton):
             QPushButton:hover {{
                 background-color: {border_color};
                 color: {CYBER_COLORS['bg_dark']};
+                border-width: 3px;
             }}
         """)
+
+        # Add glow effect
+        add_glow_effect(self, border_color, 15)
 
 
 # ========================================
