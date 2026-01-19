@@ -29,62 +29,140 @@ from tabs_qt.scripts_tab_qt import ScriptsTabQt
 from tabs_qt.posts_tab_qt import PostsTabQt
 
 
-class GlitchLabel(QLabel):
-    """Label with glitch effect animation"""
+class GlitchLabel(QWidget):
+    """Label with cyberpunk glitch effect - cyan/magenta offset layers"""
 
     def __init__(self, text, color="#00f0ff", parent=None):
-        super().__init__(text, parent)
+        super().__init__(parent)
         self.base_text = text
         self.base_color = color
-        self._glitch_offset = 0
         self._is_glitching = False
+        self._glitch_offset_x = 0
+        self._glitch_offset_y = 0
 
-        self.setStyleSheet(f"""
-            color: {color};
-            font-family: Consolas;
+        self._setup_ui()
+        self._start_glitch_timer()
+
+    def _setup_ui(self):
+        # Use stacked labels for glitch effect
+        self.setMinimumHeight(60)
+
+        # Main label (white/primary)
+        self.main_label = QLabel(self.base_text, self)
+        self.main_label.setStyleSheet(f"""
+            color: {self.base_color};
+            font-family: 'Orbitron', 'Black Ops One', Consolas;
             font-size: 42px;
             font-weight: bold;
             letter-spacing: 8px;
+            background: transparent;
         """)
+        self.main_label.move(0, 0)
 
-        # Glitch timer
+        # Cyan layer (offset)
+        self.cyan_label = QLabel(self.base_text, self)
+        self.cyan_label.setStyleSheet("""
+            color: rgba(0, 240, 255, 0);
+            font-family: 'Orbitron', 'Black Ops One', Consolas;
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            background: transparent;
+        """)
+        self.cyan_label.move(3, 0)
+
+        # Magenta layer (offset)
+        self.magenta_label = QLabel(self.base_text, self)
+        self.magenta_label.setStyleSheet("""
+            color: rgba(255, 0, 168, 0);
+            font-family: 'Orbitron', 'Black Ops One', Consolas;
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            background: transparent;
+        """)
+        self.magenta_label.move(-3, 0)
+
+        # Adjust size
+        self.main_label.adjustSize()
+        self.cyan_label.adjustSize()
+        self.magenta_label.adjustSize()
+        self.setMinimumWidth(self.main_label.width() + 10)
+
+    def _start_glitch_timer(self):
         self.glitch_timer = QTimer(self)
         self.glitch_timer.timeout.connect(self._check_glitch)
         self.glitch_timer.start(100)
 
     def _check_glitch(self):
         import random
-        if random.random() > 0.97 and not self._is_glitching:
+        if random.random() > 0.95 and not self._is_glitching:
             self._trigger_glitch()
 
     def _trigger_glitch(self):
+        import random
         self._is_glitching = True
-        # Quick color flash
-        self.setStyleSheet(f"""
-            color: #ff00a8;
-            font-family: Consolas;
+
+        # Show offset layers with random offsets
+        offset_x = random.randint(-5, 5)
+        offset_y = random.randint(-2, 2)
+
+        self.cyan_label.setStyleSheet("""
+            color: rgba(0, 240, 255, 0.8);
+            font-family: 'Orbitron', 'Black Ops One', Consolas;
             font-size: 42px;
             font-weight: bold;
             letter-spacing: 8px;
+            background: transparent;
         """)
-        QTimer.singleShot(50, lambda: self.setStyleSheet(f"""
-            color: #00f0ff;
-            font-family: Consolas;
+        self.cyan_label.move(offset_x + 3, offset_y)
+
+        self.magenta_label.setStyleSheet("""
+            color: rgba(255, 0, 168, 0.8);
+            font-family: 'Orbitron', 'Black Ops One', Consolas;
             font-size: 42px;
             font-weight: bold;
             letter-spacing: 8px;
-        """))
-        QTimer.singleShot(100, lambda: self.setStyleSheet(f"""
-            color: {self.base_color};
-            font-family: Consolas;
-            font-size: 42px;
-            font-weight: bold;
-            letter-spacing: 8px;
-        """))
+            background: transparent;
+        """)
+        self.magenta_label.move(-offset_x - 3, -offset_y)
+
+        # Schedule glitch steps
+        QTimer.singleShot(50, self._glitch_step2)
+        QTimer.singleShot(100, self._glitch_step3)
         QTimer.singleShot(150, self._end_glitch)
+
+    def _glitch_step2(self):
+        import random
+        self.cyan_label.move(random.randint(-3, 3), random.randint(-1, 1))
+        self.magenta_label.move(random.randint(-3, 3), random.randint(-1, 1))
+
+    def _glitch_step3(self):
+        import random
+        self.cyan_label.move(random.randint(-2, 2), 0)
+        self.magenta_label.move(random.randint(-2, 2), 0)
 
     def _end_glitch(self):
         self._is_glitching = False
+        # Hide offset layers
+        self.cyan_label.setStyleSheet("""
+            color: rgba(0, 240, 255, 0);
+            font-family: 'Orbitron', 'Black Ops One', Consolas;
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            background: transparent;
+        """)
+        self.magenta_label.setStyleSheet("""
+            color: rgba(255, 0, 168, 0);
+            font-family: 'Orbitron', 'Black Ops One', Consolas;
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            background: transparent;
+        """)
+        self.cyan_label.move(3, 0)
+        self.magenta_label.move(-3, 0)
 
 
 class TriangleWidget(QWidget):
