@@ -1,6 +1,6 @@
 """
-FB Manager Pro - Phần mềm quản lý tài khoản Facebook
-Tích hợp Hidemium Browser API
+SonCuto FB - Professional Facebook Manager
+Modern UI inspired by GoLogin/Multilogin
 """
 import customtkinter as ctk
 import sys
@@ -19,9 +19,8 @@ class LogRedirector(io.StringIO):
         self.original_stream = original_stream
 
     def write(self, text):
-        if text.strip():  # Chỉ log text có nội dung
+        if text.strip():
             self.callback(text)
-        # Vẫn ghi ra stream gốc
         if self.original_stream:
             self.original_stream.write(text)
             self.original_stream.flush()
@@ -32,233 +31,233 @@ class LogRedirector(io.StringIO):
 
 
 class FBManagerApp(ctk.CTk):
-    """Ứng dụng chính FB Manager Pro"""
-    
+    """SonCuto FB - Main Application"""
+
     def __init__(self):
         super().__init__()
 
-        # Window setup - tăng kích thước để có chỗ cho LOG panel
+        # Window setup
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry(f"{WINDOW_WIDTH + 400}x{WINDOW_HEIGHT}")  # +400 cho LOG panel
-        self.minsize(1600, 700)
+        self.geometry(f"{WINDOW_WIDTH + 380}x{WINDOW_HEIGHT}")
+        self.minsize(1500, 700)
 
-        # Set theme
+        # Theme
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
+        self.configure(fg_color=COLORS["bg_main"])
 
-        # Configure colors
-        self.configure(fg_color=COLORS["bg_dark"])
-
-        # Initialize status_bar as None first
+        # State
+        self.current_tab = "profiles"
         self.status_bar = None
 
-        # Create UI
+        # Build UI
         self._create_sidebar()
-        self._create_main_frame()  # Create main frame first
-        self._create_log_panel()   # Create LOG panel on the right
-        self._create_status_bar()  # Create status bar BEFORE tabs
-        self._create_tabs()  # Create tabs last
-
-        # Setup log redirector AFTER UI is created
+        self._create_content_area()
+        self._create_log_panel()
+        self._create_tabs()
         self._setup_log_redirector()
 
-        # Show default tab
+        # Show default
         self._show_tab("profiles")
+        self._add_log("[App] SonCuto FB started", "SUCCESS")
 
-        # Initial log message
-        self._add_log("[App] FB Manager Pro started", "INFO")
-    
     def _create_sidebar(self):
-        """Tạo sidebar navigation - SonCuto branded"""
+        """Modern icon-based sidebar"""
         self.sidebar = ctk.CTkFrame(
             self,
-            width=220,  # Compact hơn
+            width=68,
             corner_radius=0,
-            fg_color=COLORS["bg_secondary"]
+            fg_color=COLORS["bg_sidebar"]
         )
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
-        # === LOGO SECTION - SonCuto Brand ===
-        logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        logo_frame.pack(fill="x", padx=16, pady=(20, 12))
+        # Logo at top
+        logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=60)
+        logo_frame.pack(fill="x")
+        logo_frame.pack_propagate(False)
 
-        # Brand icon with gradient effect (using pink+green)
-        brand_icon = ctk.CTkLabel(
+        # Brand icon - Gradient effect with 2 colors
+        logo_btn = ctk.CTkButton(
             logo_frame,
-            text="◆",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color=COLORS["primary"]  # Green
+            text="S",
+            width=40,
+            height=40,
+            corner_radius=10,
+            fg_color=COLORS["primary"],
+            hover_color=COLORS["primary_hover"],
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color=COLORS["bg_main"]
         )
-        brand_icon.pack(side="left")
+        logo_btn.place(relx=0.5, rely=0.5, anchor="center")
 
-        title_frame = ctk.CTkFrame(logo_frame, fg_color="transparent")
-        title_frame.pack(side="left", padx=8)
-
-        # Brand name
-        ctk.CTkLabel(
-            title_frame,
-            text="SonCuto",
-            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(anchor="w")
-
-        # Tagline with gradient colors
-        tagline_frame = ctk.CTkFrame(title_frame, fg_color="transparent")
-        tagline_frame.pack(anchor="w")
-        ctk.CTkLabel(
-            tagline_frame,
-            text="FB",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color=COLORS["secondary"]  # Pink
-        ).pack(side="left")
-        ctk.CTkLabel(
-            tagline_frame,
-            text=" Manager",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color=COLORS["text_muted"]
-        ).pack(side="left")
-
-        # Divider với gradient effect
-        divider_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=3)
-        divider_frame.pack(fill="x", padx=16, pady=(8, 12))
-
-        # Gradient line (green -> pink)
-        gradient_line = ctk.CTkFrame(divider_frame, height=2, fg_color=COLORS["primary"])
-        gradient_line.place(relx=0, rely=0.5, relwidth=0.5, anchor="w")
-        gradient_line2 = ctk.CTkFrame(divider_frame, height=2, fg_color=COLORS["secondary"])
-        gradient_line2.place(relx=0.5, rely=0.5, relwidth=0.5, anchor="w")
-
-        # === NAVIGATION SECTION ===
-        nav_container = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        nav_container.pack(fill="both", expand=True, padx=10, pady=4)
+        # Navigation items - Icon only
+        nav_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        nav_frame.pack(fill="both", expand=True, pady=10)
 
         self.nav_buttons = {}
         nav_items = [
             ("profiles", "👤", "Profiles"),
-            ("login", "🔐", "Login FB"),
+            ("login", "🔐", "Login"),
             ("pages", "📄", "Pages"),
             ("reels_page", "🎬", "Reels"),
-            ("content", "✏️", "Soạn tin"),
-            ("groups", "👥", "Đăng Nhóm"),
-            ("scripts", "📜", "Kịch bản"),
-            ("posts", "📊", "Bài đăng"),
+            ("content", "✏️", "Content"),
+            ("groups", "👥", "Groups"),
+            ("scripts", "📜", "Scripts"),
+            ("posts", "📊", "Posts"),
         ]
 
-        for tab_id, icon, text in nav_items:
-            btn = self._create_nav_button(nav_container, tab_id, icon, text)
-            btn.pack(fill="x", pady=2)
+        for tab_id, icon, tooltip in nav_items:
+            btn = self._create_nav_icon(nav_frame, tab_id, icon, tooltip)
+            btn.pack(pady=2)
             self.nav_buttons[tab_id] = btn
 
-        # === BOTTOM SECTION ===
-        bottom_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        bottom_frame.pack(side="bottom", fill="x", padx=12, pady=12)
+        # Bottom section - Settings & Status
+        bottom_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=100)
+        bottom_frame.pack(side="bottom", fill="x", pady=10)
+        bottom_frame.pack_propagate(False)
 
-        # Settings - compact
+        # Settings icon
         settings_btn = ctk.CTkButton(
             bottom_frame,
-            text="⚙️  Cài đặt",
+            text="⚙️",
+            width=44,
+            height=44,
+            corner_radius=8,
             fg_color="transparent",
             hover_color=COLORS["bg_card"],
-            anchor="w",
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"],
+            font=ctk.CTkFont(size=18),
             command=self._open_settings
         )
-        settings_btn.pack(fill="x", pady=(0, 8))
+        settings_btn.pack(pady=4)
 
-        # Connection status - more compact
-        self.connection_frame = ctk.CTkFrame(
+        # Connection indicator
+        self.connection_indicator = ctk.CTkLabel(
             bottom_frame,
-            fg_color=COLORS["bg_card"],
-            corner_radius=8,
-            height=36
-        )
-        self.connection_frame.pack(fill="x")
-        self.connection_frame.pack_propagate(False)
-
-        self.connection_label = ctk.CTkLabel(
-            self.connection_frame,
-            text="● Đang kết nối...",
-            font=ctk.CTkFont(size=11),
+            text="●",
+            font=ctk.CTkFont(size=12),
             text_color=COLORS["warning"]
         )
-        self.connection_label.pack(side="left", padx=12, pady=8)
+        self.connection_indicator.pack(pady=4)
 
-        # Check connection
         self.after(1000, self._check_hidemium_connection)
-    
-    def _create_nav_button(self, parent, tab_id: str, icon: str, text: str):
-        """Tạo navigation button - compact & modern"""
+
+    def _create_nav_icon(self, parent, tab_id: str, icon: str, tooltip: str):
+        """Create icon-only nav button with tooltip"""
         btn = ctk.CTkButton(
             parent,
-            text=f" {icon}  {text}",
-            fg_color="transparent",
-            hover_color=COLORS["primary_light"],  # Green tint on hover
-            anchor="w",
-            height=40,  # Compact hơn
+            text=icon,
+            width=44,
+            height=44,
             corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            text_color=COLORS["text_secondary"],
+            fg_color="transparent",
+            hover_color=COLORS["bg_card"],
+            font=ctk.CTkFont(size=18),
             command=lambda: self._show_tab(tab_id)
         )
+        # TODO: Add tooltip on hover
         return btn
-    
-    def _create_main_frame(self):
-        """Tạo main content frame"""
-        self.main_frame = ctk.CTkFrame(
+
+    def _create_content_area(self):
+        """Main content area with header"""
+        self.content_area = ctk.CTkFrame(
             self,
-            fg_color=COLORS["bg_dark"],
+            fg_color=COLORS["bg_main"],
             corner_radius=0
         )
-        self.main_frame.pack(side="left", fill="both", expand=True)
+        self.content_area.pack(side="left", fill="both", expand=True)
+
+        # Header bar
+        self.header = ctk.CTkFrame(
+            self.content_area,
+            height=56,
+            fg_color=COLORS["bg_header"],
+            corner_radius=0
+        )
+        self.header.pack(fill="x")
+        self.header.pack_propagate(False)
+
+        # Header left - Page title
+        self.page_title = ctk.CTkLabel(
+            self.header,
+            text="👤  Profiles",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS["text_primary"]
+        )
+        self.page_title.pack(side="left", padx=20)
+
+        # Header right - Brand
+        brand_frame = ctk.CTkFrame(self.header, fg_color="transparent")
+        brand_frame.pack(side="right", padx=20)
+
+        ctk.CTkLabel(
+            brand_frame,
+            text="SonCuto",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["primary"]
+        ).pack(side="left")
+        ctk.CTkLabel(
+            brand_frame,
+            text="FB",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["secondary"]
+        ).pack(side="left", padx=(2, 0))
+
+        # Main frame for tabs
+        self.main_frame = ctk.CTkFrame(
+            self.content_area,
+            fg_color=COLORS["bg_main"],
+            corner_radius=0
+        )
+        self.main_frame.pack(fill="both", expand=True)
+
+        # Status bar
+        self.status_bar = StatusBar(self.content_area)
+        self.status_bar.pack(side="bottom", fill="x")
 
     def _create_log_panel(self):
-        """Tạo LOG panel bên phải - SonCuto themed"""
-        # Container cho LOG panel
+        """Log panel on right side"""
         self.log_panel = ctk.CTkFrame(
             self,
-            width=380,  # Slightly narrower
-            fg_color=COLORS["bg_secondary"],
+            width=360,
+            fg_color=COLORS["bg_sidebar"],
             corner_radius=0
         )
         self.log_panel.pack(side="right", fill="y")
         self.log_panel.pack_propagate(False)
 
-        # Header - compact with brand colors
-        header_frame = ctk.CTkFrame(self.log_panel, fg_color=COLORS["bg_card"], corner_radius=0, height=44)
-        header_frame.pack(fill="x")
-        header_frame.pack_propagate(False)
+        # Header
+        header = ctk.CTkFrame(self.log_panel, fg_color=COLORS["bg_header"], height=56, corner_radius=0)
+        header.pack(fill="x")
+        header.pack_propagate(False)
 
         ctk.CTkLabel(
-            header_frame,
+            header,
             text="📋 Logs",
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(side="left", padx=12, pady=10)
+        ).pack(side="left", padx=16, pady=16)
 
-        # Clear button with pink accent
         ctk.CTkButton(
-            header_frame,
+            header,
             text="Clear",
-            width=60,
-            height=26,
-            fg_color=COLORS["secondary"],  # Pink
-            hover_color=COLORS["secondary_hover"],
+            width=50,
+            height=28,
             corner_radius=6,
-            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color=COLORS["secondary"],
+            hover_color=COLORS["secondary_hover"],
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_primary"],
             command=self._clear_logs
-        ).pack(side="right", padx=10, pady=9)
+        ).pack(side="right", padx=16)
 
-        # Log text area - more compact padding
+        # Log content
         log_container = ctk.CTkFrame(self.log_panel, fg_color="transparent")
         log_container.pack(fill="both", expand=True, padx=8, pady=8)
 
         self.log_text = ctk.CTkTextbox(
             log_container,
-            fg_color=COLORS["bg_dark"],
+            fg_color=COLORS["bg_main"],
             text_color=COLORS["text_primary"],
             font=ctk.CTkFont(family="Consolas", size=11),
             corner_radius=8,
@@ -266,321 +265,218 @@ class FBManagerApp(ctk.CTk):
         )
         self.log_text.pack(fill="both", expand=True)
 
-        # Configure tags - SonCuto colors
-        self.log_text._textbox.tag_config("INFO", foreground="#3b82f6")  # Blue
-        self.log_text._textbox.tag_config("ERROR", foreground=COLORS["error"])  # Red
-        self.log_text._textbox.tag_config("WARNING", foreground=COLORS["warning"])  # Yellow
-        self.log_text._textbox.tag_config("SUCCESS", foreground=COLORS["primary"])  # Green
-        self.log_text._textbox.tag_config("DEBUG", foreground=COLORS["text_muted"])  # Muted
+        # Log tags
+        self.log_text._textbox.tag_config("INFO", foreground=COLORS["info"])
+        self.log_text._textbox.tag_config("ERROR", foreground=COLORS["error"])
+        self.log_text._textbox.tag_config("WARNING", foreground=COLORS["warning"])
+        self.log_text._textbox.tag_config("SUCCESS", foreground=COLORS["success"])
+        self.log_text._textbox.tag_config("DEBUG", foreground=COLORS["text_muted"])
         self.log_text._textbox.tag_config("TIMESTAMP", foreground=COLORS["text_muted"])
 
-    def _setup_log_redirector(self):
-        """Setup stdout/stderr redirector để capture logs"""
-        self._original_stdout = sys.stdout
-        self._original_stderr = sys.stderr
-
-        # Redirect stdout và stderr
-        sys.stdout = LogRedirector(self._on_log_output, self._original_stdout)
-        sys.stderr = LogRedirector(self._on_log_output, self._original_stderr)
-
-    def _on_log_output(self, text):
-        """Callback khi có log output"""
-        # Xác định log level từ text
-        level = "INFO"
-        if "ERROR" in text.upper():
-            level = "ERROR"
-        elif "WARNING" in text.upper() or "WARN" in text.upper():
-            level = "WARNING"
-        elif "SUCCESS" in text.upper() or "✓" in text:
-            level = "SUCCESS"
-        elif "DEBUG" in text.upper():
-            level = "DEBUG"
-
-        # Schedule UI update on main thread
-        self.after(0, lambda: self._add_log(text.strip(), level))
-
-    def _add_log(self, text: str, level: str = "INFO"):
-        """Thêm log vào panel"""
-        if not hasattr(self, 'log_text') or not self.log_text:
-            return
-
-        timestamp = datetime.now().strftime("%H:%M:%S")
-
-        # Insert timestamp
-        self.log_text._textbox.insert("end", f"[{timestamp}] ", "TIMESTAMP")
-
-        # Insert log message với màu tương ứng
-        self.log_text._textbox.insert("end", f"{text}\n", level)
-
-        # Auto scroll to bottom
-        self.log_text._textbox.see("end")
-
-    def _clear_logs(self):
-        """Clear tất cả logs"""
-        if hasattr(self, 'log_text') and self.log_text:
-            self.log_text._textbox.delete("1.0", "end")
-            self._add_log("[App] Logs cleared", "INFO")
-
     def _create_tabs(self):
-        """Tạo các tabs"""
-        # Tab containers
+        """Initialize all tabs"""
         self.tabs = {}
+        self.tabs["profiles"] = ProfilesTab(self.main_frame, status_callback=self._update_status)
+        self.tabs["login"] = LoginTab(self.main_frame, status_callback=self._update_status)
+        self.tabs["pages"] = PagesTab(self.main_frame, status_callback=self._update_status)
+        self.tabs["reels_page"] = ReelsPageTab(self.main_frame, status_callback=self._update_status)
+        self.tabs["content"] = ContentTab(self.main_frame, status_callback=self._update_status)
+        self.tabs["groups"] = GroupsTab(self.main_frame, status_callback=self._update_status)
+        self.tabs["scripts"] = ScriptsTab(self.main_frame, status_callback=self._update_status)
+        self.tabs["posts"] = PostsTab(self.main_frame, status_callback=self._update_status)
 
-        # Profiles tab
-        self.tabs["profiles"] = ProfilesTab(
-            self.main_frame,
-            status_callback=self._update_status
-        )
-
-        # Login FB tab
-        self.tabs["login"] = LoginTab(
-            self.main_frame,
-            status_callback=self._update_status
-        )
-
-        # Pages tab (Quản lý Page)
-        self.tabs["pages"] = PagesTab(
-            self.main_frame,
-            status_callback=self._update_status
-        )
-
-        # Reels Page tab (Đăng Reels Page)
-        self.tabs["reels_page"] = ReelsPageTab(
-            self.main_frame,
-            status_callback=self._update_status
-        )
-
-        # Content tab (Soạn tin)
-        self.tabs["content"] = ContentTab(
-            self.main_frame,
-            status_callback=self._update_status
-        )
-
-        # Groups tab (Đăng Nhóm)
-        self.tabs["groups"] = GroupsTab(
-            self.main_frame,
-            status_callback=self._update_status
-        )
-
-        # Scripts tab
-        self.tabs["scripts"] = ScriptsTab(
-            self.main_frame,
-            status_callback=self._update_status
-        )
-
-        # Posts tab
-        self.tabs["posts"] = PostsTab(
-            self.main_frame,
-            status_callback=self._update_status
-        )
-    
-    def _create_status_bar(self):
-        """Tạo status bar"""
-        self.status_bar = StatusBar(self.main_frame)
-        self.status_bar.pack(side="bottom", fill="x")
-    
     def _show_tab(self, tab_id: str):
-        """Hiển thị tab được chọn"""
-        # Hide all tabs
+        """Switch to selected tab"""
+        # Hide all
         for tab in self.tabs.values():
             tab.pack_forget()
 
-        # Update nav buttons - active = green bg with white text
+        # Update nav buttons
+        titles = {
+            "profiles": "👤  Profiles",
+            "login": "🔐  Login FB",
+            "pages": "📄  Pages",
+            "reels_page": "🎬  Reels",
+            "content": "✏️  Content",
+            "groups": "👥  Groups",
+            "scripts": "📜  Scripts",
+            "posts": "📊  Posts"
+        }
+
         for btn_id, btn in self.nav_buttons.items():
             if btn_id == tab_id:
                 btn.configure(
                     fg_color=COLORS["primary"],
-                    text_color=COLORS["bg_dark"],
+                    text_color=COLORS["bg_main"],
                     hover_color=COLORS["primary_hover"]
                 )
             else:
                 btn.configure(
                     fg_color="transparent",
-                    text_color=COLORS["text_secondary"],
-                    hover_color=COLORS["primary_light"]
+                    text_color=COLORS["text_primary"],
+                    hover_color=COLORS["bg_card"]
                 )
 
-        # Show selected tab
-        if tab_id in self.tabs:
-            self.tabs[tab_id].pack(fill="both", expand=True, before=self.status_bar)
+        # Update header title
+        self.page_title.configure(text=titles.get(tab_id, tab_id))
 
-            # Auto-refresh posts tab when shown (to show new posts from groups tab)
+        # Show tab
+        if tab_id in self.tabs:
+            self.tabs[tab_id].pack(fill="both", expand=True)
             if tab_id == "posts" and hasattr(self.tabs[tab_id], '_load_data'):
                 self.tabs[tab_id]._load_data()
-    
+
+        self.current_tab = tab_id
+
+    def _setup_log_redirector(self):
+        """Setup log capture"""
+        self._original_stdout = sys.stdout
+        self._original_stderr = sys.stderr
+        sys.stdout = LogRedirector(self._on_log_output, self._original_stdout)
+        sys.stderr = LogRedirector(self._on_log_output, self._original_stderr)
+
+    def _on_log_output(self, text):
+        """Handle log output"""
+        level = "INFO"
+        if "ERROR" in text.upper():
+            level = "ERROR"
+        elif "WARNING" in text.upper() or "WARN" in text.upper():
+            level = "WARNING"
+        elif "SUCCESS" in text.upper() or "✓" in text or "[OK]" in text:
+            level = "SUCCESS"
+        elif "DEBUG" in text.upper():
+            level = "DEBUG"
+        self.after(0, lambda: self._add_log(text.strip(), level))
+
+    def _add_log(self, text: str, level: str = "INFO"):
+        """Add log entry"""
+        if not hasattr(self, 'log_text') or not self.log_text:
+            return
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_text._textbox.insert("end", f"[{timestamp}] ", "TIMESTAMP")
+        self.log_text._textbox.insert("end", f"{text}\n", level)
+        self.log_text._textbox.see("end")
+
+    def _clear_logs(self):
+        """Clear log panel"""
+        if hasattr(self, 'log_text') and self.log_text:
+            self.log_text._textbox.delete("1.0", "end")
+            self._add_log("[App] Logs cleared", "INFO")
+
     def _update_status(self, text: str, status_type: str = "info"):
-        """Cập nhật status bar"""
+        """Update status bar"""
         if self.status_bar:
             self.status_bar.set_status(text, status_type)
-    
+
     def _check_hidemium_connection(self):
-        """Kiểm tra kết nối Hidemium"""
+        """Check Hidemium connection"""
         from api_service import api
         import threading
-        
+
         def check():
             connected = api.check_connection()
             self.after(0, lambda: self._set_connection_status(connected))
-        
+
         threading.Thread(target=check, daemon=True).start()
-    
-    def _set_connection_status(self, connected: bool, version: str = ""):
-        """Cập nhật trạng thái kết nối"""
+
+    def _set_connection_status(self, connected: bool):
+        """Update connection indicator"""
         if connected:
-            self.connection_label.configure(
-                text="● Đã kết nối",
-                text_color=COLORS["primary"]  # Green
-            )
+            self.connection_indicator.configure(text_color=COLORS["online"])
         else:
-            self.connection_label.configure(
-                text="● Chưa kết nối",
-                text_color=COLORS["error"]
-            )
-    
+            self.connection_indicator.configure(text_color=COLORS["error"])
+
     def _open_settings(self):
-        """Mở cửa sổ cài đặt"""
+        """Open settings dialog"""
         settings = SettingsDialog(self)
         settings.grab_set()
 
 
 class SettingsDialog(ctk.CTkToplevel):
-    """Dialog cài đặt"""
-    
+    """Settings Dialog - Modern style"""
+
     def __init__(self, parent):
         super().__init__(parent)
-        
-        self.title("⚙️ Cài đặt")
-        self.geometry("600x500")
-        self.configure(fg_color=COLORS["bg_dark"])
+        self.title("⚙️ Settings")
+        self.geometry("500x400")
+        self.configure(fg_color=COLORS["bg_main"])
         self.transient(parent)
-        
         self._create_ui()
-    
+
     def _create_ui(self):
         # Header
+        header = ctk.CTkFrame(self, fg_color=COLORS["bg_header"], height=56, corner_radius=0)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+
         ctk.CTkLabel(
-            self,
-            text="⚙️ Cài đặt ứng dụng",
-            font=ctk.CTkFont(size=22, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(pady=25)
-        
-        # Hidemium settings
-        hidemium_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=15)
-        hidemium_frame.pack(fill="x", padx=30, pady=10)
-        
-        ctk.CTkLabel(
-            hidemium_frame,
-            text="🌐 Cấu hình Hidemium",
+            header,
+            text="⚙️  Settings",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=20, pady=(15, 10))
-        
-        # API URL
-        url_frame = ctk.CTkFrame(hidemium_frame, fg_color="transparent")
-        url_frame.pack(fill="x", padx=20, pady=5)
-        
+        ).pack(side="left", padx=20, pady=16)
+
+        # Content
+        content = ctk.CTkFrame(self, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Hidemium section
+        section = ctk.CTkFrame(content, fg_color=COLORS["bg_card"], corner_radius=8)
+        section.pack(fill="x", pady=(0, 12))
+
         ctk.CTkLabel(
-            url_frame,
-            text="API URL:",
-            width=100,
-            anchor="w",
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-        
-        self.api_url = ctk.CTkEntry(
-            url_frame,
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
+            section,
+            text="🌐 Hidemium API",
+            font=ctk.CTkFont(size=13, weight="bold"),
             text_color=COLORS["text_primary"]
-        )
+        ).pack(anchor="w", padx=16, pady=(12, 8))
+
+        # API URL
+        url_frame = ctk.CTkFrame(section, fg_color="transparent")
+        url_frame.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(url_frame, text="URL:", width=60, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
+        self.api_url = ctk.CTkEntry(url_frame, fg_color=COLORS["bg_input"], border_color=COLORS["border"], height=32)
         self.api_url.pack(side="left", fill="x", expand=True)
         self.api_url.insert(0, "http://127.0.0.1:2222")
-        
+
         # Token
-        token_frame = ctk.CTkFrame(hidemium_frame, fg_color="transparent")
-        token_frame.pack(fill="x", padx=20, pady=5)
-        
-        ctk.CTkLabel(
-            token_frame,
-            text="API Token:",
-            width=100,
-            anchor="w",
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-        
-        self.api_token = ctk.CTkEntry(
-            token_frame,
-            fg_color=COLORS["bg_card"],
-            border_color=COLORS["border"],
-            text_color=COLORS["text_primary"],
-            show="*"
-        )
-        self.api_token.pack(side="left", fill="x", expand=True, pady=(0, 15))
-        self.api_token.insert(0, "your_token_here")
-        
-        # UI Settings
-        ui_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=15)
-        ui_frame.pack(fill="x", padx=30, pady=10)
-        
-        ctk.CTkLabel(
-            ui_frame,
-            text="🎨 Giao diện",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(anchor="w", padx=20, pady=(15, 10))
-        
-        # Theme
-        theme_frame = ctk.CTkFrame(ui_frame, fg_color="transparent")
-        theme_frame.pack(fill="x", padx=20, pady=(0, 15))
-        
-        ctk.CTkLabel(
-            theme_frame,
-            text="Theme:",
-            width=100,
-            anchor="w",
-            text_color=COLORS["text_secondary"]
-        ).pack(side="left")
-        
-        theme_menu = ctk.CTkOptionMenu(
-            theme_frame,
-            values=["Dark", "Light", "System"],
-            fg_color=COLORS["bg_card"],
-            button_color=COLORS["accent"],
-            width=200
-        )
-        theme_menu.pack(side="left")
-        
+        token_frame = ctk.CTkFrame(section, fg_color="transparent")
+        token_frame.pack(fill="x", padx=16, pady=(4, 12))
+        ctk.CTkLabel(token_frame, text="Token:", width=60, anchor="w", text_color=COLORS["text_secondary"]).pack(side="left")
+        self.api_token = ctk.CTkEntry(token_frame, fg_color=COLORS["bg_input"], border_color=COLORS["border"], show="*", height=32)
+        self.api_token.pack(side="left", fill="x", expand=True)
+
         # Buttons
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=30, pady=30)
-        
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=20)
+
         ctk.CTkButton(
             btn_frame,
-            text="💾 Lưu cài đặt",
-            fg_color=COLORS["success"],
-            hover_color="#00f5b5",
-            width=140,
-            height=40,
-            corner_radius=10,
-            command=self._save_settings
-        ).pack(side="left", padx=5)
-        
-        ctk.CTkButton(
-            btn_frame,
-            text="Đóng",
-            fg_color=COLORS["bg_card"],
-            hover_color=COLORS["border"],
+            text="Save",
             width=100,
-            height=40,
-            corner_radius=10,
+            height=36,
+            corner_radius=6,
+            fg_color=COLORS["primary"],
+            hover_color=COLORS["primary_hover"],
+            font=ctk.CTkFont(weight="bold"),
+            text_color=COLORS["bg_main"],
+            command=self._save_settings
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            width=80,
+            height=36,
+            corner_radius=6,
+            fg_color=COLORS["bg_card"],
+            hover_color=COLORS["bg_card_hover"],
             command=self.destroy
-        ).pack(side="left", padx=5)
-    
+        ).pack(side="left")
+
     def _save_settings(self):
-        """Lưu cài đặt"""
+        """Save settings"""
         from db import save_settings
-        
         settings = {
             'api_url': self.api_url.get(),
             'api_token': self.api_token.get()
