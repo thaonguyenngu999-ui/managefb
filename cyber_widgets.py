@@ -266,7 +266,10 @@ class CyberButton(ctk.CTkButton):
         btn.pack()
     """
 
-    def __init__(self, master, text: str, variant: str = "primary", size: str = "md", **kwargs):
+    def __init__(self, master, text: str, variant: str = "primary", size: str = "md", icon: str = None, **kwargs):
+        # Combine icon with text if provided
+        display_text = f"{icon} {text}" if icon and text else (icon or text)
+
         # Color configs
         variants = {
             "primary": {
@@ -313,7 +316,7 @@ class CyberButton(ctk.CTkButton):
 
         super().__init__(
             master,
-            text=text,
+            text=display_text,
             font=ctk.CTkFont(family=FONTS["family_display"], size=size_config["font_size"], weight="bold"),
             fg_color=config["fg_color"],
             border_color=config["border_color"],
