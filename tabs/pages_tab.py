@@ -9,8 +9,9 @@ import time
 import re
 import requests
 from datetime import datetime
-from config import COLORS
+from config import COLORS, FONTS, SPACING, RADIUS, TAB_COLORS
 from widgets import ModernButton, ModernEntry
+from cyber_widgets import CyberTitle, CyberButton, CyberStatCard
 from db import (
     get_profiles, get_pages, get_pages_for_profiles, save_page, delete_page, delete_pages_bulk,
     update_page_selection, sync_pages, clear_pages, get_pages_count
@@ -77,15 +78,15 @@ class PagesTab(ctk.CTkFrame):
 
         ctk.CTkLabel(
             left_header,
-            text="Chọn Profile",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=COLORS["text_primary"]
+            text="Chon Profile",
+            font=ctk.CTkFont(family=FONTS["family"], size=16, weight="bold"),
+            text_color=TAB_COLORS["pages"]
         ).pack(side="left")
 
-        ModernButton(
+        CyberButton(
             left_header,
             text="",
-            icon="🔄",
+            icon="↻",
             variant="secondary",
             command=self._load_profiles,
             width=35
@@ -157,43 +158,44 @@ class PagesTab(ctk.CTkFrame):
         right_panel = ctk.CTkFrame(main_container, fg_color=COLORS["bg_secondary"], corner_radius=12)
         right_panel.pack(side="right", fill="both", expand=True)
 
-        # Right header with action buttons
+        # Right header with CyberTitle
         right_header = ctk.CTkFrame(right_panel, fg_color="transparent")
         right_header.pack(fill="x", padx=15, pady=(15, 10))
 
-        ctk.CTkLabel(
+        self.cyber_title = CyberTitle(
             right_header,
-            text="Danh sách Page",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(side="left")
+            title="PAGES",
+            subtitle="Quan ly cac Fanpage Facebook",
+            tab_id="pages"
+        )
+        self.cyber_title.pack(side="left")
 
         # Action buttons
         btn_frame = ctk.CTkFrame(right_header, fg_color="transparent")
         btn_frame.pack(side="right")
 
-        ModernButton(
+        CyberButton(
             btn_frame,
-            text="Tạo Page",
-            icon="➕",
+            text="Tao Page",
+            icon="+",
             variant="success",
             command=self._show_create_page_dialog,
             width=100
         ).pack(side="left", padx=3)
 
-        ModernButton(
+        CyberButton(
             btn_frame,
             text="Scan Page",
-            icon="🔍",
+            icon="⌕",
             variant="primary",
             command=self._scan_pages,
             width=110
         ).pack(side="left", padx=3)
 
-        ModernButton(
+        CyberButton(
             btn_frame,
-            text="Xóa",
-            icon="🗑️",
+            text="Xoa",
+            icon="×",
             variant="danger",
             command=self._delete_selected_pages,
             width=80

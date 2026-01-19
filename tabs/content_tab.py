@@ -8,8 +8,9 @@ from typing import List, Dict, Optional
 import os
 import random
 from datetime import datetime
-from config import COLORS, FONTS, SPACING, RADIUS
+from config import COLORS, FONTS, SPACING, RADIUS, TAB_COLORS
 from widgets import ModernButton, ModernEntry, ModernTextbox, SearchBar, Badge, EmptyState
+from cyber_widgets import CyberTitle, CyberButton
 from db import (
     get_categories, save_category, delete_category,
     get_contents, get_content_by_id, save_content, delete_content
@@ -40,45 +41,35 @@ class ContentTab(ctk.CTkFrame):
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=SPACING["2xl"], pady=(SPACING["2xl"], SPACING["lg"]))
 
-        # Title
+        # CyberTitle
         title_frame = ctk.CTkFrame(header, fg_color="transparent")
         title_frame.pack(side="left")
 
-        ctk.CTkLabel(
+        self.cyber_title = CyberTitle(
             title_frame,
-            text="Quan ly Noi dung",
-            font=ctk.CTkFont(
-                family=FONTS["family"],
-                size=FONTS["size_2xl"],
-                weight="bold"
-            ),
-            text_color=COLORS["text_primary"]
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            title_frame,
-            text="Soan va quan ly noi dung dang bai",
-            font=ctk.CTkFont(size=FONTS["size_base"]),
-            text_color=COLORS["text_secondary"]
-        ).pack(anchor="w")
+            title="CONTENT",
+            subtitle="Soan va quan ly noi dung dang bai",
+            tab_id="content"
+        )
+        self.cyber_title.pack(anchor="w")
 
         # Action buttons
         actions = ctk.CTkFrame(header, fg_color="transparent")
         actions.pack(side="right")
 
-        ModernButton(
+        CyberButton(
             actions,
             text="Nap file",
-            icon="",
+            icon="↓",
             variant="secondary",
             command=self._import_contents,
             width=100
         ).pack(side="left", padx=SPACING["xs"])
 
-        ModernButton(
+        CyberButton(
             actions,
             text="Xuat file",
-            icon="",
+            icon="↑",
             variant="secondary",
             command=self._export_contents,
             width=100

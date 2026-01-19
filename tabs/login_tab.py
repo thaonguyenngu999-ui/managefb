@@ -1,5 +1,6 @@
 """
-Tab Login FB - Đăng nhập Facebook cho các profiles
+Tab Login FB - Cyberpunk Edition
+Dang nhap Facebook cho cac profiles
 """
 import customtkinter as ctk
 from typing import List, Dict, Optional
@@ -8,8 +9,9 @@ import time
 import os
 import queue
 from datetime import datetime
-from config import COLORS
+from config import COLORS, FONTS, SPACING, RADIUS, TAB_COLORS
 from widgets import ModernCard, ModernButton, ModernEntry
+from cyber_widgets import CyberTitle, CyberButton
 from api_service import api
 from automation.window_manager import get_window_manager, acquire_window_slot, release_window_slot, get_window_bounds
 
@@ -55,17 +57,22 @@ class LoginTab(ctk.CTkFrame):
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.pack(fill="x", padx=20, pady=(20, 15))
 
-        ctk.CTkLabel(
-            header_frame,
-            text="🔐 Đăng nhập Facebook",
-            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
-            text_color=COLORS["text_primary"]
-        ).pack(side="left")
+        # CyberTitle for header
+        title_container = ctk.CTkFrame(header_frame, fg_color="transparent")
+        title_container.pack(side="left", fill="x", expand=True)
 
-        ModernButton(
+        self.cyber_title = CyberTitle(
+            title_container,
+            title="LOGIN",
+            subtitle="Dang nhap Facebook cho cac profiles",
+            tab_id="login"
+        )
+        self.cyber_title.pack(side="left")
+
+        CyberButton(
             header_frame,
-            text="Làm mới",
-            icon="🔄",
+            text="Lam moi",
+            icon="↻",
             variant="secondary",
             command=self._load_folders,
             width=100

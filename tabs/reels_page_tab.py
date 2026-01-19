@@ -12,8 +12,9 @@ import random
 import json as json_module
 from datetime import datetime, timedelta
 from tkinter import filedialog
-from config import COLORS
+from config import COLORS, FONTS, SPACING, RADIUS, TAB_COLORS
 from widgets import ModernButton, ModernEntry
+from cyber_widgets import CyberTitle, CyberButton
 from db import (
     get_profiles, get_pages, get_pages_for_profiles,
     save_reel_schedule, get_reel_schedules, update_reel_schedule,
@@ -61,15 +62,27 @@ class ReelsPageTab(ctk.CTkFrame):
         header = ctk.CTkFrame(self, fg_color=COLORS["bg_secondary"], corner_radius=12)
         header.pack(fill="x", padx=15, pady=(15, 10))
 
+        # CyberTitle
+        title_row = ctk.CTkFrame(header, fg_color="transparent")
+        title_row.pack(fill="x", padx=15, pady=(12, 5))
+
+        self.cyber_title = CyberTitle(
+            title_row,
+            title="REELS",
+            subtitle="Dang va len lich Reels cho cac Facebook Pages",
+            tab_id="reels_page"
+        )
+        self.cyber_title.pack(side="left")
+
         # Row 1: Profile selector
         header_row1 = ctk.CTkFrame(header, fg_color="transparent")
-        header_row1.pack(fill="x", padx=15, pady=(12, 5))
+        header_row1.pack(fill="x", padx=15, pady=(5, 5))
 
         ctk.CTkLabel(
             header_row1,
-            text="👤 Profile:",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=COLORS["text_primary"]
+            text="Profile:",
+            font=ctk.CTkFont(family=FONTS["family"], size=13, weight="bold"),
+            text_color=TAB_COLORS["reels_page"]
         ).pack(side="left")
 
         self.profile_var = ctk.StringVar(value="-- Chọn profile --")
@@ -84,10 +97,10 @@ class ReelsPageTab(ctk.CTkFrame):
         )
         self.profile_menu.pack(side="left", padx=10)
 
-        ModernButton(
+        CyberButton(
             header_row1,
-            text="Làm mới",
-            icon="🔄",
+            text="Lam moi",
+            icon="↻",
             variant="secondary",
             command=self._load_profiles,
             width=100
