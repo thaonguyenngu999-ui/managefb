@@ -598,6 +598,11 @@ class CyberTerminal(ctk.CTkFrame):
         self.text_widget._textbox.delete("1.0", "end")
         self.text_widget.configure(state="disabled")
 
+    @property
+    def textbox(self):
+        """Return internal textbox for compatibility"""
+        return self.text_widget._textbox
+
 
 class CyberNavItem(ctk.CTkFrame):
     """
