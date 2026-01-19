@@ -69,109 +69,139 @@ class FBManagerApp(ctk.CTk):
         self._add_log("[App] FB Manager Pro started", "INFO")
     
     def _create_sidebar(self):
-        """Tạo sidebar navigation"""
+        """Tạo sidebar navigation - SonCuto branded"""
         self.sidebar = ctk.CTkFrame(
             self,
-            width=250,
+            width=220,  # Compact hơn
             corner_radius=0,
             fg_color=COLORS["bg_secondary"]
         )
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
-        
-        # Logo/Title
+
+        # === LOGO SECTION - SonCuto Brand ===
         logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        logo_frame.pack(fill="x", padx=20, pady=25)
-        
-        ctk.CTkLabel(
+        logo_frame.pack(fill="x", padx=16, pady=(20, 12))
+
+        # Brand icon with gradient effect (using pink+green)
+        brand_icon = ctk.CTkLabel(
             logo_frame,
-            text="🔥",
-            font=ctk.CTkFont(size=40)
-        ).pack(side="left")
-        
+            text="◆",
+            font=ctk.CTkFont(size=28, weight="bold"),
+            text_color=COLORS["primary"]  # Green
+        )
+        brand_icon.pack(side="left")
+
         title_frame = ctk.CTkFrame(logo_frame, fg_color="transparent")
-        title_frame.pack(side="left", padx=10)
-        
+        title_frame.pack(side="left", padx=8)
+
+        # Brand name
         ctk.CTkLabel(
             title_frame,
-            text="FB Manager",
-            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            text="SonCuto",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=COLORS["text_primary"]
         ).pack(anchor="w")
-        
+
+        # Tagline with gradient colors
+        tagline_frame = ctk.CTkFrame(title_frame, fg_color="transparent")
+        tagline_frame.pack(anchor="w")
         ctk.CTkLabel(
-            title_frame,
-            text="Pro Edition",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color=COLORS["accent"]
-        ).pack(anchor="w")
-        
-        # Separator
-        separator = ctk.CTkFrame(self.sidebar, height=2, fg_color=COLORS["border"])
-        separator.pack(fill="x", padx=20, pady=10)
-        
-        # Navigation buttons
+            tagline_frame,
+            text="FB",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=COLORS["secondary"]  # Pink
+        ).pack(side="left")
+        ctk.CTkLabel(
+            tagline_frame,
+            text=" Manager",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLORS["text_muted"]
+        ).pack(side="left")
+
+        # Divider với gradient effect
+        divider_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent", height=3)
+        divider_frame.pack(fill="x", padx=16, pady=(8, 12))
+
+        # Gradient line (green -> pink)
+        gradient_line = ctk.CTkFrame(divider_frame, height=2, fg_color=COLORS["primary"])
+        gradient_line.place(relx=0, rely=0.5, relwidth=0.5, anchor="w")
+        gradient_line2 = ctk.CTkFrame(divider_frame, height=2, fg_color=COLORS["secondary"])
+        gradient_line2.place(relx=0.5, rely=0.5, relwidth=0.5, anchor="w")
+
+        # === NAVIGATION SECTION ===
+        nav_container = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        nav_container.pack(fill="both", expand=True, padx=10, pady=4)
+
         self.nav_buttons = {}
         nav_items = [
-            ("profiles", "📋", "Quản lý Profiles"),
+            ("profiles", "👤", "Profiles"),
             ("login", "🔐", "Login FB"),
-            ("pages", "📄", "Quản lý Page"),
-            ("reels_page", "🎬", "Đăng Reels Page"),
+            ("pages", "📄", "Pages"),
+            ("reels_page", "🎬", "Reels"),
             ("content", "✏️", "Soạn tin"),
             ("groups", "👥", "Đăng Nhóm"),
             ("scripts", "📜", "Kịch bản"),
-            ("posts", "📰", "Bài đăng"),
+            ("posts", "📊", "Bài đăng"),
         ]
-        
+
         for tab_id, icon, text in nav_items:
-            btn = self._create_nav_button(tab_id, icon, text)
-            btn.pack(fill="x", padx=15, pady=5)
+            btn = self._create_nav_button(nav_container, tab_id, icon, text)
+            btn.pack(fill="x", pady=2)
             self.nav_buttons[tab_id] = btn
-        
-        # Bottom section
+
+        # === BOTTOM SECTION ===
         bottom_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        bottom_frame.pack(side="bottom", fill="x", padx=20, pady=20)
-        
-        # Settings button
+        bottom_frame.pack(side="bottom", fill="x", padx=12, pady=12)
+
+        # Settings - compact
         settings_btn = ctk.CTkButton(
             bottom_frame,
-            text="⚙️ Cài đặt",
-            fg_color="transparent",
-            hover_color=COLORS["border"],
-            anchor="w",
-            height=40,
-            font=ctk.CTkFont(size=14),
-            command=self._open_settings
-        )
-        settings_btn.pack(fill="x", pady=5)
-        
-        # Connection status
-        self.connection_frame = ctk.CTkFrame(bottom_frame, fg_color=COLORS["bg_card"], corner_radius=10)
-        self.connection_frame.pack(fill="x", pady=10)
-        
-        self.connection_label = ctk.CTkLabel(
-            self.connection_frame,
-            text="● Hidemium: Đang kết nối...",
-            font=ctk.CTkFont(size=11),
-            text_color=COLORS["warning"]
-        )
-        self.connection_label.pack(padx=15, pady=10)
-        
-        # Check connection
-        self.after(1000, self._check_hidemium_connection)
-    
-    def _create_nav_button(self, tab_id: str, icon: str, text: str):
-        """Tạo navigation button"""
-        btn = ctk.CTkButton(
-            self.sidebar,
-            text=f"  {icon}  {text}",
+            text="⚙️  Cài đặt",
             fg_color="transparent",
             hover_color=COLORS["bg_card"],
             anchor="w",
-            height=50,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=14),
-            text_color=COLORS["text_primary"],
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_secondary"],
+            command=self._open_settings
+        )
+        settings_btn.pack(fill="x", pady=(0, 8))
+
+        # Connection status - more compact
+        self.connection_frame = ctk.CTkFrame(
+            bottom_frame,
+            fg_color=COLORS["bg_card"],
+            corner_radius=8,
+            height=36
+        )
+        self.connection_frame.pack(fill="x")
+        self.connection_frame.pack_propagate(False)
+
+        self.connection_label = ctk.CTkLabel(
+            self.connection_frame,
+            text="● Đang kết nối...",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["warning"]
+        )
+        self.connection_label.pack(side="left", padx=12, pady=8)
+
+        # Check connection
+        self.after(1000, self._check_hidemium_connection)
+    
+    def _create_nav_button(self, parent, tab_id: str, icon: str, text: str):
+        """Tạo navigation button - compact & modern"""
+        btn = ctk.CTkButton(
+            parent,
+            text=f" {icon}  {text}",
+            fg_color="transparent",
+            hover_color=COLORS["primary_light"],  # Green tint on hover
+            anchor="w",
+            height=40,  # Compact hơn
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            text_color=COLORS["text_secondary"],
             command=lambda: self._show_tab(tab_id)
         )
         return btn
@@ -186,44 +216,45 @@ class FBManagerApp(ctk.CTk):
         self.main_frame.pack(side="left", fill="both", expand=True)
 
     def _create_log_panel(self):
-        """Tạo LOG panel bên phải"""
+        """Tạo LOG panel bên phải - SonCuto themed"""
         # Container cho LOG panel
         self.log_panel = ctk.CTkFrame(
             self,
-            width=400,
+            width=380,  # Slightly narrower
             fg_color=COLORS["bg_secondary"],
             corner_radius=0
         )
         self.log_panel.pack(side="right", fill="y")
         self.log_panel.pack_propagate(False)
 
-        # Header
-        header_frame = ctk.CTkFrame(self.log_panel, fg_color=COLORS["bg_card"], corner_radius=0)
+        # Header - compact with brand colors
+        header_frame = ctk.CTkFrame(self.log_panel, fg_color=COLORS["bg_card"], corner_radius=0, height=44)
         header_frame.pack(fill="x")
+        header_frame.pack_propagate(False)
 
         ctk.CTkLabel(
             header_frame,
-            text="📋 LOG & DEBUG",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            text="📋 Logs",
+            font=ctk.CTkFont(size=14, weight="bold"),
             text_color=COLORS["text_primary"]
-        ).pack(side="left", padx=15, pady=12)
+        ).pack(side="left", padx=12, pady=10)
 
-        # Clear button
+        # Clear button with pink accent
         ctk.CTkButton(
             header_frame,
-            text="🗑️ Clear",
-            width=70,
-            height=28,
-            fg_color=COLORS["error"],
-            hover_color="#ff6b6b",
-            corner_radius=5,
-            font=ctk.CTkFont(size=12),
+            text="Clear",
+            width=60,
+            height=26,
+            fg_color=COLORS["secondary"],  # Pink
+            hover_color=COLORS["secondary_hover"],
+            corner_radius=6,
+            font=ctk.CTkFont(size=11, weight="bold"),
             command=self._clear_logs
-        ).pack(side="right", padx=10, pady=8)
+        ).pack(side="right", padx=10, pady=9)
 
-        # Log text area with scrollbar
+        # Log text area - more compact padding
         log_container = ctk.CTkFrame(self.log_panel, fg_color="transparent")
-        log_container.pack(fill="both", expand=True, padx=10, pady=10)
+        log_container.pack(fill="both", expand=True, padx=8, pady=8)
 
         self.log_text = ctk.CTkTextbox(
             log_container,
@@ -235,13 +266,13 @@ class FBManagerApp(ctk.CTk):
         )
         self.log_text.pack(fill="both", expand=True)
 
-        # Configure tags for different log levels
-        self.log_text._textbox.tag_config("INFO", foreground="#00d9ff")
-        self.log_text._textbox.tag_config("ERROR", foreground="#ff5555")
-        self.log_text._textbox.tag_config("WARNING", foreground="#ffaa00")
-        self.log_text._textbox.tag_config("SUCCESS", foreground="#00d97e")
-        self.log_text._textbox.tag_config("DEBUG", foreground="#888888")
-        self.log_text._textbox.tag_config("TIMESTAMP", foreground="#666666")
+        # Configure tags - SonCuto colors
+        self.log_text._textbox.tag_config("INFO", foreground="#3b82f6")  # Blue
+        self.log_text._textbox.tag_config("ERROR", foreground=COLORS["error"])  # Red
+        self.log_text._textbox.tag_config("WARNING", foreground=COLORS["warning"])  # Yellow
+        self.log_text._textbox.tag_config("SUCCESS", foreground=COLORS["primary"])  # Green
+        self.log_text._textbox.tag_config("DEBUG", foreground=COLORS["text_muted"])  # Muted
+        self.log_text._textbox.tag_config("TIMESTAMP", foreground=COLORS["text_muted"])
 
     def _setup_log_redirector(self):
         """Setup stdout/stderr redirector để capture logs"""
@@ -354,12 +385,20 @@ class FBManagerApp(ctk.CTk):
         for tab in self.tabs.values():
             tab.pack_forget()
 
-        # Update nav buttons
+        # Update nav buttons - active = green bg with white text
         for btn_id, btn in self.nav_buttons.items():
             if btn_id == tab_id:
-                btn.configure(fg_color=COLORS["accent"])
+                btn.configure(
+                    fg_color=COLORS["primary"],
+                    text_color=COLORS["bg_dark"],
+                    hover_color=COLORS["primary_hover"]
+                )
             else:
-                btn.configure(fg_color="transparent")
+                btn.configure(
+                    fg_color="transparent",
+                    text_color=COLORS["text_secondary"],
+                    hover_color=COLORS["primary_light"]
+                )
 
         # Show selected tab
         if tab_id in self.tabs:
@@ -389,12 +428,12 @@ class FBManagerApp(ctk.CTk):
         """Cập nhật trạng thái kết nối"""
         if connected:
             self.connection_label.configure(
-                text=f"● Hidemium: Đã kết nối",
-                text_color=COLORS["success"]
+                text="● Đã kết nối",
+                text_color=COLORS["primary"]  # Green
             )
         else:
             self.connection_label.configure(
-                text="● Hidemium: Chưa kết nối",
+                text="● Chưa kết nối",
                 text_color=COLORS["error"]
             )
     
