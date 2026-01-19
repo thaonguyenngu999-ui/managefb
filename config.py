@@ -59,6 +59,9 @@ COLORS = {
 WINDOW_WIDTH = 1500
 WINDOW_HEIGHT = 900
 
-# Font settings
-FONT_FAMILY = "Segoe UI"
-FONT_FAMILY_MONO = "Consolas"
+# Font settings - Prefer Inter, fallback to system fonts
+# Download Inter font: python assets/download_fonts.py
+FONT_FAMILY = "Inter"  # Modern clean font (install from assets/fonts/)
+FONT_FAMILY_FALLBACK = "Segoe UI"  # Windows fallback
+FONT_FAMILY_MONO = "JetBrains Mono"  # Monospace for code/proxy
+FONT_FAMILY_MONO_FALLBACK = "Consolas"  # Fallback
