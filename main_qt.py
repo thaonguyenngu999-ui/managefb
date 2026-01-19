@@ -4,6 +4,7 @@ CYBERPUNK 2077 Theme
 """
 import sys
 import os
+import random
 from pathlib import Path
 from datetime import datetime
 
@@ -12,8 +13,8 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QFrame, QStackedWidget, QScrollArea,
     QSizePolicy, QSpacerItem, QTextEdit, QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QPoint
-from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QBrush, QPen, QPolygon, QFontDatabase
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QPoint, QRect
+from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QBrush, QPen, QPolygon, QFontDatabase, QLinearGradient
 
 # Import config
 from config import COLORS, TAB_COLORS, FONTS
@@ -21,7 +22,7 @@ from config import COLORS, TAB_COLORS, FONTS
 # Import shared Cyberpunk widgets
 from cyber_widgets_qt import (
     CyberTitle, CyberStatCard, CyberButton, CyberTerminal,
-    CyberGlitchLabel, CyberTriangle, CYBER_COLORS
+    CyberGlitchLabel, CyberTriangle, CYBER_COLORS, add_glow_effect
 )
 
 # Import PyQt6 tabs
@@ -33,6 +34,149 @@ from tabs_qt.content_tab_qt import ContentTabQt
 from tabs_qt.groups_tab_qt import GroupsTabQt
 from tabs_qt.scripts_tab_qt import ScriptsTabQt
 from tabs_qt.posts_tab_qt import PostsTabQt
+
+
+# ========================================
+# CYBERPUNK OVERLAY EFFECTS
+# ========================================
+class ScanlinesOverlay(QWidget):
+    """Scanlines effect overlay - transparent widget that paints scanlines"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._offset = 0
+
+        # Animation timer
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate)
+        self._timer.start(100)
+
+    def _animate(self):
+        self._offset = (self._offset + 1) % 4
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw scanlines
+        pen = QPen(QColor(0, 240, 255, 8))  # Very subtle cyan
+        pen.setWidth(1)
+        painter.setPen(pen)
+
+        for y in range(self._offset, self.height(), 4):
+            painter.drawLine(0, y, self.width(), y)
+
+
+class CyberGridOverlay(QWidget):
+    """Cyber grid background overlay"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._pulse = 0
+
+        # Animation timer
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate)
+        self._timer.start(100)
+
+    def _animate(self):
+        self._pulse = (self._pulse + 1) % 40
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+
+        # Calculate opacity based on pulse (0.3 to 0.6)
+        opacity = 0.3 + (self._pulse / 40) * 0.3 if self._pulse < 20 else 0.6 - ((self._pulse - 20) / 20) * 0.3
+
+        # Draw grid
+        pen = QPen(QColor(0, 240, 255, int(255 * 0.03 * opacity)))
+        pen.setWidth(1)
+        painter.setPen(pen)
+
+        grid_size = 60
+        for x in range(0, self.width(), grid_size):
+            painter.drawLine(x, 0, x, self.height())
+        for y in range(0, self.height(), grid_size):
+            painter.drawLine(0, y, self.width(), y)
+
+
+class NeonRainDrop(QWidget):
+    """Single neon rain drop"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        self.color = random.choice([QColor("#00f0ff"), QColor("#ff00a8"), QColor("#00ff66")])
+        self.height_val = random.randint(30, 90)
+        self.speed = random.uniform(2, 5)
+        self.x_pos = random.randint(0, 1920)
+        self.y_pos = random.randint(-200, 0)
+        self.opacity = random.uniform(0.1, 0.3)
+
+        self.setFixedWidth(2)
+        self.setFixedHeight(self.height_val)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        gradient = QLinearGradient(0, 0, 0, self.height())
+        gradient.setColorAt(0, QColor(self.color.red(), self.color.green(), self.color.blue(), 0))
+        gradient.setColorAt(0.5, QColor(self.color.red(), self.color.green(), self.color.blue(), int(255 * self.opacity)))
+        gradient.setColorAt(1, QColor(self.color.red(), self.color.green(), self.color.blue(), 0))
+
+        painter.fillRect(0, 0, 2, self.height(), gradient)
+
+
+class PulsingLED(QWidget):
+    """Pulsing LED indicator"""
+
+    def __init__(self, color: str = "#00ff66", parent=None):
+        super().__init__(parent)
+        self.color = QColor(color)
+        self._pulse = 0
+        self.setFixedSize(12, 12)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate)
+        self._timer.start(50)
+
+    def _animate(self):
+        self._pulse = (self._pulse + 1) % 30
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Calculate scale based on pulse
+        scale = 1.0 + (self._pulse / 30) * 0.3 if self._pulse < 15 else 1.3 - ((self._pulse - 15) / 15) * 0.3
+
+        # Draw glow
+        glow_size = int(12 * scale)
+        glow_offset = (12 - glow_size) // 2
+
+        # Outer glow
+        for i in range(3):
+            glow_color = QColor(self.color)
+            glow_color.setAlpha(30 - i * 10)
+            painter.setBrush(QBrush(glow_color))
+            painter.setPen(Qt.PenStyle.NoPen)
+            size = glow_size + (i * 4)
+            offset = (12 - size) // 2
+            painter.drawEllipse(offset, offset, size, size)
+
+        # Core LED
+        painter.setBrush(QBrush(self.color))
+        painter.drawEllipse(3, 3, 6, 6)
 
 
 class RGBGradientSidebar(QFrame):
@@ -283,6 +427,29 @@ class FBManagerApp(QMainWindow):
         # Log panel
         self._create_log_panel(main_layout)
 
+        # Add overlay effects (must be last to be on top)
+        self._add_overlay_effects()
+
+    def _add_overlay_effects(self):
+        """Add scanlines and grid overlay effects"""
+        # Cyber grid (behind everything but visible)
+        self.cyber_grid = CyberGridOverlay(self)
+        self.cyber_grid.setGeometry(0, 0, self.width(), self.height())
+        self.cyber_grid.lower()  # Send to back
+
+        # Scanlines (in front)
+        self.scanlines = ScanlinesOverlay(self)
+        self.scanlines.setGeometry(0, 0, self.width(), self.height())
+        self.scanlines.raise_()  # Bring to front
+
+    def resizeEvent(self, event):
+        """Handle resize to update overlay sizes"""
+        super().resizeEvent(event)
+        if hasattr(self, 'cyber_grid'):
+            self.cyber_grid.setGeometry(0, 0, self.width(), self.height())
+        if hasattr(self, 'scanlines'):
+            self.scanlines.setGeometry(0, 0, self.width(), self.height())
+
     def _create_sidebar(self, parent_layout):
         sidebar = RGBGradientSidebar()
         sidebar.setFixedWidth(240)
@@ -366,9 +533,8 @@ class FBManagerApp(QMainWindow):
         conn_layout.setContentsMargins(12, 12, 12, 12)
         conn_layout.setSpacing(10)
 
-        led = QFrame()
-        led.setObjectName("ledIndicator")
-        led.setFixedSize(10, 10)
+        # Use animated PulsingLED instead of static LED
+        led = PulsingLED("#00ff66")
         conn_layout.addWidget(led)
 
         conn_label = QLabel("HIDEMIUM ONLINE")
@@ -455,10 +621,8 @@ class FBManagerApp(QMainWindow):
         status_layout = QHBoxLayout(status_bar)
         status_layout.setContentsMargins(20, 0, 20, 0)
 
-        # Left side
-        led = QFrame()
-        led.setObjectName("ledIndicator")
-        led.setFixedSize(8, 8)
+        # Left side - animated pulsing LED
+        led = PulsingLED("#00ff66")
         status_layout.addWidget(led)
 
         status_text = QLabel("ONLINE")
