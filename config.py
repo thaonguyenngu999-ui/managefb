@@ -31,6 +31,8 @@ COLORS = {
     "warning_hover": "#ffdd44",
     "error": "#ff3366",             # Red
     "error_hover": "#ff5577",
+    "danger": "#ff3366",            # Alias for error
+    "danger_hover": "#ff5577",
 
     # Text Colors
     "text_primary": "#ffffff",
