@@ -81,7 +81,7 @@ class ReelsPageTab(ctk.CTkFrame):
         ctk.CTkLabel(
             header_row1,
             text="Profile:",
-            font=ctk.CTkFont(family=FONTS["main"], size=13, weight="bold"),
+            font=ctk.CTkFont(family=FONTS["family"], size=13, weight="bold"),
             text_color=TAB_COLORS["reels_page"]
         ).pack(side="left")
 

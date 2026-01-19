@@ -59,7 +59,7 @@ class ScriptsTab(ctk.CTkFrame):
         self.scheduler_status = ctk.CTkLabel(
             header_frame,
             text="⏸ Scheduler: Chua chay",
-            font=ctk.CTkFont(family=FONTS["main"], size=12),
+            font=ctk.CTkFont(family=FONTS["family"], size=12),
             text_color=COLORS["text_secondary"]
         )
         self.scheduler_status.pack(side="right", padx=10)

@@ -106,7 +106,7 @@ class GroupsTab(ctk.CTkFrame):
         ctk.CTkLabel(
             header_row1,
             text="Thu muc:",
-            font=ctk.CTkFont(family=FONTS["main"], size=12),
+            font=ctk.CTkFont(family=FONTS["family"], size=12),
             text_color=TAB_COLORS["groups"]
         ).pack(side="left")
 
